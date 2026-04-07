@@ -1,0 +1,27 @@
+[package]
+name = "ceair-agent"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Agent core loop and execution for CEAIR"
+
+[dependencies]
+ceair-core = { workspace = true }
+ceair-tools = { workspace = true }
+ceair-ai = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockall = { workspace = true }

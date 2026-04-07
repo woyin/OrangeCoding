@@ -1,0 +1,23 @@
+//! # CEAIR 配置管理模块
+//!
+//! 本模块提供 CEAIR CLI 工具的完整配置管理功能，包括：
+//! - 多层配置加载与合并（文件、环境变量、命令行参数、默认值）
+//! - API 密钥的加密存储
+//! - 配置的热重载
+//! - XDG 标准目录支持
+
+/// 主配置系统模块
+pub mod config;
+
+/// 加密存储模块，用于安全存储 API 密钥等敏感信息
+pub mod crypto;
+
+/// 配置源与分层合并模块
+pub mod source;
+
+// 重新导出常用类型，方便外部使用
+pub use config::{
+    AiConfig, AgentConfig, CeairConfig, ConfigManager, LoggingConfig, ToolsConfig, TuiConfig,
+};
+pub use crypto::CryptoStore;
+pub use source::{ConfigLayer, ConfigSource, LayeredConfig};

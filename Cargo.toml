@@ -1,0 +1,59 @@
+[workspace]
+members = [
+    "crates/ceair-core",
+    "crates/ceair-agent",
+    "crates/ceair-tools",
+    "crates/ceair-ai",
+    "crates/ceair-mesh",
+    "crates/ceair-config",
+    "crates/ceair-audit",
+    "crates/ceair-tui",
+    "crates/ceair-mcp",
+    "crates/ceair-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["CEAIR Team"]
+license = "Apache-2.0"
+repository = "https://github.com/woyin/ceair_cli"
+rust-version = "1.75"
+
+[workspace.dependencies]
+tokio = { version = "1.35", features = ["full"] }
+tokio-util = "0.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+reqwest = { version = "0.11", features = ["json", "stream", "rustls-tls"] }
+clap = { version = "4.4", features = ["derive", "cargo"] }
+thiserror = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+futures = "0.3"
+async-trait = "0.1"
+dashmap = "5.5"
+parking_lot = "0.12"
+sled = "0.34"
+ring = "0.17"
+ratatui = "0.24"
+crossterm = "0.27"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v4", "serde"] }
+regex = "1.10"
+url = "2.5"
+config = "0.14"
+mockall = "0.12"
+tempfile = "3.9"
+ceair-core = { path = "crates/ceair-core" }
+ceair-agent = { path = "crates/ceair-agent" }
+ceair-tools = { path = "crates/ceair-tools" }
+ceair-ai = { path = "crates/ceair-ai" }
+ceair-mesh = { path = "crates/ceair-mesh" }
+ceair-config = { path = "crates/ceair-config" }
+ceair-audit = { path = "crates/ceair-audit" }
+ceair-tui = { path = "crates/ceair-tui" }
+ceair-mcp = { path = "crates/ceair-mcp" }

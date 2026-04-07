@@ -1,0 +1,33 @@
+[package]
+name = "ceair-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CLI entry point for CEAIR"
+
+[[bin]]
+name = "ceair"
+path = "src/main.rs"
+
+[dependencies]
+ceair-core = { workspace = true }
+ceair-agent = { workspace = true }
+ceair-tools = { workspace = true }
+ceair-ai = { workspace = true }
+ceair-mesh = { workspace = true }
+ceair-config = { workspace = true }
+ceair-audit = { workspace = true }
+ceair-tui = { workspace = true }
+ceair-mcp = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
