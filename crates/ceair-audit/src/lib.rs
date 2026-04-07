@@ -14,10 +14,14 @@ pub mod sanitizer;
 /// 哈希链防篡改模块
 pub mod chain;
 
+/// 密钥混淆模块
+pub mod secrets;
+
 // 重新导出核心类型，方便外部使用
 pub use logger::{AuditEntry, AuditLogger, AuditLoggerConfig};
 pub use sanitizer::Sanitizer;
 pub use chain::HashChain;
+pub use secrets::{ObfuscationMode, SecretEntry, SecretObfuscator, SecretSource};
 
 /// 审计系统错误类型
 #[derive(Debug, thiserror::Error)]

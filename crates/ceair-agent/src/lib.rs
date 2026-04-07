@@ -25,11 +25,17 @@
 /// 代理主事件循环模块
 pub mod agent_loop;
 
+/// 上下文压缩模块
+pub mod compaction;
+
 /// 代理上下文管理模块
 pub mod context;
 
 /// 工具执行器模块
 pub mod executor;
+
+/// Hashline 编辑模块
+pub mod hashline;
 
 // ---------------------------------------------------------------------------
 // 公共重导出 - 便于外部直接引用核心类型

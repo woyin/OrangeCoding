@@ -4,6 +4,7 @@
 //! 负责命令行参数解析、日志初始化、配置加载和子命令分发。
 
 mod commands;
+pub mod rpc;
 pub mod slash;
 pub mod slash_builtins;
 

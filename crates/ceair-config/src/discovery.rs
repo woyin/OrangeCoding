@@ -360,6 +360,7 @@ impl ConfigDiscovery {
 mod tests {
     use super::*;
     use std::fs;
+    use std::path::Path;
     use tempfile::TempDir;
 
     /// 辅助函数：创建目录结构

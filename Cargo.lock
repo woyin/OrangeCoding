@@ -186,6 +186,7 @@ dependencies = [
  "chrono",
  "futures",
  "mockall",
+ "ring",
  "serde",
  "serde_json",
  "thiserror",
