@@ -12,6 +12,12 @@ pub mod config;
 /// 加密存储模块，用于安全存储 API 密钥等敏感信息
 pub mod crypto;
 
+/// 多工具配置发现模块
+pub mod discovery;
+
+/// AI 模型配置模块
+pub mod models_config;
+
 /// 配置源与分层合并模块
 pub mod source;
 
@@ -20,4 +26,8 @@ pub use config::{
     AiConfig, AgentConfig, CeairConfig, ConfigManager, LoggingConfig, ToolsConfig, TuiConfig,
 };
 pub use crypto::CryptoStore;
+pub use discovery::{ConfigDiscovery, ConfigProvider, DiscoveredItem, DiscoveryType};
+pub use models_config::{
+    ApiType, AuthType, ModelCost, ModelDefinition, ModelsConfig, ProviderConfig,
+};
 pub use source::{ConfigLayer, ConfigSource, LayeredConfig};

@@ -6,9 +6,16 @@
 //! - 工具注册表管理
 //! - 安全策略与路径验证
 
+pub mod ask_tool;
+pub mod bash_tool;
+pub mod fetch_tool;
 pub mod file_tools;
+pub mod find_tool;
+pub mod grep_tool;
 pub mod registry;
 pub mod security;
+pub mod todo_tool;
+pub mod web_search_tool;
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -18,11 +25,18 @@ use std::fmt;
 // 公共重导出
 // ============================================================
 
+pub use ask_tool::{AskResponse, AskTool, Choice, Question};
+pub use bash_tool::BashTool;
+pub use fetch_tool::FetchTool;
 pub use file_tools::{
     DeleteFileTool, EditFileTool, ListDirectoryTool, ReadFileTool, SearchFilesTool, WriteFileTool,
 };
+pub use find_tool::FindTool;
+pub use grep_tool::GrepTool;
 pub use registry::{create_default_registry, ToolRegistry};
 pub use security::{FileOperationGuard, PathValidator, SecurityPolicy};
+pub use todo_tool::{Phase, TaskStatus, TodoState, TodoTask, TodoTool};
+pub use web_search_tool::{SearchProvider, SearchResult, WebSearchTool};
 
 // ============================================================
 // 工具错误类型

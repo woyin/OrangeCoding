@@ -3,9 +3,12 @@
 //! 提供线程安全的工具注册表 `ToolRegistry`，用于动态注册、查找和管理工具。
 //! 使用 `DashMap` 实现高性能的并发读写访问。
 
+use crate::bash_tool::BashTool;
 use crate::file_tools::{
     DeleteFileTool, EditFileTool, ListDirectoryTool, ReadFileTool, SearchFilesTool, WriteFileTool,
 };
+use crate::find_tool::FindTool;
+use crate::grep_tool::GrepTool;
 use crate::{Tool, ToolError, ToolResult};
 use dashmap::DashMap;
 use serde_json::{json, Value};
@@ -191,6 +194,9 @@ pub fn create_default_registry() -> ToolRegistry {
     registry.register(Arc::new(ListDirectoryTool));
     registry.register(Arc::new(SearchFilesTool));
     registry.register(Arc::new(DeleteFileTool));
+    registry.register(Arc::new(BashTool::new()));
+    registry.register(Arc::new(GrepTool::new()));
+    registry.register(Arc::new(FindTool::new()));
 
     info!("默认工具注册表已创建，共 {} 个工具", registry.len());
 
@@ -360,7 +366,7 @@ mod tests {
         let registry = create_default_registry();
 
         // 验证所有内置工具已注册
-        assert_eq!(registry.len(), 6);
+        assert_eq!(registry.len(), 9);
 
         // 验证每个内置工具都存在
         let expected_tools = vec![
@@ -370,6 +376,9 @@ mod tests {
             "list_directory",
             "search_files",
             "delete_file",
+            "bash",
+            "grep",
+            "find",
         ];
 
         for tool_name in expected_tools {
@@ -388,7 +397,7 @@ mod tests {
         let schemas = registry.get_schemas();
 
         let arr = schemas.as_array().unwrap();
-        assert_eq!(arr.len(), 6);
+        assert_eq!(arr.len(), 9);
 
         // 验证每个 Schema 都包含必要字段
         for schema in arr {
