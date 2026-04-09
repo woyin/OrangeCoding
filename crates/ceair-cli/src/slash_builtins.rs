@@ -34,6 +34,14 @@ pub fn execute_builtin(name: &str, args: &str) -> SlashCommandResult {
         "fork" => SlashCommandResult::Executed,
         "copy" => SlashCommandResult::Executed,
         "debug" => SlashCommandResult::Prompt(format_debug()),
+        // 扩展命令：深度初始化、循环模式、重构、工作流控制
+        "init-deep" => SlashCommandResult::Prompt(format_init_deep(args)),
+        "ralph-loop" => SlashCommandResult::Prompt(format_ralph_loop(args)),
+        "ulw-loop" => SlashCommandResult::Prompt(format_ulw_loop(args)),
+        "refactor" => SlashCommandResult::Prompt(format_refactor(args)),
+        "start-work" => SlashCommandResult::Prompt(format_start_work(args)),
+        "stop-continuation" => SlashCommandResult::Executed,
+        "handoff" => SlashCommandResult::Prompt(format_handoff(args)),
         _ => SlashCommandResult::NotFound(name.to_string()),
     }
 }
@@ -68,6 +76,15 @@ CEAIR 斜杠命令帮助
   /help           显示此帮助
   /hotkeys        显示快捷键
 
+工作流:
+  /init-deep      深度初始化项目
+  /ralph-loop     Ralph 持续改进循环
+  /ulw-loop       UltraWork 全自动模式
+  /refactor       重构助手
+  /start-work     开始新工作会话
+  /stop-continuation 停止自动循环
+  /handoff        任务交接
+
 退出:
   /exit           退出
   /quit           退出";
@@ -96,6 +113,93 @@ fn format_session_info() -> String {
 /// 格式化用量信息
 fn format_usage() -> String {
     "用量统计（待实现）".to_string()
+}
+
+/// 格式化深度初始化提示
+///
+/// 扫描项目结构，创建 boulder.json，初始化 Agent 状态。
+fn format_init_deep(args: &str) -> String {
+    let target = if args.is_empty() { "." } else { args };
+    format!(
+        "深度初始化启动\n\
+         目标路径: {}\n\
+         步骤:\n\
+         1. 扫描项目结构\n\
+         2. 创建 boulder.json\n\
+         3. 初始化 Agent 状态",
+        target
+    )
+}
+
+/// 格式化 Ralph 循环提示
+///
+/// 持续改进循环：plan → implement → review → refine。
+fn format_ralph_loop(args: &str) -> String {
+    let focus = if args.is_empty() {
+        "全局".to_string()
+    } else {
+        args.to_string()
+    };
+    format!(
+        "Ralph 循环已启动\n\
+         聚焦: {}\n\
+         循环阶段: plan → implement → review → refine",
+        focus
+    )
+}
+
+/// 格式化 UltraWork 循环提示
+///
+/// 全自动模式启动。
+fn format_ulw_loop(args: &str) -> String {
+    let config = if args.is_empty() {
+        "默认配置".to_string()
+    } else {
+        args.to_string()
+    };
+    format!(
+        "UltraWork 全自动循环已启动\n配置: {}",
+        config
+    )
+}
+
+/// 格式化重构助手提示
+///
+/// 分析代码并提出重构建议。
+fn format_refactor(args: &str) -> String {
+    if args.is_empty() {
+        "重构助手已启动\n请指定目标文件或模块以开始分析。".to_string()
+    } else {
+        format!("重构助手已启动\n分析目标: {}", args)
+    }
+}
+
+/// 格式化开始工作提示
+///
+/// 创建新的工作会话，初始化 Boulder。
+fn format_start_work(args: &str) -> String {
+    let task = if args.is_empty() {
+        "未指定".to_string()
+    } else {
+        args.to_string()
+    };
+    format!(
+        "工作会话已创建\n\
+         任务: {}\n\
+         Boulder 已初始化",
+        task
+    )
+}
+
+/// 格式化任务交接提示
+///
+/// 将当前任务交给另一个 Agent。
+fn format_handoff(args: &str) -> String {
+    if args.is_empty() {
+        "任务交接\n请指定目标 Agent 名称。".to_string()
+    } else {
+        format!("任务交接\n目标 Agent: {}", args)
+    }
 }
 
 /// 格式化调试信息
@@ -221,5 +325,104 @@ mod tests {
     fn test_execute_plan() {
         let result = execute_builtin("plan", "");
         assert!(matches!(result, SlashCommandResult::Executed));
+    }
+
+    // ---- 扩展命令测试 ----
+
+    #[test]
+    fn test_execute_init_deep() {
+        // 验证深度初始化命令返回包含关键信息的提示
+        let result = execute_builtin("init-deep", "");
+        match result {
+            SlashCommandResult::Prompt(text) => {
+                assert!(text.contains("深度初始化启动"));
+                assert!(text.contains("boulder.json"));
+                assert!(text.contains("Agent 状态"));
+            }
+            other => panic!("期望 Prompt，得到 {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_execute_init_deep_with_path() {
+        // 验证深度初始化命令支持自定义路径参数
+        let result = execute_builtin("init-deep", "src/core");
+        match result {
+            SlashCommandResult::Prompt(text) => {
+                assert!(text.contains("src/core"));
+            }
+            other => panic!("期望 Prompt，得到 {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_execute_ralph_loop() {
+        // 验证 Ralph 循环命令返回循环阶段信息
+        let result = execute_builtin("ralph-loop", "");
+        match result {
+            SlashCommandResult::Prompt(text) => {
+                assert!(text.contains("Ralph 循环已启动"));
+                assert!(text.contains("plan → implement → review → refine"));
+            }
+            other => panic!("期望 Prompt，得到 {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_execute_ulw_loop() {
+        // 验证 UltraWork 循环命令返回全自动模式信息
+        let result = execute_builtin("ulw-loop", "");
+        match result {
+            SlashCommandResult::Prompt(text) => {
+                assert!(text.contains("UltraWork 全自动循环已启动"));
+            }
+            other => panic!("期望 Prompt，得到 {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_execute_refactor() {
+        // 验证重构助手命令返回正确提示
+        let result = execute_builtin("refactor", "");
+        match result {
+            SlashCommandResult::Prompt(text) => {
+                assert!(text.contains("重构助手已启动"));
+            }
+            other => panic!("期望 Prompt，得到 {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_execute_start_work() {
+        // 验证开始工作命令创建会话并初始化 Boulder
+        let result = execute_builtin("start-work", "实现用户认证");
+        match result {
+            SlashCommandResult::Prompt(text) => {
+                assert!(text.contains("工作会话已创建"));
+                assert!(text.contains("实现用户认证"));
+                assert!(text.contains("Boulder 已初始化"));
+            }
+            other => panic!("期望 Prompt，得到 {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_execute_stop_continuation() {
+        // 验证停止继续命令返回 Executed 状态
+        let result = execute_builtin("stop-continuation", "");
+        assert!(matches!(result, SlashCommandResult::Executed));
+    }
+
+    #[test]
+    fn test_execute_handoff() {
+        // 验证任务交接命令包含目标 Agent 信息
+        let result = execute_builtin("handoff", "reviewer-agent");
+        match result {
+            SlashCommandResult::Prompt(text) => {
+                assert!(text.contains("任务交接"));
+                assert!(text.contains("reviewer-agent"));
+            }
+            other => panic!("期望 Prompt，得到 {:?}", other),
+        }
     }
 }

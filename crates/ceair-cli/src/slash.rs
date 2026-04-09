@@ -82,6 +82,14 @@ impl SlashCommandRegistry {
             ("fork", "从消息分叉"),
             ("copy", "复制最后一条消息"),
             ("debug", "调试工具"),
+            // 扩展命令
+            ("init-deep", "深度初始化：扫描项目结构，创建 boulder.json，初始化 Agent 状态"),
+            ("ralph-loop", "Ralph 循环：持续改进循环（plan → implement → review → refine）"),
+            ("ulw-loop", "UltraWork 循环：全自动模式启动"),
+            ("refactor", "重构助手：分析代码并提出重构建议"),
+            ("start-work", "开始工作：创建新的工作会话，初始化 Boulder"),
+            ("stop-continuation", "停止继续：终止当前的自动循环"),
+            ("handoff", "任务交接：将当前任务交给另一个 Agent"),
         ];
 
         for (name, desc) in builtins {
