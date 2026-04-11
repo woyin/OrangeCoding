@@ -103,6 +103,9 @@ pub mod reinjection;
 /// Fork Agent 模式
 pub mod fork;
 
+/// Agent 邮箱通信
+pub mod mailbox;
+
 /// 代理管道模块
 pub mod pipeline;
 
