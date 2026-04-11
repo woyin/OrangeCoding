@@ -100,6 +100,9 @@ pub mod auto_dream;
 /// 压缩后重注入
 pub mod reinjection;
 
+/// Fork Agent 模式
+pub mod fork;
+
 /// 代理管道模块
 pub mod pipeline;
 
