@@ -1,9 +1,13 @@
 pub mod approval_api;
+pub mod audit_ext;
 pub mod auth;
+pub mod rate_limit;
+pub mod rbac;
 pub mod routes;
 pub mod session_api;
 pub mod session_router;
 pub mod worker_api;
+pub mod worker_auth;
 pub mod worker_registry;
 pub mod ws;
 
