@@ -82,6 +82,9 @@ pub mod tips;
 /// 工具使用摘要生成器
 pub mod tool_summary;
 
+/// 取消令牌层级系统
+pub mod cancellation;
+
 /// 代理管道模块
 pub mod pipeline;
 
