@@ -552,6 +552,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "ceair-workspace-tests"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "ceair-agent",
+ "ceair-control-protocol",
+ "ceair-control-server",
+ "ceair-core",
+ "ceair-tools",
+ "ceair-worker",
+ "chrono",
+ "serde_json",
+ "tokio",
+ "tower",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

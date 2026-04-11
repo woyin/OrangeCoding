@@ -17,6 +17,50 @@ members = [
 ]
 resolver = "2"
 
+[package]
+name = "ceair-workspace-tests"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dev-dependencies]
+ceair-core = { workspace = true }
+ceair-agent = { workspace = true }
+ceair-tools = { workspace = true }
+ceair-control-protocol = { workspace = true }
+ceair-control-server = { workspace = true }
+ceair-worker = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+axum = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+
+[[test]]
+name = "auth_invariants"
+path = "tests/invariants/auth_invariants.rs"
+
+[[test]]
+name = "cancellation_invariants"
+path = "tests/invariants/cancellation_invariants.rs"
+
+[[test]]
+name = "session_invariants"
+path = "tests/invariants/session_invariants.rs"
+
+[[test]]
+name = "tool_permission_invariants"
+path = "tests/invariants/tool_permission_invariants.rs"
+
+[[test]]
+name = "approval_invariants"
+path = "tests/invariants/approval_invariants.rs"
+
+[[test]]
+name = "event_invariants"
+path = "tests/invariants/event_invariants.rs"
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
