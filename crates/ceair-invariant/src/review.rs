@@ -277,6 +277,7 @@ impl PatternMatcher {
         findings.extend(Self::detect_deep_nesting(diff));
 
         // 去重：同一文件同一模式只报告一次
+        findings.sort_by(|a, b| (&a.file, &a.issue).cmp(&(&b.file, &b.issue)));
         findings.dedup_by(|a, b| a.file == b.file && a.issue == b.issue);
 
         findings

@@ -40,9 +40,17 @@ impl WorkerRegistry {
 
     /// 注册一个 Worker，返回 true 表示新注册，false 表示已存在（更新）
     pub fn register(&self, info: WorkerInfo) -> bool {
-        let is_new = !self.workers.contains_key(&info.worker_id);
-        self.workers.insert(info.worker_id.clone(), info);
-        is_new
+        use dashmap::mapref::entry::Entry;
+        match self.workers.entry(info.worker_id.clone()) {
+            Entry::Occupied(mut entry) => {
+                entry.insert(info);
+                false
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(info);
+                true
+            }
+        }
     }
 
     /// 注销一个 Worker，返回 true 表示找到并移除
