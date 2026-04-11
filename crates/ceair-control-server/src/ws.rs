@@ -5,6 +5,7 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         Query, State,
     },
+    http::StatusCode,
     response::IntoResponse,
 };
 use ceair_control_protocol::{ClientCommand, ErrorCode, ServerEvent, SessionState};
@@ -12,17 +13,29 @@ use ceair_worker::WorkerRuntime;
 use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
 
+use crate::auth::LocalAuth;
+
 #[derive(Debug, Deserialize)]
 pub struct WsQuery {
     pub token: Option<String>,
 }
 
+#[derive(Clone)]
+pub struct WsState {
+    pub runtime: Arc<WorkerRuntime>,
+    pub auth: LocalAuth,
+}
+
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
-    Query(_query): Query<WsQuery>,
-    State(runtime): State<Arc<WorkerRuntime>>,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, runtime))
+    Query(query): Query<WsQuery>,
+    State(state): State<WsState>,
+) -> axum::response::Response {
+    // 鉴权必须在 WebSocket 升级之前完成，防止未认证连接进入 handle_socket
+    if check_ws_auth(&query, &state.auth).is_err() {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    ws.on_upgrade(move |socket| handle_socket(socket, state.runtime)).into_response()
 }
 
 async fn handle_socket(socket: WebSocket, runtime: Arc<WorkerRuntime>) {
@@ -162,5 +175,71 @@ fn handle_client_message(runtime: &WorkerRuntime, text: &str) {
                 title
             );
         }
+    }
+}
+
+/// 鉴权检查逻辑，独立于 WebSocket 提取器以便测试。
+/// 返回 Ok(()) 表示鉴权通过，Err 表示应返回 401。
+fn check_ws_auth(query: &WsQuery, auth: &LocalAuth) -> Result<(), ()> {
+    match &query.token {
+        Some(token) if auth.validate(token) => Ok(()),
+        _ => Err(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_auth() -> LocalAuth {
+        LocalAuth::from_token("test-token-123".to_string())
+    }
+
+    // ── 鉴权逻辑单元测试 ──
+
+    #[test]
+    fn test_ws_auth_no_token_rejected() {
+        // 无 token → 鉴权失败
+        let auth = make_auth();
+        let query = WsQuery { token: None };
+        assert!(check_ws_auth(&query, &auth).is_err(), "无 token 应被拒绝");
+    }
+
+    #[test]
+    fn test_ws_auth_wrong_token_rejected() {
+        // 非法 token → 鉴权失败
+        let auth = make_auth();
+        let query = WsQuery { token: Some("wrong-token".into()) };
+        assert!(check_ws_auth(&query, &auth).is_err(), "非法 token 应被拒绝");
+    }
+
+    #[test]
+    fn test_ws_auth_valid_token_accepted() {
+        // 合法 token → 鉴权通过
+        let auth = make_auth();
+        let query = WsQuery { token: Some("test-token-123".into()) };
+        assert!(check_ws_auth(&query, &auth).is_ok(), "合法 token 应通过鉴权");
+    }
+
+    #[test]
+    fn test_ws_auth_empty_token_rejected() {
+        // 空字符串 token → 鉴权失败
+        let auth = make_auth();
+        let query = WsQuery { token: Some(String::new()) };
+        assert!(check_ws_auth(&query, &auth).is_err(), "空 token 应被拒绝");
+    }
+
+    // ── WsState 构造测试 ──
+
+    #[test]
+    fn test_ws_state_clonable() {
+        // WsState 必须实现 Clone（axum State 要求）
+        let runtime = Arc::new(WorkerRuntime::new());
+        let auth = make_auth();
+        let state = WsState {
+            runtime,
+            auth: auth.clone(),
+        };
+        let _cloned = state.clone();
     }
 }

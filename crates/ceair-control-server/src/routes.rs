@@ -16,7 +16,7 @@ use ceair_worker::WorkerRuntime;
 use crate::approval_api;
 use crate::auth::LocalAuth;
 use crate::session_api;
-use crate::ws;
+use crate::ws::{self, WsState};
 
 pub fn build_router(runtime: Arc<WorkerRuntime>, auth: LocalAuth) -> Router {
     let api_routes = Router::new()
@@ -37,11 +37,16 @@ pub fn build_router(runtime: Arc<WorkerRuntime>, auth: LocalAuth) -> Router {
         auth_middleware(auth, req, next)
     }));
 
+    let ws_state = WsState {
+        runtime: runtime.clone(),
+        auth,
+    };
+
     Router::new()
         .nest("/api/v1", authed_api)
         .route(
             "/api/v1/ws",
-            get(ws::ws_handler).with_state(runtime.clone()),
+            get(ws::ws_handler).with_state(ws_state),
         )
         .route("/health", get(health))
         .layer(CorsLayer::permissive())
