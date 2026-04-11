@@ -8,6 +8,101 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
+// ---------------------------------------------------------------------------
+// 记忆类型分类
+// ---------------------------------------------------------------------------
+
+/// 记忆类型分类
+///
+/// 参考 reference 中 memdir 系统的 4 类分类法：
+/// - 每种类型对应不同的记忆生命周期和使用场景
+/// - 类型决定了记忆在上下文注入时的优先级
+/// - 分类法帮助 autoDream 做出合理的整合决策
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum MemoryType {
+    /// 项目规范与约定（如编码风格、架构决策）
+    ///
+    /// 生命周期长、变动少，适合持久化到 MEMORY.md
+    Guideline,
+
+    /// 错误模式与修复策略（如常见 bug、踩坑记录）
+    ///
+    /// 有时效性，过期后可降级或清理
+    Bugfix,
+
+    /// 系统知识（如架构设计、技术选型、数据流）
+    ///
+    /// 跨会话共享价值高，autoDream 整合的重点对象
+    Knowledge,
+
+    /// 用户偏好（如交互风格、工具选择、输出格式）
+    ///
+    /// 优先级最高，在上下文受限时最后被裁剪
+    Preference,
+}
+
+impl MemoryType {
+    /// 获取类型的中文显示名
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            MemoryType::Guideline => "规范",
+            MemoryType::Bugfix => "修复",
+            MemoryType::Knowledge => "知识",
+            MemoryType::Preference => "偏好",
+        }
+    }
+
+    /// 获取类型的英文标识（用于序列化和文件名）
+    pub fn slug(&self) -> &'static str {
+        match self {
+            MemoryType::Guideline => "guideline",
+            MemoryType::Bugfix => "bugfix",
+            MemoryType::Knowledge => "knowledge",
+            MemoryType::Preference => "preference",
+        }
+    }
+
+    /// 从英文标识解析
+    pub fn from_slug(s: &str) -> Option<Self> {
+        match s {
+            "guideline" => Some(MemoryType::Guideline),
+            "bugfix" => Some(MemoryType::Bugfix),
+            "knowledge" => Some(MemoryType::Knowledge),
+            "preference" => Some(MemoryType::Preference),
+            _ => None,
+        }
+    }
+
+    /// 获取在上下文注入时的优先级权重
+    ///
+    /// 权重越高，在 token 受限时越不容易被裁剪。
+    /// 设计依据：用户偏好 > 项目规范 > 系统知识 > 修复记录
+    pub fn priority_weight(&self) -> u8 {
+        match self {
+            MemoryType::Preference => 4,
+            MemoryType::Guideline => 3,
+            MemoryType::Knowledge => 2,
+            MemoryType::Bugfix => 1,
+        }
+    }
+
+    /// 列出所有类型
+    pub fn all() -> &'static [MemoryType] {
+        &[
+            MemoryType::Guideline,
+            MemoryType::Bugfix,
+            MemoryType::Knowledge,
+            MemoryType::Preference,
+        ]
+    }
+}
+
+impl std::fmt::Display for MemoryType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.slug())
+    }
+}
+
 /// 记忆系统配置
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MemoryConfig {
@@ -37,6 +132,8 @@ impl Default for MemoryConfig {
 pub struct MemoryEntry {
     /// 唯一标识
     pub id: String,
+    /// 记忆类型分类
+    pub memory_type: MemoryType,
     /// 记忆内容
     pub content: String,
     /// 来源会话 ID
@@ -75,12 +172,19 @@ impl MemoryStore {
     }
 
     /// 添加记忆条目，返回生成的 ID
-    pub fn add(&mut self, content: &str, tags: Vec<String>, importance: f32) -> String {
+    pub fn add(
+        &mut self,
+        content: &str,
+        memory_type: MemoryType,
+        tags: Vec<String>,
+        importance: f32,
+    ) -> String {
         let id = Uuid::new_v4().to_string();
         let ts = now_secs();
         let entry = MemoryEntry {
             id: id.clone(),
             content: content.to_string(),
+            memory_type,
             source_session: None,
             tags,
             importance,
@@ -121,6 +225,39 @@ impl MemoryStore {
             .iter()
             .filter(|e| e.tags.iter().any(|t| t == tag))
             .collect()
+    }
+
+    /// 按记忆类型搜索
+    pub fn search_by_type(&self, memory_type: MemoryType) -> Vec<&MemoryEntry> {
+        if !self.config.enabled {
+            return Vec::new();
+        }
+        self.entries
+            .iter()
+            .filter(|e| e.memory_type == memory_type)
+            .collect()
+    }
+
+    /// 按优先级权重排序返回记忆（用于 token 受限时的裁剪决策）
+    ///
+    /// 先按 MemoryType 优先级降序，再按 importance 降序
+    pub fn prioritized(&self, limit: usize) -> Vec<&MemoryEntry> {
+        if !self.config.enabled {
+            return Vec::new();
+        }
+        let mut sorted: Vec<&MemoryEntry> = self.entries.iter().collect();
+        sorted.sort_by(|a, b| {
+            let type_cmp = b
+                .memory_type
+                .priority_weight()
+                .cmp(&a.memory_type.priority_weight());
+            type_cmp.then(
+                b.importance
+                    .partial_cmp(&a.importance)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+        });
+        sorted.into_iter().take(limit).collect()
     }
 
     /// 获取最近的记忆（按创建时间降序）
@@ -236,7 +373,7 @@ mod tests {
     #[test]
     fn test_add_memory() {
         let mut store = MemoryStore::new(enabled_config());
-        let id = store.add("测试记忆", vec!["tag1".into()], 0.5);
+        let id = store.add("测试记忆", MemoryType::Knowledge, vec!["tag1".into()], 0.5);
         assert!(!id.is_empty());
         assert_eq!(store.count(), 1);
     }
@@ -244,9 +381,9 @@ mod tests {
     #[test]
     fn test_search_by_keyword() {
         let mut store = MemoryStore::new(enabled_config());
-        store.add("Rust 编程语言", vec![], 0.5);
-        store.add("Python 脚本", vec![], 0.3);
-        store.add("Rust 异步编程", vec![], 0.8);
+        store.add("Rust 编程语言", MemoryType::Knowledge, vec![], 0.5);
+        store.add("Python 脚本", MemoryType::Knowledge, vec![], 0.3);
+        store.add("Rust 异步编程", MemoryType::Knowledge, vec![], 0.8);
 
         let results = store.search("rust", 10);
         assert_eq!(results.len(), 2);
@@ -259,9 +396,9 @@ mod tests {
     #[test]
     fn test_search_by_tag() {
         let mut store = MemoryStore::new(enabled_config());
-        store.add("条目1", vec!["重要".into(), "工作".into()], 0.5);
-        store.add("条目2", vec!["个人".into()], 0.3);
-        store.add("条目3", vec!["重要".into()], 0.8);
+        store.add("条目1", MemoryType::Guideline, vec!["重要".into(), "工作".into()], 0.5);
+        store.add("条目2", MemoryType::Bugfix, vec!["个人".into()], 0.3);
+        store.add("条目3", MemoryType::Guideline, vec!["重要".into()], 0.8);
 
         let results = store.search_by_tag("重要");
         assert_eq!(results.len(), 2);
@@ -277,6 +414,7 @@ mod tests {
         store.entries.push(MemoryEntry {
             id: "old".into(),
             content: "旧条目".into(),
+            memory_type: MemoryType::Knowledge,
             source_session: None,
             tags: vec![],
             importance: 0.5,
@@ -286,6 +424,7 @@ mod tests {
         store.entries.push(MemoryEntry {
             id: "new".into(),
             content: "新条目".into(),
+            memory_type: MemoryType::Knowledge,
             source_session: None,
             tags: vec![],
             importance: 0.5,
@@ -301,9 +440,9 @@ mod tests {
     #[test]
     fn test_top_important() {
         let mut store = MemoryStore::new(enabled_config());
-        store.add("低重要性", vec![], 0.1);
-        store.add("高重要性", vec![], 0.9);
-        store.add("中重要性", vec![], 0.5);
+        store.add("低重要性", MemoryType::Bugfix, vec![], 0.1);
+        store.add("高重要性", MemoryType::Preference, vec![], 0.9);
+        store.add("中重要性", MemoryType::Knowledge, vec![], 0.5);
 
         let top = store.top_important(2);
         assert_eq!(top.len(), 2);
@@ -318,13 +457,13 @@ mod tests {
         cfg.max_entries = 3;
         let mut store = MemoryStore::new(cfg);
 
-        store.add("一", vec![], 0.1);
-        store.add("二", vec![], 0.9);
-        store.add("三", vec![], 0.5);
+        store.add("一", MemoryType::Bugfix, vec![], 0.1);
+        store.add("二", MemoryType::Preference, vec![], 0.9);
+        store.add("三", MemoryType::Knowledge, vec![], 0.5);
         assert_eq!(store.count(), 3);
 
         // 再添加一条，应淘汰最低重要性的
-        store.add("四", vec![], 0.8);
+        store.add("四", MemoryType::Guideline, vec![], 0.8);
         assert_eq!(store.count(), 3);
 
         // 最低重要性（0.1）的条目应被淘汰
@@ -342,6 +481,7 @@ mod tests {
         store.entries.push(MemoryEntry {
             id: "expired".into(),
             content: "过期".into(),
+            memory_type: MemoryType::Bugfix,
             source_session: None,
             tags: vec![],
             importance: 0.5,
@@ -350,7 +490,7 @@ mod tests {
         });
 
         // 添加一个新鲜条目
-        store.add("新鲜", vec![], 0.5);
+        store.add("新鲜", MemoryType::Knowledge, vec![], 0.5);
 
         assert_eq!(store.count(), 2);
         let removed = store.cleanup_expired();
@@ -361,13 +501,14 @@ mod tests {
     #[test]
     fn test_consolidate() {
         let mut store = MemoryStore::new(enabled_config());
-        store.add("本地记忆", vec![], 0.5);
+        store.add("本地记忆", MemoryType::Knowledge, vec![], 0.5);
 
         // 外部记忆
         let external = vec![
             MemoryEntry {
                 id: "ext1".into(),
                 content: "外部记忆1".into(),
+                memory_type: MemoryType::Guideline,
                 source_session: Some("session-2".into()),
                 tags: vec![],
                 importance: 0.7,
@@ -377,6 +518,7 @@ mod tests {
             MemoryEntry {
                 id: "ext2".into(),
                 content: "外部记忆2".into(),
+                memory_type: MemoryType::Bugfix,
                 source_session: Some("session-3".into()),
                 tags: vec![],
                 importance: 0.3,
@@ -392,6 +534,7 @@ mod tests {
         let dup = vec![MemoryEntry {
             id: "ext1".into(),
             content: "重复".into(),
+            memory_type: MemoryType::Guideline,
             source_session: None,
             tags: vec![],
             importance: 0.7,
@@ -412,8 +555,8 @@ mod tests {
         cfg.storage_path = path.clone();
 
         let mut store = MemoryStore::new(cfg.clone());
-        store.add("持久化测试", vec!["测试".into()], 0.8);
-        store.add("第二条", vec![], 0.3);
+        store.add("持久化测试", MemoryType::Preference, vec!["测试".into()], 0.8);
+        store.add("第二条", MemoryType::Knowledge, vec![], 0.3);
         store.save().unwrap();
 
         // 从文件加载
@@ -427,7 +570,7 @@ mod tests {
         // 禁用时搜索方法应返回空
         let cfg = MemoryConfig::default(); // enabled = false
         let mut store = MemoryStore::new(cfg);
-        store.add("内容", vec!["tag".into()], 0.5);
+        store.add("内容", MemoryType::Knowledge, vec!["tag".into()], 0.5);
 
         assert!(store.search("内容", 10).is_empty());
         assert!(store.search_by_tag("tag").is_empty());
@@ -438,8 +581,8 @@ mod tests {
     #[test]
     fn test_clear() {
         let mut store = MemoryStore::new(enabled_config());
-        store.add("a", vec![], 0.5);
-        store.add("b", vec![], 0.5);
+        store.add("a", MemoryType::Knowledge, vec![], 0.5);
+        store.add("b", MemoryType::Knowledge, vec![], 0.5);
         assert_eq!(store.count(), 2);
 
         store.clear();
@@ -450,9 +593,9 @@ mod tests {
     fn test_count() {
         let mut store = MemoryStore::new(enabled_config());
         assert_eq!(store.count(), 0);
-        store.add("x", vec![], 0.5);
+        store.add("x", MemoryType::Knowledge, vec![], 0.5);
         assert_eq!(store.count(), 1);
-        store.add("y", vec![], 0.5);
+        store.add("y", MemoryType::Bugfix, vec![], 0.5);
         assert_eq!(store.count(), 2);
     }
 
@@ -460,11 +603,123 @@ mod tests {
     fn test_unique_ids() {
         // 每次 add 应生成唯一 ID
         let mut store = MemoryStore::new(enabled_config());
-        let id1 = store.add("a", vec![], 0.5);
-        let id2 = store.add("b", vec![], 0.5);
-        let id3 = store.add("c", vec![], 0.5);
+        let id1 = store.add("a", MemoryType::Knowledge, vec![], 0.5);
+        let id2 = store.add("b", MemoryType::Bugfix, vec![], 0.5);
+        let id3 = store.add("c", MemoryType::Guideline, vec![], 0.5);
         assert_ne!(id1, id2);
         assert_ne!(id2, id3);
         assert_ne!(id1, id3);
+    }
+
+    // -----------------------------------------------------------------------
+    // MemoryType 测试
+    // -----------------------------------------------------------------------
+
+    /// 测试所有类型的 slug 往返转换
+    #[test]
+    fn test_memory_type_slug_roundtrip() {
+        for mt in MemoryType::all() {
+            let slug = mt.slug();
+            let parsed = MemoryType::from_slug(slug);
+            assert_eq!(parsed, Some(*mt), "slug '{}' 应往返转换", slug);
+        }
+    }
+
+    /// 测试未知 slug 返回 None
+    #[test]
+    fn test_memory_type_unknown_slug() {
+        assert!(MemoryType::from_slug("unknown").is_none());
+        assert!(MemoryType::from_slug("").is_none());
+    }
+
+    /// 测试优先级权重递增
+    #[test]
+    fn test_memory_type_priority_ordering() {
+        assert!(MemoryType::Preference.priority_weight() > MemoryType::Guideline.priority_weight());
+        assert!(MemoryType::Guideline.priority_weight() > MemoryType::Knowledge.priority_weight());
+        assert!(MemoryType::Knowledge.priority_weight() > MemoryType::Bugfix.priority_weight());
+    }
+
+    /// 测试 Display 实现
+    #[test]
+    fn test_memory_type_display() {
+        assert_eq!(format!("{}", MemoryType::Guideline), "guideline");
+        assert_eq!(format!("{}", MemoryType::Bugfix), "bugfix");
+        assert_eq!(format!("{}", MemoryType::Knowledge), "knowledge");
+        assert_eq!(format!("{}", MemoryType::Preference), "preference");
+    }
+
+    /// 测试 display_name 返回中文
+    #[test]
+    fn test_memory_type_display_name() {
+        assert_eq!(MemoryType::Guideline.display_name(), "规范");
+        assert_eq!(MemoryType::Bugfix.display_name(), "修复");
+        assert_eq!(MemoryType::Knowledge.display_name(), "知识");
+        assert_eq!(MemoryType::Preference.display_name(), "偏好");
+    }
+
+    /// 测试 all() 包含所有 4 种类型
+    #[test]
+    fn test_memory_type_all() {
+        let all = MemoryType::all();
+        assert_eq!(all.len(), 4);
+        assert!(all.contains(&MemoryType::Guideline));
+        assert!(all.contains(&MemoryType::Bugfix));
+        assert!(all.contains(&MemoryType::Knowledge));
+        assert!(all.contains(&MemoryType::Preference));
+    }
+
+    /// 测试按类型搜索
+    #[test]
+    fn test_search_by_type() {
+        let mut store = MemoryStore::new(enabled_config());
+        store.add("规范1", MemoryType::Guideline, vec![], 0.5);
+        store.add("修复1", MemoryType::Bugfix, vec![], 0.5);
+        store.add("规范2", MemoryType::Guideline, vec![], 0.5);
+        store.add("知识1", MemoryType::Knowledge, vec![], 0.5);
+
+        let guidelines = store.search_by_type(MemoryType::Guideline);
+        assert_eq!(guidelines.len(), 2);
+
+        let bugfixes = store.search_by_type(MemoryType::Bugfix);
+        assert_eq!(bugfixes.len(), 1);
+
+        let preferences = store.search_by_type(MemoryType::Preference);
+        assert_eq!(preferences.len(), 0);
+    }
+
+    /// 测试优先级排序
+    #[test]
+    fn test_prioritized() {
+        let mut store = MemoryStore::new(enabled_config());
+        store.add("bug", MemoryType::Bugfix, vec![], 0.9);
+        store.add("pref", MemoryType::Preference, vec![], 0.3);
+        store.add("guide", MemoryType::Guideline, vec![], 0.5);
+        store.add("knowledge", MemoryType::Knowledge, vec![], 0.7);
+
+        let sorted = store.prioritized(4);
+        assert_eq!(sorted.len(), 4);
+
+        // Preference 类型优先级最高，应排在最前
+        assert_eq!(sorted[0].memory_type, MemoryType::Preference);
+        // Guideline 第二
+        assert_eq!(sorted[1].memory_type, MemoryType::Guideline);
+        // Knowledge 第三
+        assert_eq!(sorted[2].memory_type, MemoryType::Knowledge);
+        // Bugfix 最低（虽然 importance 0.9 最高，但类型优先级低）
+        assert_eq!(sorted[3].memory_type, MemoryType::Bugfix);
+    }
+
+    /// 测试同类型内按 importance 排序
+    #[test]
+    fn test_prioritized_same_type() {
+        let mut store = MemoryStore::new(enabled_config());
+        store.add("低", MemoryType::Knowledge, vec![], 0.2);
+        store.add("高", MemoryType::Knowledge, vec![], 0.9);
+        store.add("中", MemoryType::Knowledge, vec![], 0.5);
+
+        let sorted = store.prioritized(3);
+        assert!(sorted[0].importance >= sorted[1].importance);
+        assert!(sorted[1].importance >= sorted[2].importance);
     }
 }
