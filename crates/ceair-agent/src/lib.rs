@@ -73,6 +73,9 @@ pub mod task_system;
 /// Buddy System — 确定性伙伴身份生成
 pub mod buddy;
 
+/// KAIROS — Post-Sampling Hook 系统
+pub mod kairos;
+
 /// 代理管道模块
 pub mod pipeline;
 
