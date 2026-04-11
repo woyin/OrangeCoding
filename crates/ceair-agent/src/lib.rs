@@ -88,6 +88,9 @@ pub mod cancellation;
 /// 消息分组模块 — 按 API 轮次分组
 pub mod message_group;
 
+/// 会话记忆（短期记忆）
+pub mod session_memory;
+
 /// 代理管道模块
 pub mod pipeline;
 
