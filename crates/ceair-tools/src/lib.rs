@@ -28,6 +28,7 @@ pub mod todo_tool;
 pub mod web_search_tool;
 pub mod session_tools;
 pub mod task_management;
+pub mod tool_hooks;
 
 use async_trait::async_trait;
 use serde_json::Value;
