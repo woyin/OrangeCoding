@@ -61,11 +61,7 @@ pub trait MemorySelector {
     /// - candidates: 候选记忆列表
     ///
     /// 返回: 选中的索引列表（从 0 开始）
-    fn select(
-        &self,
-        query: &str,
-        candidates: &[MemorySummary],
-    ) -> Vec<usize>;
+    fn select(&self, query: &str, candidates: &[MemorySummary]) -> Vec<usize>;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,8 +103,17 @@ pub fn recall_memories(
     }
 
     // 构建过滤后的候选列表
-    let filtered_summaries: Vec<MemorySummary> =
-        filtered.iter().map(|s| (*s).clone()).collect();
+    let mut indexed: Vec<(usize, MemorySummary)> = filtered
+        .into_iter()
+        .enumerate()
+        .map(|(i, s)| (i, (*s).clone()))
+        .collect();
+    indexed.sort_by(|a, b| {
+        b.1.modified_at
+            .cmp(&a.1.modified_at)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    let filtered_summaries: Vec<MemorySummary> = indexed.into_iter().map(|(_, s)| s).collect();
 
     // AI 选择
     let selected_indices = selector.select(query, &filtered_summaries);
@@ -121,10 +126,7 @@ pub fn recall_memories(
         .take(MAX_RESULTS)
         .map(|idx| {
             let summary = &filtered_summaries[idx];
-            let content = contents
-                .get(&summary.path)
-                .cloned()
-                .unwrap_or_default();
+            let content = contents.get(&summary.path).cloned().unwrap_or_default();
 
             // 检查新鲜度
             let freshness_warning = check_freshness(&summary.modified_at, &now);
@@ -174,7 +176,10 @@ pub fn build_manifest(query: &str, candidates: &[MemorySummary]) -> String {
             .lines()
             .find(|l| !l.trim().is_empty())
             .unwrap_or("");
-        lines.push(format!("[{}] [{}] {}: {}", i, c.entry_type, c.name, first_line));
+        lines.push(format!(
+            "[{}] [{}] {}: {}",
+            i, c.entry_type, c.name, first_line
+        ));
     }
 
     lines.join("\n")
@@ -247,15 +252,15 @@ mod tests {
     fn test_mock_selector_correct_return() {
         let selector = MockSelector { select_count: 2 };
         let candidates = vec![
-            make_summary("A", "a.md", 0),
-            make_summary("B", "b.md", 0),
+            make_summary("A", "a.md", 200),
+            make_summary("B", "b.md", 100),
             make_summary("C", "c.md", 0),
         ];
         let contents = make_contents(&["a.md", "b.md", "c.md"]);
         let result = recall_memories(&selector, "test", &candidates, &contents, &[]);
         assert_eq!(result.len(), 2);
-        assert_eq!(result[0].name, "A");
-        assert_eq!(result[1].name, "B");
+        assert_eq!(result[0].name, "C", "最新记忆 C 应排在第一位");
+        assert_eq!(result[1].name, "B", "次新记忆 B 应排在第二位");
     }
 
     #[test]
@@ -298,14 +303,10 @@ mod tests {
     #[test]
     fn test_exclude_already_shown() {
         let selector = MockSelector { select_count: 5 };
-        let candidates = vec![
-            make_summary("A", "a.md", 0),
-            make_summary("B", "b.md", 0),
-        ];
+        let candidates = vec![make_summary("A", "a.md", 0), make_summary("B", "b.md", 0)];
         let contents = make_contents(&["a.md", "b.md"]);
         let already_shown = vec!["a.md".to_string()];
-        let result =
-            recall_memories(&selector, "test", &candidates, &contents, &already_shown);
+        let result = recall_memories(&selector, "test", &candidates, &contents, &already_shown);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].name, "B");
     }
@@ -330,10 +331,7 @@ mod tests {
         let selector = IndexSelector {
             indices: vec![0, 99, 1],
         };
-        let candidates = vec![
-            make_summary("A", "a.md", 0),
-            make_summary("B", "b.md", 0),
-        ];
+        let candidates = vec![make_summary("A", "a.md", 0), make_summary("B", "b.md", 0)];
         let contents = make_contents(&["a.md", "b.md"]);
         let result = recall_memories(&selector, "test", &candidates, &contents, &[]);
         assert_eq!(result.len(), 2); // 99 被过滤
@@ -366,20 +364,111 @@ mod tests {
     fn test_missing_content_returns_empty_string() {
         let selector = MockSelector { select_count: 1 };
         let candidates = vec![make_summary("A", "a.md", 0)];
-        let result =
-            recall_memories(&selector, "test", &candidates, &HashMap::new(), &[]);
+        let result = recall_memories(&selector, "test", &candidates, &HashMap::new(), &[]);
         assert_eq!(result[0].content, "");
     }
 
     #[test]
     fn test_check_freshness_boundary() {
         let now = SystemTime::now();
-        // 刚好 1 天
         let at_boundary = now - FRESHNESS_THRESHOLD;
         assert!(check_freshness(&at_boundary, &now).is_none());
 
-        // 超过 1 天
         let over_boundary = now - FRESHNESS_THRESHOLD - Duration::from_secs(1);
         assert!(check_freshness(&over_boundary, &now).is_some());
+    }
+
+    // --- BUG-004: 按 modified_at 排序测试 ---
+
+    /// 测试候选记忆按修改时间降序排列（最新优先）
+    ///
+    /// 构造 unsorted 输入：旧记忆在前 (age=3600)，新记忆在后 (age=10)。
+    /// 使用 SelectAllSelector 返回所有索引。
+    /// 修复后，selector 看到的列表应该是 [New, Old]，
+    /// 所以 result[0] 应该是最新的记忆。
+    #[test]
+    fn test_recall_sorts_by_modified_at_newest_first() {
+        struct SelectAllSelector;
+        impl MemorySelector for SelectAllSelector {
+            fn select(&self, _query: &str, candidates: &[MemorySummary]) -> Vec<usize> {
+                (0..candidates.len()).collect()
+            }
+        }
+
+        let old = make_summary("OldMemory", "old.md", 3600);
+        let recent = make_summary("RecentMemory", "recent.md", 10);
+
+        let candidates = vec![old, recent];
+        let contents = make_contents(&["old.md", "recent.md"]);
+
+        let result = recall_memories(&SelectAllSelector, "test", &candidates, &contents, &[]);
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(
+            result[0].name, "RecentMemory",
+            "最新记忆应排在第一位（selector 看到排序后的列表）"
+        );
+        assert_eq!(result[1].name, "OldMemory", "较旧记忆应排在第二位");
+    }
+
+    /// 测试排序不影响 MAX_RESULTS 截断
+    ///
+    /// 6 个候选（3旧3新交替排列），MAX_RESULTS=5 时应保留最新的 5 个。
+    #[test]
+    fn test_recall_sorting_with_max_results() {
+        struct SelectAllSelector;
+        impl MemorySelector for SelectAllSelector {
+            fn select(&self, _query: &str, candidates: &[MemorySummary]) -> Vec<usize> {
+                (0..candidates.len()).collect()
+            }
+        }
+
+        let candidates = vec![
+            make_summary("Old1", "old1.md", 100000),
+            make_summary("New1", "new1.md", 10),
+            make_summary("Old2", "old2.md", 50000),
+            make_summary("New2", "new2.md", 20),
+            make_summary("Old3", "old3.md", 80000),
+            make_summary("New3", "new3.md", 30),
+        ];
+        let contents: HashMap<String, String> = candidates
+            .iter()
+            .map(|c| (c.path.clone(), "content".to_string()))
+            .collect();
+
+        let result = recall_memories(&SelectAllSelector, "test", &candidates, &contents, &[]);
+
+        assert!(result.len() <= MAX_RESULTS);
+        let names: Vec<&str> = result.iter().map(|r| r.name.as_str()).collect();
+        assert!(
+            names.contains(&"New1"),
+            "最新记忆 New1 不应被 MAX_RESULTS 截断丢弃"
+        );
+        assert!(
+            names.contains(&"New2"),
+            "最新记忆 New2 不应被 MAX_RESULTS 截断丢弃"
+        );
+    }
+
+    /// 测试已排序输入不受影响
+    #[test]
+    fn test_recall_already_sorted_remains_correct() {
+        struct SelectAllSelector;
+        impl MemorySelector for SelectAllSelector {
+            fn select(&self, _query: &str, candidates: &[MemorySummary]) -> Vec<usize> {
+                (0..candidates.len()).collect()
+            }
+        }
+
+        let candidates = vec![
+            make_summary("New", "new.md", 10),
+            make_summary("Old", "old.md", 3600),
+        ];
+        let contents = make_contents(&["new.md", "old.md"]);
+
+        let result = recall_memories(&SelectAllSelector, "test", &candidates, &contents, &[]);
+
+        assert_eq!(result[0].name, "New");
+        assert_eq!(result[1].name, "Old");
     }
 }
