@@ -94,6 +94,9 @@ pub mod session_memory;
 /// 自动压缩触发器与断路器
 pub mod auto_compact;
 
+/// AutoDream 门控与锁
+pub mod auto_dream;
+
 /// 代理管道模块
 pub mod pipeline;
 
