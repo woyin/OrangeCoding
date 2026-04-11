@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 // ============================================================
 // 权限类型枚举
@@ -133,6 +134,115 @@ impl PermissionChecker {
     /// 返回权限策略的可变引用
     pub fn policy_mut(&mut self) -> &mut PermissionPolicy {
         &mut self.policy
+    }
+}
+
+// ============================================================
+// 权限决策 — 工具级权限检查返回值
+// ============================================================
+
+/// 工具级权限决策
+///
+/// 与 PermissionLevel 不同，PermissionDecision 携带上下文信息，
+/// 可以附带拒绝原因或确认提示，用于 Tool trait 的 check_permissions 返回值。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PermissionDecision {
+    /// 允许执行
+    Allow,
+    /// 拒绝执行并附带原因
+    Deny(String),
+    /// 需要用户确认并附带确认提示
+    Ask(String),
+}
+
+impl PermissionDecision {
+    /// 是否允许执行（不需要用户确认）
+    pub fn is_allow(&self) -> bool {
+        matches!(self, Self::Allow)
+    }
+
+    /// 是否被拒绝
+    pub fn is_deny(&self) -> bool {
+        matches!(self, Self::Deny(_))
+    }
+
+    /// 是否需要用户确认
+    pub fn is_ask(&self) -> bool {
+        matches!(self, Self::Ask(_))
+    }
+}
+
+// ============================================================
+// 权限上下文 — 工具执行时的环境信息
+// ============================================================
+
+/// 权限上下文
+///
+/// 为 Tool::check_permissions 提供执行环境信息，
+/// 工具据此判断操作是否在允许范围内。
+///
+/// # 设计思想
+/// 参考 reference 中 permissions 设计：
+/// - 工作目录限制工具只能访问项目内路径
+/// - allowed_paths 白名单优先级高于 denied_patterns
+/// - denied_patterns 支持通配符模式匹配危险路径
+#[derive(Clone, Debug, Default)]
+pub struct PermissionContext {
+    /// 当前工作目录
+    pub working_dir: PathBuf,
+    /// 允许访问的路径白名单
+    pub allowed_paths: Vec<PathBuf>,
+    /// 禁止访问的路径模式（简单前缀匹配）
+    pub denied_patterns: Vec<String>,
+}
+
+impl PermissionContext {
+    /// 创建新的权限上下文
+    pub fn new(working_dir: impl Into<PathBuf>) -> Self {
+        Self {
+            working_dir: working_dir.into(),
+            allowed_paths: Vec::new(),
+            denied_patterns: Vec::new(),
+        }
+    }
+
+    /// 检查路径是否在允许范围内
+    ///
+    /// 检查逻辑（优先级从高到低）：
+    /// 1. 如果路径在 allowed_paths 白名单中 → 允许
+    /// 2. 如果路径匹配 denied_patterns 中的任意模式 → 拒绝
+    /// 3. 如果路径在工作目录内 → 允许
+    /// 4. 否则 → 需要确认
+    pub fn check_path(&self, path: &Path) -> PermissionDecision {
+        // 白名单优先
+        for allowed in &self.allowed_paths {
+            if path.starts_with(allowed) {
+                return PermissionDecision::Allow;
+            }
+        }
+
+        let path_str = path.to_string_lossy();
+
+        // 黑名单检查
+        for pattern in &self.denied_patterns {
+            if path_str.contains(pattern) {
+                return PermissionDecision::Deny(format!(
+                    "路径 '{}' 匹配禁止模式 '{}'",
+                    path_str, pattern
+                ));
+            }
+        }
+
+        // 工作目录检查
+        if path.starts_with(&self.working_dir) {
+            return PermissionDecision::Allow;
+        }
+
+        PermissionDecision::Ask(format!(
+            "路径 '{}' 不在工作目录 '{}' 内，是否允许访问？",
+            path_str,
+            self.working_dir.display()
+        ))
     }
 }
 
@@ -339,5 +449,97 @@ mod tests {
         assert!(policy.is_denied(PermissionKind::DoomLoop));
         assert!(!policy.is_allowed(PermissionKind::ExternalDirectory));
         assert!(!policy.is_denied(PermissionKind::ExternalDirectory));
+    }
+
+    // ======== PermissionDecision 测试 ========
+
+    #[test]
+    fn test_decision_allow() {
+        let d = PermissionDecision::Allow;
+        assert!(d.is_allow());
+        assert!(!d.is_deny());
+        assert!(!d.is_ask());
+    }
+
+    #[test]
+    fn test_decision_deny() {
+        let d = PermissionDecision::Deny("不允许".into());
+        assert!(!d.is_allow());
+        assert!(d.is_deny());
+        assert!(!d.is_ask());
+    }
+
+    #[test]
+    fn test_decision_ask() {
+        let d = PermissionDecision::Ask("确认一下？".into());
+        assert!(!d.is_allow());
+        assert!(!d.is_deny());
+        assert!(d.is_ask());
+    }
+
+    // ======== PermissionContext 测试 ========
+
+    #[test]
+    fn test_context_path_in_working_dir() {
+        let ctx = PermissionContext::new("/project");
+        let result = ctx.check_path(Path::new("/project/src/main.rs"));
+        assert!(result.is_allow());
+    }
+
+    #[test]
+    fn test_context_path_outside_working_dir() {
+        let ctx = PermissionContext::new("/project");
+        let result = ctx.check_path(Path::new("/etc/passwd"));
+        assert!(result.is_ask());
+    }
+
+    #[test]
+    fn test_context_denied_pattern() {
+        let mut ctx = PermissionContext::new("/project");
+        ctx.denied_patterns.push(".env".into());
+        let result = ctx.check_path(Path::new("/project/.env"));
+        assert!(result.is_deny());
+        if let PermissionDecision::Deny(reason) = result {
+            assert!(reason.contains(".env"));
+        }
+    }
+
+    #[test]
+    fn test_context_allowed_path_overrides_denied() {
+        let mut ctx = PermissionContext::new("/project");
+        ctx.denied_patterns.push("secret".into());
+        ctx.allowed_paths.push(PathBuf::from("/project/secret"));
+        // 白名单优先于黑名单
+        let result = ctx.check_path(Path::new("/project/secret/ok.txt"));
+        assert!(result.is_allow());
+    }
+
+    #[test]
+    fn test_context_allowed_path_outside_working_dir() {
+        let mut ctx = PermissionContext::new("/project");
+        ctx.allowed_paths.push(PathBuf::from("/usr/share/data"));
+        // 不在工作目录但在白名单中
+        let result = ctx.check_path(Path::new("/usr/share/data/file.txt"));
+        assert!(result.is_allow());
+    }
+
+    #[test]
+    fn test_context_default() {
+        let ctx = PermissionContext::default();
+        assert!(ctx.working_dir.as_os_str().is_empty());
+        assert!(ctx.allowed_paths.is_empty());
+        assert!(ctx.denied_patterns.is_empty());
+    }
+
+    #[test]
+    fn test_context_multiple_denied_patterns() {
+        let mut ctx = PermissionContext::new("/project");
+        ctx.denied_patterns.push(".env".into());
+        ctx.denied_patterns.push("secret".into());
+        ctx.denied_patterns.push("passwd".into());
+
+        assert!(ctx.check_path(Path::new("/project/.env")).is_deny());
+        assert!(ctx.check_path(Path::new("/project/secret.txt")).is_deny());
+        assert!(ctx.check_path(Path::new("/project/src/main.rs")).is_allow());
     }
 }

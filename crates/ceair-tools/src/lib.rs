@@ -216,6 +216,23 @@ pub trait Tool: Send + Sync + fmt::Debug {
     fn validate_input(&self, params: &Value) -> ToolResult<()> {
         validate_params_against_schema(params, &self.parameters_schema())
     }
+
+    /// 检查执行权限
+    ///
+    /// 在 validate_input 后、execute 前调用。
+    /// 工具根据参数和权限上下文判断是否允许执行。
+    ///
+    /// 默认实现返回 Allow，工具实现者可覆盖以实现：
+    /// - 路径级别的访问控制
+    /// - 危险命令检测
+    /// - 破坏性操作确认
+    fn check_permissions(
+        &self,
+        _params: &Value,
+        _ctx: &permissions::PermissionContext,
+    ) -> permissions::PermissionDecision {
+        permissions::PermissionDecision::Allow
+    }
 }
 
 // ============================================================
@@ -651,5 +668,90 @@ mod tests {
     fn test_validate_array_params() {
         let schema = json!({"type": "object"});
         assert!(validate_params_against_schema(&json!([1, 2, 3]), &schema).is_err());
+    }
+
+    // ======== check_permissions 默认实现测试 ========
+
+    /// 测试 Tool trait 默认 check_permissions 返回 Allow
+    #[test]
+    fn test_default_check_permissions_returns_allow() {
+        let tool = MockTool;
+        let ctx = permissions::PermissionContext::new("/project");
+        let params = json!({"message": "test"});
+        let decision = tool.check_permissions(&params, &ctx);
+        assert!(decision.is_allow());
+    }
+
+    /// 测试使用自定义权限检查的工具
+    #[derive(Debug)]
+    struct RestrictedTool;
+
+    #[async_trait]
+    impl Tool for RestrictedTool {
+        fn name(&self) -> &str {
+            "restricted"
+        }
+
+        fn description(&self) -> &str {
+            "受限工具"
+        }
+
+        fn parameters_schema(&self) -> Value {
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"}
+                },
+                "required": ["path"]
+            })
+        }
+
+        async fn execute(&self, _params: Value) -> ToolResult<String> {
+            Ok("ok".to_string())
+        }
+
+        fn check_permissions(
+            &self,
+            params: &Value,
+            ctx: &permissions::PermissionContext,
+        ) -> permissions::PermissionDecision {
+            // 检查路径参数是否在允许范围内
+            if let Some(path_str) = params.get("path").and_then(|v| v.as_str()) {
+                ctx.check_path(std::path::Path::new(path_str))
+            } else {
+                permissions::PermissionDecision::Allow
+            }
+        }
+    }
+
+    /// 测试自定义权限检查 — 允许工作目录内路径
+    #[test]
+    fn test_custom_check_permissions_allow() {
+        let tool = RestrictedTool;
+        let ctx = permissions::PermissionContext::new("/project");
+        let params = json!({"path": "/project/src/main.rs"});
+        let decision = tool.check_permissions(&params, &ctx);
+        assert!(decision.is_allow());
+    }
+
+    /// 测试自定义权限检查 — 工作目录外路径需要确认
+    #[test]
+    fn test_custom_check_permissions_ask() {
+        let tool = RestrictedTool;
+        let ctx = permissions::PermissionContext::new("/project");
+        let params = json!({"path": "/etc/passwd"});
+        let decision = tool.check_permissions(&params, &ctx);
+        assert!(decision.is_ask());
+    }
+
+    /// 测试自定义权限检查 — 黑名单路径被拒绝
+    #[test]
+    fn test_custom_check_permissions_deny() {
+        let tool = RestrictedTool;
+        let mut ctx = permissions::PermissionContext::new("/project");
+        ctx.denied_patterns.push(".env".into());
+        let params = json!({"path": "/project/.env"});
+        let decision = tool.check_permissions(&params, &ctx);
+        assert!(decision.is_deny());
     }
 }
