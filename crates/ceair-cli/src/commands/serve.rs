@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use clap::Args;
+use dashmap::DashMap;
 use tokio::sync::mpsc;
 use tracing::info;
 
@@ -21,6 +22,7 @@ use ceair_control_server::{start_server, ControlServerConfig};
 use ceair_core::{AgentEvent, AgentId, SessionId};
 use ceair_tools::{create_default_registry, SecurityPolicy};
 use ceair_worker::{AgentExecutor, WorkerRuntime};
+use tokio_util::sync::CancellationToken;
 
 /// Serve 命令的参数
 #[derive(Args, Debug)]
@@ -31,10 +33,13 @@ pub struct ServeArgs {
 }
 
 /// Real agent executor that creates an AgentLoop per turn.
+/// 会话上下文通过 DashMap 持久化，确保多轮对话不丢失历史。
 struct LocalAgentExecutor {
     provider: Arc<dyn AiProvider>,
     chat_options: ChatOptions,
     config: CeairConfig,
+    // 会话 ID → AgentContext 映射，跨 turn 保持对话历史
+    session_contexts: DashMap<String, AgentContext>,
 }
 
 #[async_trait::async_trait]
@@ -44,12 +49,20 @@ impl AgentExecutor for LocalAgentExecutor {
         session_id: String,
         user_message: String,
         event_tx: mpsc::Sender<AgentEvent>,
+        cancel_token: CancellationToken,
     ) -> Result<(), String> {
-        let sid = SessionId::new();
+        // BUG-SESSION-STATE: 恢复已有上下文而非每次新建，保持多轮对话连续性
+        let sid = SessionId::from_string(&session_id)
+            .map_err(|e| format!("invalid session_id '{}': {}", session_id, e))?;
         let agent_id = AgentId::new();
         let working_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
-        let mut context = AgentContext::new(sid, working_dir);
+        let mut context = self
+            .session_contexts
+            .remove(&session_id)
+            .map(|(_, ctx)| ctx)
+            .unwrap_or_else(|| AgentContext::new(sid, working_dir));
+
         context.add_user_message(&user_message);
 
         let policy = SecurityPolicy::default_policy();
@@ -70,12 +83,17 @@ impl AgentExecutor for LocalAgentExecutor {
             loop_config,
         );
 
-        let cancel_token = tokio_util::sync::CancellationToken::new();
-
-        agent_loop
+        // BUG-CANCEL: 使用调用方传入的取消令牌（来自会话 supervisor），而非每次新建
+        let result = agent_loop
             .run(&self.chat_options, cancel_token, event_tx)
             .await
             .map_err(|e| format!("{}", e))?;
+
+        // BUG-SESSION-STATE: 将更新后的上下文存回，供下一轮使用
+        let updated_context = agent_loop.context().clone();
+        self.session_contexts.insert(session_id, updated_context);
+
+        let _ = result;
 
         Ok(())
     }
@@ -97,6 +115,7 @@ pub async fn execute(args: ServeArgs, config: CeairConfig) -> Result<()> {
         provider: Arc::from(provider),
         chat_options,
         config: config.clone(),
+        session_contexts: DashMap::new(),
     });
 
     let runtime = Arc::new(WorkerRuntime::with_executor(executor));

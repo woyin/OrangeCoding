@@ -357,6 +357,7 @@ dependencies = [
  "ceair-tui",
  "ceair-worker",
  "clap",
+ "dashmap",
  "dirs",
  "reqwest",
  "ring",

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use ceair_control_protocol::{ServerEvent, SessionState};
 use ceair_core::AgentEvent;
 use tokio::sync::{broadcast, mpsc};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 use crate::approval_bridge::ApprovalBridge;
@@ -20,12 +21,13 @@ pub trait AgentExecutor: Send + Sync + 'static {
     /// Implementations should:
     /// 1. Create/reuse an `AgentLoop` for the session
     /// 2. Pipe `AgentEvent`s into the provided `event_tx`
-    /// 3. Respect the session's cancellation token
+    /// 3. Respect the provided `cancel_token` for task cancellation
     async fn execute_turn(
         &self,
         session_id: String,
         user_message: String,
         event_tx: mpsc::Sender<AgentEvent>,
+        cancel_token: CancellationToken,
     ) -> Result<(), String>;
 }
 
@@ -80,6 +82,12 @@ impl WorkerRuntime {
             }
         };
 
+        // 获取会话的取消令牌，以便 executor 响应取消请求
+        let cancel_token = self
+            .sessions
+            .get_cancel_token(&session_id)
+            .unwrap_or_else(CancellationToken::new);
+
         let (agent_tx, agent_rx) = mpsc::channel::<AgentEvent>(256);
         self.spawn_event_forwarder(session_id.clone(), agent_rx);
 
@@ -88,7 +96,7 @@ impl WorkerRuntime {
 
         tokio::spawn(async move {
             match executor
-                .execute_turn(session_id.clone(), user_message, agent_tx)
+                .execute_turn(session_id.clone(), user_message, agent_tx, cancel_token)
                 .await
             {
                 Ok(()) => {
