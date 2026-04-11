@@ -72,6 +72,11 @@ impl SessionId {
         Self(uuid)
     }
 
+    /// 从字符串解析创建会话 ID（用于跨层传递 session_id 字符串后恢复类型）
+    pub fn from_string(s: &str) -> Result<Self, uuid::Error> {
+        Uuid::parse_str(s).map(Self)
+    }
+
     /// 获取内部的 UUID 引用
     pub fn as_uuid(&self) -> &Uuid {
         &self.0
@@ -261,12 +266,7 @@ impl AgentCapability {
 
 impl fmt::Display for AgentCapability {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} (工具数: {})",
-            self.name,
-            self.supported_tools.len()
-        )
+        write!(f, "{} (工具数: {})", self.name, self.supported_tools.len())
     }
 }
 
@@ -530,5 +530,19 @@ mod tests {
         let json = serde_json::to_string(&id).unwrap();
         let deserialized: SessionId = serde_json::from_str(&json).unwrap();
         assert_eq!(id, deserialized);
+    }
+
+    #[test]
+    fn 测试从字符串创建会话ID() {
+        let original = SessionId::new();
+        let uuid_str = original.as_uuid().to_string();
+        let restored = SessionId::from_string(&uuid_str).unwrap();
+        assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn 测试从无效字符串创建会话ID失败() {
+        assert!(SessionId::from_string("not-a-uuid").is_err());
+        assert!(SessionId::from_string("").is_err());
     }
 }
