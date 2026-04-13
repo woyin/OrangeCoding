@@ -375,15 +375,39 @@ async fn run_single_shot(
 
 /// TUI 交互模式：启动终端用户界面
 ///
-/// 创建 TUI 应用实例，在终端中提供图形化的交互体验。
-/// 用户可以通过键盘输入消息，查看 AI 的流式回复。
+/// 创建真正的 ratatui TUI 应用，在终端中提供完整的图形化交互体验。
+/// 支持侧边栏、交互模式切换、思考深度控制和斜杠命令。
+///
+/// # 设计原则（Harness Engineering）
+///
+/// - 查询循环是心跳：TUI 主循环以 50ms 节拍运行，持续响应用户输入
+/// - 错误路径即主路径：AI 请求失败时在界面中显示错误并允许重试
+/// - 模型是不稳定组件：通过交互模式控制 AI 的自主程度
 async fn run_tui_mode(
     provider: Box<dyn AiProvider>,
     registry: ToolRegistry,
     model_name: &str,
     config: &CeairConfig,
 ) -> Result<()> {
+    use crossterm::{
+        event::{self, Event},
+        execute,
+        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    };
+    use ratatui::{backend::CrosstermBackend, Terminal};
+    use std::io;
+    use std::time::Duration;
+    use chengcoding_tui::components::MainLayout;
+    use chengcoding_tui::AppAction;
+
     info!("正在启动 TUI 交互模式...");
+
+    // 初始化终端
+    enable_raw_mode().context("启用终端 raw 模式失败")?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen).context("进入备用终端屏幕失败")?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend).context("创建终端实例失败")?;
 
     // 创建 TUI 应用实例
     let mut app = App::new(model_name);
@@ -392,7 +416,9 @@ async fn run_tui_mode(
     app.add_message(
         Role::System,
         format!(
-            "欢迎使用 ChengCoding！当前模型: {}，提供商: {}",
+            "欢迎使用 ChengCoding！\n模型: {} | 提供商: {}\n\n\
+             快捷键: Shift+Tab 切换模式 | Ctrl+L 思考深度 | Ctrl+B 侧边栏 | ? 帮助\n\
+             输入消息后按 Enter 发送，或使用 /命令 执行操作",
             model_name, config.ai.provider,
         ),
     );
@@ -403,14 +429,197 @@ async fn run_tui_mode(
         .temperature(config.ai.temperature)
         .max_tokens(config.ai.max_tokens);
 
-    // TUI 主循环
-    println!("🖥️  TUI 模式已启动（输入 'exit' 或按 Ctrl+C 退出）");
-    println!("提示: 当前版本使用简化的文本交互界面");
-    println!();
+    // 对话历史（用于多轮对话上下文）
+    let mut messages: Vec<ChatMessage> = Vec::new();
 
-    // 使用简化的文本循环（完整 TUI 渲染待后续实现）
-    run_text_loop(&mut app, provider.as_ref(), &registry, &tools, &options, config)
-        .await
+    // TUI 主循环 — 查询循环心跳模式
+    let result = loop {
+        // 渲染界面
+        if let Err(e) = terminal.draw(|frame| {
+            MainLayout::render(frame, &app);
+        }) {
+            break Err(anyhow::anyhow!("界面渲染失败: {}", e));
+        }
+
+        // 检查是否应退出
+        if !app.is_running {
+            break Ok(());
+        }
+
+        // 等待事件（50ms 超时，保持界面响应性）
+        if event::poll(Duration::from_millis(50)).unwrap_or(false) {
+            if let Ok(Event::Key(key_event)) = event::read() {
+                let action = app.handle_key_event(key_event);
+
+                match action {
+                    AppAction::SendMessage(text) => {
+                        // 显示用户消息
+                        app.add_message(Role::User, &text);
+                        app.status.status_text = "正在思考...".to_string();
+
+                        // 重新渲染以显示用户消息和状态变化
+                        let _ = terminal.draw(|frame| {
+                            MainLayout::render(frame, &app);
+                        });
+
+                        // 构建 AI 请求
+                        messages.push(ChatMessage::user(&text));
+
+                        // 发送请求并处理响应
+                        match provider
+                            .chat_completion(&messages, &tools, &options)
+                            .await
+                        {
+                            Ok(response) => {
+                                let content = response.content.clone();
+                                app.add_message(Role::Assistant, &content);
+                                messages.push(ChatMessage::assistant(&content));
+
+                                // 更新 token 使用量
+                                app.status.token_count += response.usage.total_tokens as u64;
+                                app.status.status_text = "就绪".to_string();
+                            }
+                            Err(e) => {
+                                // 错误路径即主路径 — 显示错误但不崩溃
+                                app.add_message(
+                                    Role::System,
+                                    format!("⚠️ AI 请求失败: {}。请重试。", e),
+                                );
+                                app.status.status_text = "错误 - 请重试".to_string();
+                                warn!("AI 请求失败: {:?}", e);
+                            }
+                        }
+                    }
+                    AppAction::SlashCommand { name, args } => {
+                        // 处理斜杠命令
+                        handle_slash_command(&mut app, &name, &args);
+                    }
+                    AppAction::SwitchInteractionMode(mode) => {
+                        app.add_message(
+                            Role::System,
+                            format!("已切换到 {} 模式：{}", mode.label(), mode.description()),
+                        );
+                    }
+                    AppAction::SwitchThinkingDepth(depth) => {
+                        app.add_message(
+                            Role::System,
+                            format!("思考深度已调整为: {} {}", depth.icon(), depth.label()),
+                        );
+                    }
+                    AppAction::Clear => {
+                        messages.clear();
+                    }
+                    AppAction::Quit => {
+                        break Ok(());
+                    }
+                    AppAction::ToggleSidebar | AppAction::None => {}
+                }
+            }
+        }
+    };
+
+    // 清理终端
+    disable_raw_mode().ok();
+    execute!(terminal.backend_mut(), LeaveAlternateScreen).ok();
+    terminal.show_cursor().ok();
+
+    result
+}
+
+/// 处理斜杠命令
+///
+/// 在 TUI 中执行用户输入的斜杠命令，更新应用状态并显示反馈。
+fn handle_slash_command(app: &mut App, name: &str, args: &str) {
+    use chengcoding_tui::app::{InteractionMode, ThinkingDepth};
+
+    match name {
+        "model" => {
+            if args.is_empty() {
+                app.add_message(
+                    Role::System,
+                    format!("当前模型: {}。用法: /model <模型名称>", app.status.model_name),
+                );
+            } else {
+                app.status.model_name = args.to_string();
+                app.add_message(
+                    Role::System,
+                    format!("模型已切换为: {}", args),
+                );
+            }
+        }
+        "mode" => {
+            if args.is_empty() {
+                app.add_message(
+                    Role::System,
+                    format!(
+                        "当前模式: {}。可选: normal, plan, autopilot, ultrawork",
+                        app.interaction_mode.label()
+                    ),
+                );
+            } else if let Some(mode) = InteractionMode::from_str_name(args) {
+                app.interaction_mode = mode.clone();
+                app.add_message(
+                    Role::System,
+                    format!("已切换到 {} 模式：{}", mode.label(), mode.description()),
+                );
+            } else {
+                app.add_message(
+                    Role::System,
+                    format!("未知模式: {}。可选: normal, plan, autopilot, ultrawork", args),
+                );
+            }
+        }
+        "think" | "depth" => {
+            if args.is_empty() {
+                app.add_message(
+                    Role::System,
+                    format!(
+                        "当前思考深度: {} {}。可选: off, light, medium, deep, maximum",
+                        app.thinking_depth.icon(),
+                        app.thinking_depth.label()
+                    ),
+                );
+            } else if let Some(depth) = ThinkingDepth::from_str_name(args) {
+                app.thinking_depth = depth.clone();
+                app.add_message(
+                    Role::System,
+                    format!("思考深度已调整为: {} {}", depth.icon(), depth.label()),
+                );
+            } else {
+                app.add_message(
+                    Role::System,
+                    format!("未知深度: {}。可选: off, light, medium, deep, maximum", args),
+                );
+            }
+        }
+        "clear" | "cls" => {
+            app.messages.clear();
+            app.scroll_offset = 0;
+        }
+        "help" | "h" => {
+            app.add_message(
+                Role::System,
+                "可用命令:\n\
+                 /model <名称>    - 切换 AI 模型\n\
+                 /mode <模式>     - 切换交互模式 (normal/plan/autopilot/ultrawork)\n\
+                 /think <深度>    - 切换思考深度 (off/light/medium/deep/maximum)\n\
+                 /clear           - 清除对话\n\
+                 /help            - 显示帮助\n\
+                 /quit            - 退出\n\n\
+                 快捷键: Shift+Tab 切换模式 | Ctrl+L 思考深度 | Ctrl+B 侧边栏"
+                    .to_string(),
+            );
+        }
+        "quit" | "exit" | "q" => {
+            app.is_running = false;
+        }
+        _ => {
+            app.add_message(
+                Role::System,
+                format!("未知命令: /{}。输入 /help 查看可用命令。", name),
+            );
+        }
+    }
 }
 
 // ============================================================

@@ -1,7 +1,8 @@
 //! 应用状态管理模块
 //!
 //! 本模块定义了 TUI 应用的核心状态结构，包括消息列表、输入状态、
-//! 应用模式以及键盘事件处理逻辑。
+//! 应用模式、交互模式（Plan / Autopilot / UltraWork）、思考深度控制
+//! 以及键盘事件处理逻辑。
 
 use chengcoding_core::message::Role;
 use chengcoding_core::TokenUsage;
@@ -9,25 +10,22 @@ use chrono::{DateTime, Utc};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 // ---------------------------------------------------------------------------
-// 应用模式
+// 应用模式（TUI 导航状态）
 // ---------------------------------------------------------------------------
 
-/// 应用模式枚举 - 表示应用当前所处的交互模式
+/// 应用模式枚举 - 表示 TUI 当前所处的导航/编辑模式
 ///
-/// 不同模式下键盘事件的处理逻辑不同：
-/// - `Normal`：浏览消息，支持滚动和快捷键
-/// - `Input`：输入消息文本，支持编辑和历史浏览
-/// - `Command`：输入命令（类似 vim 的命令行模式）
-/// - `Help`：显示帮助信息
+/// 与 `InteractionMode`（交互模式）不同，`AppMode` 控制的是
+/// TUI 界面的导航状态，决定键盘事件如何被解释。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AppMode {
-    /// 普通模式 - 浏览消息，使用快捷键操作
+    /// 普通模式 - 浏览消息，支持滚动和快捷键
     Normal,
-    /// 输入模式 - 输入和编辑消息内容
+    /// 输入模式 - 输入消息文本，支持编辑和历史浏览
     Input,
-    /// 命令模式 - 输入命令（如 :q 退出、:clear 清屏）
+    /// 命令模式 - 输入斜杠命令（如 /model、/help）
     Command,
-    /// 帮助模式 - 显示快捷键帮助信息
+    /// 帮助模式 - 显示帮助信息
     Help,
 }
 
@@ -40,6 +38,188 @@ impl std::fmt::Display for AppMode {
             AppMode::Help => "帮助",
         };
         write!(f, "{label}")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 交互模式（智能体工作策略）
+// ---------------------------------------------------------------------------
+
+/// 交互模式枚举 - 控制 AI 智能体的工作方式和自主程度
+///
+/// 通过 Shift+Tab 在各模式间循环切换。每种模式对应不同的
+/// AI 行为策略，影响工具调用权限、自动化程度和用户交互频率。
+///
+/// # 设计原则
+///
+/// 参考 Harness Engineering 设计理念：
+/// - 模型是不稳定组件，不同模式下给予不同程度的自主权
+/// - 工具是受管理的执行接口，模式决定了自动审批策略
+/// - 错误路径即主路径，高自主模式需要更强的错误恢复能力
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InteractionMode {
+    /// 普通模式 - 每次操作需用户确认，最安全
+    Normal,
+    /// 计划模式 - AI 先制定计划再执行，用户审批计划
+    Plan,
+    /// 自动驾驶模式 - AI 自动执行任务，仅在关键节点暂停
+    Autopilot,
+    /// 极限工作模式 - 最高自主权，AI 全程自动化执行
+    UltraWork,
+}
+
+impl InteractionMode {
+    /// 获取所有交互模式的列表（按切换顺序排列）
+    pub fn all() -> &'static [InteractionMode] {
+        &[
+            InteractionMode::Normal,
+            InteractionMode::Plan,
+            InteractionMode::Autopilot,
+            InteractionMode::UltraWork,
+        ]
+    }
+
+    /// 切换到下一个交互模式（循环切换）
+    pub fn next(&self) -> InteractionMode {
+        match self {
+            InteractionMode::Normal => InteractionMode::Plan,
+            InteractionMode::Plan => InteractionMode::Autopilot,
+            InteractionMode::Autopilot => InteractionMode::UltraWork,
+            InteractionMode::UltraWork => InteractionMode::Normal,
+        }
+    }
+
+    /// 获取模式的显示标签
+    pub fn label(&self) -> &'static str {
+        match self {
+            InteractionMode::Normal => "Normal",
+            InteractionMode::Plan => "Plan",
+            InteractionMode::Autopilot => "Autopilot",
+            InteractionMode::UltraWork => "UltraWork",
+        }
+    }
+
+    /// 获取模式的中文说明
+    pub fn description(&self) -> &'static str {
+        match self {
+            InteractionMode::Normal => "普通模式 - 每步确认",
+            InteractionMode::Plan => "计划模式 - 先规划后执行",
+            InteractionMode::Autopilot => "自动驾驶 - 自动执行任务",
+            InteractionMode::UltraWork => "极限模式 - 全程自动化",
+        }
+    }
+
+    /// 从字符串解析交互模式
+    pub fn from_str_name(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "normal" => Some(InteractionMode::Normal),
+            "plan" => Some(InteractionMode::Plan),
+            "autopilot" | "auto" => Some(InteractionMode::Autopilot),
+            "ultrawork" | "ultra" => Some(InteractionMode::UltraWork),
+            _ => None,
+        }
+    }
+}
+
+impl Default for InteractionMode {
+    fn default() -> Self {
+        InteractionMode::Normal
+    }
+}
+
+impl std::fmt::Display for InteractionMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.label())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 思考深度
+// ---------------------------------------------------------------------------
+
+/// 思考深度枚举 - 控制 AI 模型的推理深度
+///
+/// 通过 Ctrl+L 在各级别间循环切换。不同 AI 提供商对思考深度的
+/// 处理方式不同：
+/// - Claude: 映射为 extended thinking budget
+/// - GPT: 映射为 reasoning effort 参数
+/// - DeepSeek: 映射为思维链控制参数
+///
+/// # 设计说明
+///
+/// 本枚举与 `chengcoding_ai::model_roles::ThinkingLevel` 功能类似，
+/// 但面向 TUI 层的用户交互，提供更友好的显示和切换逻辑。
+/// 在实际发送请求时会转换为对应的 `ThinkingLevel`。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ThinkingDepth {
+    /// 关闭思考 - 不使用推理模式
+    Off,
+    /// 浅层思考 - 简单推理
+    Light,
+    /// 中等思考 - 标准推理深度
+    Medium,
+    /// 深度思考 - 深入推理和验证
+    Deep,
+    /// 极限思考 - 最大推理预算
+    Maximum,
+}
+
+impl ThinkingDepth {
+    /// 切换到下一个思考深度（循环切换）
+    pub fn next(&self) -> ThinkingDepth {
+        match self {
+            ThinkingDepth::Off => ThinkingDepth::Light,
+            ThinkingDepth::Light => ThinkingDepth::Medium,
+            ThinkingDepth::Medium => ThinkingDepth::Deep,
+            ThinkingDepth::Deep => ThinkingDepth::Maximum,
+            ThinkingDepth::Maximum => ThinkingDepth::Off,
+        }
+    }
+
+    /// 获取深度的显示标签
+    pub fn label(&self) -> &'static str {
+        match self {
+            ThinkingDepth::Off => "关闭",
+            ThinkingDepth::Light => "浅层",
+            ThinkingDepth::Medium => "中等",
+            ThinkingDepth::Deep => "深度",
+            ThinkingDepth::Maximum => "极限",
+        }
+    }
+
+    /// 获取深度对应的图标（用于状态栏简洁显示）
+    pub fn icon(&self) -> &'static str {
+        match self {
+            ThinkingDepth::Off => "💤",
+            ThinkingDepth::Light => "💡",
+            ThinkingDepth::Medium => "🧠",
+            ThinkingDepth::Deep => "🔬",
+            ThinkingDepth::Maximum => "⚡",
+        }
+    }
+
+    /// 从字符串解析思考深度
+    pub fn from_str_name(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "off" | "none" => Some(ThinkingDepth::Off),
+            "light" | "low" | "minimal" => Some(ThinkingDepth::Light),
+            "medium" | "med" | "normal" => Some(ThinkingDepth::Medium),
+            "deep" | "high" => Some(ThinkingDepth::Deep),
+            "maximum" | "max" | "xhigh" => Some(ThinkingDepth::Maximum),
+            _ => None,
+        }
+    }
+}
+
+impl Default for ThinkingDepth {
+    fn default() -> Self {
+        ThinkingDepth::Medium
+    }
+}
+
+impl std::fmt::Display for ThinkingDepth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.label())
     }
 }
 
@@ -61,6 +241,14 @@ pub enum AppAction {
     Quit,
     /// 清除所有消息
     Clear,
+    /// 执行斜杠命令 - 包含命令名和参数
+    SlashCommand { name: String, args: String },
+    /// 切换交互模式 - 包含切换后的新模式
+    SwitchInteractionMode(InteractionMode),
+    /// 切换思考深度 - 包含切换后的新深度
+    SwitchThinkingDepth(ThinkingDepth),
+    /// 切换侧边栏显示
+    ToggleSidebar,
 }
 
 // ---------------------------------------------------------------------------
@@ -295,6 +483,120 @@ impl Default for InputState {
 }
 
 // ---------------------------------------------------------------------------
+// 侧边栏状态
+// ---------------------------------------------------------------------------
+
+/// 侧边栏面板类型 - 控制侧边栏显示的内容面板
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SidebarPanel {
+    /// 文件树面板 - 显示项目文件结构
+    FileTree,
+    /// 智能体状态面板 - 显示当前智能体的运行状态
+    AgentStatus,
+    /// 会话列表面板 - 显示历史对话会话
+    SessionList,
+}
+
+impl SidebarPanel {
+    /// 切换到下一个面板（循环切换）
+    pub fn next(&self) -> SidebarPanel {
+        match self {
+            SidebarPanel::FileTree => SidebarPanel::AgentStatus,
+            SidebarPanel::AgentStatus => SidebarPanel::SessionList,
+            SidebarPanel::SessionList => SidebarPanel::FileTree,
+        }
+    }
+
+    /// 获取面板的显示标题
+    pub fn title(&self) -> &'static str {
+        match self {
+            SidebarPanel::FileTree => "📁 文件",
+            SidebarPanel::AgentStatus => "🤖 智能体",
+            SidebarPanel::SessionList => "💬 会话",
+        }
+    }
+}
+
+impl Default for SidebarPanel {
+    fn default() -> Self {
+        SidebarPanel::FileTree
+    }
+}
+
+/// 侧边栏状态结构 - 管理侧边栏的显示内容和选中状态
+#[derive(Clone, Debug)]
+pub struct SidebarState {
+    /// 是否显示侧边栏
+    pub visible: bool,
+    /// 当前活动的面板
+    pub active_panel: SidebarPanel,
+    /// 文件树中的选中索引
+    pub file_tree_index: usize,
+    /// 会话列表中的选中索引
+    pub session_list_index: usize,
+    /// 文件树条目列表（路径 + 是否展开）
+    pub file_entries: Vec<FileEntry>,
+    /// 会话列表（会话 ID + 标题）
+    pub session_entries: Vec<SessionEntry>,
+}
+
+/// 文件树条目
+#[derive(Clone, Debug)]
+pub struct FileEntry {
+    /// 文件/目录名称
+    pub name: String,
+    /// 缩进层级
+    pub depth: usize,
+    /// 是否为目录
+    pub is_dir: bool,
+    /// 是否已展开（仅目录有效）
+    pub is_expanded: bool,
+}
+
+/// 会话条目
+#[derive(Clone, Debug)]
+pub struct SessionEntry {
+    /// 会话唯一标识
+    pub id: String,
+    /// 会话显示标题
+    pub title: String,
+    /// 最后更新时间
+    pub updated_at: DateTime<Utc>,
+    /// 是否为当前活动会话
+    pub is_active: bool,
+}
+
+impl SidebarState {
+    /// 创建默认的侧边栏状态
+    pub fn new() -> Self {
+        Self {
+            visible: true,
+            active_panel: SidebarPanel::FileTree,
+            file_tree_index: 0,
+            session_list_index: 0,
+            file_entries: Vec::new(),
+            session_entries: Vec::new(),
+        }
+    }
+
+    /// 切换侧边栏显示/隐藏
+    pub fn toggle(&mut self) {
+        self.visible = !self.visible;
+    }
+
+    /// 切换到下一个面板
+    pub fn next_panel(&mut self) {
+        self.active_panel = self.active_panel.next();
+    }
+}
+
+impl Default for SidebarState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 状态信息
 // ---------------------------------------------------------------------------
 
@@ -334,6 +636,12 @@ impl StatusInfo {
 /// `App` 是 TUI 应用的中心数据结构，包含所有需要在界面上展示和交互的状态。
 /// 它不直接进行渲染，而是由各个 UI 组件读取其状态来绘制界面。
 ///
+/// # 状态层次
+///
+/// - `mode` (AppMode): TUI 导航状态（普通/输入/命令/帮助）
+/// - `interaction_mode` (InteractionMode): 智能体工作策略（Normal/Plan/Autopilot/UltraWork）
+/// - `thinking_depth` (ThinkingDepth): AI 推理深度（关闭/浅层/中等/深度/极限）
+///
 /// # 使用示例
 ///
 /// ```rust
@@ -357,14 +665,21 @@ pub struct App {
     pub show_help: bool,
     /// 应用是否正在运行（设为 false 将退出主循环）
     pub is_running: bool,
-    /// 当前应用模式
+    /// 当前 TUI 导航模式
     pub mode: AppMode,
+    /// 当前交互模式（智能体工作策略）
+    pub interaction_mode: InteractionMode,
+    /// 当前思考深度
+    pub thinking_depth: ThinkingDepth,
+    /// 侧边栏状态
+    pub sidebar: SidebarState,
 }
 
 impl App {
     /// 创建一个新的应用实例
     ///
     /// 初始状态为输入模式，便于用户立即开始输入。
+    /// 默认交互模式为 Normal，思考深度为 Medium，侧边栏可见。
     ///
     /// # 参数
     /// - `model_name`: 当前使用的 AI 模型名称
@@ -377,6 +692,9 @@ impl App {
             show_help: false,
             is_running: true,
             mode: AppMode::Input,
+            interaction_mode: InteractionMode::default(),
+            thinking_depth: ThinkingDepth::default(),
+            sidebar: SidebarState::new(),
         }
     }
 
@@ -428,7 +746,11 @@ impl App {
     /// 处理键盘事件
     ///
     /// 根据当前应用模式分发键盘事件到对应的处理逻辑。
-    /// 返回 `AppAction` 指示上层需要执行的操作。
+    /// 全局快捷键（在任意模式下生效）：
+    /// - Ctrl+C: 退出应用
+    /// - Shift+Tab: 切换交互模式（Normal → Plan → Autopilot → UltraWork）
+    /// - Ctrl+L: 切换思考深度（关闭 → 浅层 → 中等 → 深度 → 极限）
+    /// - Ctrl+B: 切换侧边栏显示/隐藏
     ///
     /// # 参数
     /// - `event`: crossterm 键盘事件
@@ -445,6 +767,24 @@ impl App {
         if event.modifiers.contains(KeyModifiers::CONTROL) && event.code == KeyCode::Char('c') {
             self.is_running = false;
             return AppAction::Quit;
+        }
+
+        // Shift+Tab: 切换交互模式（全局快捷键）
+        if event.modifiers.contains(KeyModifiers::SHIFT) && event.code == KeyCode::BackTab {
+            self.interaction_mode = self.interaction_mode.next();
+            return AppAction::SwitchInteractionMode(self.interaction_mode.clone());
+        }
+
+        // Ctrl+L: 切换思考深度（全局快捷键）
+        if event.modifiers.contains(KeyModifiers::CONTROL) && event.code == KeyCode::Char('l') {
+            self.thinking_depth = self.thinking_depth.next();
+            return AppAction::SwitchThinkingDepth(self.thinking_depth.clone());
+        }
+
+        // Ctrl+B: 切换侧边栏（全局快捷键）
+        if event.modifiers.contains(KeyModifiers::CONTROL) && event.code == KeyCode::Char('b') {
+            self.sidebar.toggle();
+            return AppAction::ToggleSidebar;
         }
 
         // 根据当前模式分发事件处理
@@ -464,16 +804,9 @@ impl App {
     /// - `?`: 切换帮助面板
     /// - `Up` / `k`: 向上滚动
     /// - `Down` / `j`: 向下滚动
-    /// - `Ctrl+L`: 清除消息
     /// - `/`: 进入命令模式
+    /// - `Tab`: 切换侧边栏面板
     fn handle_normal_mode(&mut self, event: KeyEvent) -> AppAction {
-        // Ctrl+L 清除消息
-        if event.modifiers.contains(KeyModifiers::CONTROL) && event.code == KeyCode::Char('l') {
-            self.messages.clear();
-            self.scroll_offset = 0;
-            return AppAction::Clear;
-        }
-
         match event.code {
             // 进入输入模式
             KeyCode::Char('i') | KeyCode::Enter => {
@@ -516,6 +849,11 @@ impl App {
                 self.input.clear();
                 AppAction::None
             }
+            // Tab 切换侧边栏面板
+            KeyCode::Tab => {
+                self.sidebar.next_panel();
+                AppAction::None
+            }
             _ => AppAction::None,
         }
     }
@@ -524,20 +862,12 @@ impl App {
     ///
     /// 支持完整的文本编辑操作：
     /// - 字符输入、退格删除、光标移动
-    /// - `Enter`: 发送消息
+    /// - `Enter`: 发送消息（如果以 / 开头则作为斜杠命令处理）
     /// - `Escape`: 返回普通模式
     /// - `Up`/`Down`: 浏览历史记录
-    /// - `Ctrl+L`: 清除消息
     fn handle_input_mode(&mut self, event: KeyEvent) -> AppAction {
-        // Ctrl+L 清除消息
-        if event.modifiers.contains(KeyModifiers::CONTROL) && event.code == KeyCode::Char('l') {
-            self.messages.clear();
-            self.scroll_offset = 0;
-            return AppAction::Clear;
-        }
-
         match event.code {
-            // 发送消息
+            // 发送消息或执行斜杠命令
             KeyCode::Enter => {
                 let text = self.input.buffer.trim().to_string();
                 if text.is_empty() {
@@ -547,7 +877,16 @@ impl App {
                 self.input.push_history();
                 // 清空输入缓冲区
                 self.input.clear();
-                AppAction::SendMessage(text)
+
+                // 检测斜杠命令（以 / 开头）
+                if let Some(cmd_text) = text.strip_prefix('/') {
+                    let parts: Vec<&str> = cmd_text.splitn(2, char::is_whitespace).collect();
+                    let name = parts[0].to_string();
+                    let args = parts.get(1).unwrap_or(&"").trim().to_string();
+                    AppAction::SlashCommand { name, args }
+                } else {
+                    AppAction::SendMessage(text)
+                }
             }
             // 返回普通模式
             KeyCode::Esc => {
@@ -606,7 +945,7 @@ impl App {
 
     /// 命令模式下的键盘事件处理
     ///
-    /// 支持简单的命令输入：
+    /// 支持斜杠命令和简单命令：
     /// - `Enter`: 执行命令
     /// - `Escape`: 取消并返回普通模式
     /// - 字符输入：追加到命令缓冲区
@@ -614,11 +953,20 @@ impl App {
         match event.code {
             // 执行命令
             KeyCode::Enter => {
-                let cmd = self.input.buffer.trim().to_lowercase();
+                let cmd = self.input.buffer.trim().to_string();
                 self.input.clear();
-                self.mode = AppMode::Normal;
+                self.mode = AppMode::Input;
 
-                match cmd.as_str() {
+                if cmd.is_empty() {
+                    return AppAction::None;
+                }
+
+                // 解析命令名和参数
+                let parts: Vec<&str> = cmd.splitn(2, char::is_whitespace).collect();
+                let cmd_name = parts[0].to_lowercase();
+                let cmd_args = parts.get(1).unwrap_or(&"").trim().to_string();
+
+                match cmd_name.as_str() {
                     "q" | "quit" | "exit" => {
                         self.is_running = false;
                         AppAction::Quit
@@ -633,21 +981,25 @@ impl App {
                         self.mode = AppMode::Help;
                         AppAction::None
                     }
-                    _ => AppAction::None,
+                    // 所有其他命令作为斜杠命令转发
+                    _ => AppAction::SlashCommand {
+                        name: cmd_name,
+                        args: cmd_args,
+                    },
                 }
             }
             // 取消命令
             KeyCode::Esc => {
                 self.input.clear();
-                self.mode = AppMode::Normal;
+                self.mode = AppMode::Input;
                 AppAction::None
             }
             // 退格删除
             KeyCode::Backspace => {
                 self.input.delete_char_before_cursor();
-                // 如果命令缓冲区清空，自动返回普通模式
+                // 如果命令缓冲区清空，自动返回输入模式
                 if self.input.buffer.is_empty() {
-                    self.mode = AppMode::Normal;
+                    self.mode = AppMode::Input;
                 }
                 AppAction::None
             }
@@ -748,6 +1100,9 @@ mod tests {
         assert_eq!(app.scroll_offset, 0);
         assert!(!app.show_help);
         assert_eq!(app.status.model_name, "gpt-4");
+        assert_eq!(app.interaction_mode, InteractionMode::Normal);
+        assert_eq!(app.thinking_depth, ThinkingDepth::Medium);
+        assert!(app.sidebar.visible);
     }
 
     #[test]
@@ -829,17 +1184,27 @@ mod tests {
     }
 
     #[test]
-    fn 测试ctrl_l清除消息() {
+    fn 测试ctrl_l切换思考深度() {
         let mut app = App::new("gpt-4");
-        app.add_message(Role::User, "test");
-        assert_eq!(app.message_count(), 1);
+        assert_eq!(app.thinking_depth, ThinkingDepth::Medium);
 
-        // 在输入模式下按 Ctrl+L
-        app.mode = AppMode::Input;
+        // 按 Ctrl+L 切换到 Deep
         let action =
             app.handle_key_event(key_press_with_mod(KeyCode::Char('l'), KeyModifiers::CONTROL));
-        assert_eq!(action, AppAction::Clear);
-        assert!(app.messages.is_empty());
+        assert_eq!(action, AppAction::SwitchThinkingDepth(ThinkingDepth::Deep));
+        assert_eq!(app.thinking_depth, ThinkingDepth::Deep);
+
+        // 再按切换到 Maximum
+        let action =
+            app.handle_key_event(key_press_with_mod(KeyCode::Char('l'), KeyModifiers::CONTROL));
+        assert_eq!(action, AppAction::SwitchThinkingDepth(ThinkingDepth::Maximum));
+        assert_eq!(app.thinking_depth, ThinkingDepth::Maximum);
+
+        // 再按循环回 Off
+        let action =
+            app.handle_key_event(key_press_with_mod(KeyCode::Char('l'), KeyModifiers::CONTROL));
+        assert_eq!(action, AppAction::SwitchThinkingDepth(ThinkingDepth::Off));
+        assert_eq!(app.thinking_depth, ThinkingDepth::Off);
     }
 
     #[test]
@@ -959,6 +1324,193 @@ mod tests {
         app.handle_key_event(key_press(KeyCode::Char('q')));
         let action = app.handle_key_event(key_press(KeyCode::Enter));
         assert_eq!(action, AppAction::Quit);
+    }
+
+    // -----------------------------------------------------------------------
+    // 新功能测试：交互模式切换
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn 测试shift_tab切换交互模式() {
+        let mut app = App::new("gpt-4");
+        assert_eq!(app.interaction_mode, InteractionMode::Normal);
+
+        // Shift+Tab 切换到 Plan
+        let action = app.handle_key_event(key_press_with_mod(
+            KeyCode::BackTab,
+            KeyModifiers::SHIFT,
+        ));
+        assert_eq!(
+            action,
+            AppAction::SwitchInteractionMode(InteractionMode::Plan)
+        );
+        assert_eq!(app.interaction_mode, InteractionMode::Plan);
+
+        // 再次切换到 Autopilot
+        app.handle_key_event(key_press_with_mod(
+            KeyCode::BackTab,
+            KeyModifiers::SHIFT,
+        ));
+        assert_eq!(app.interaction_mode, InteractionMode::Autopilot);
+
+        // 再次切换到 UltraWork
+        app.handle_key_event(key_press_with_mod(
+            KeyCode::BackTab,
+            KeyModifiers::SHIFT,
+        ));
+        assert_eq!(app.interaction_mode, InteractionMode::UltraWork);
+
+        // 循环回 Normal
+        app.handle_key_event(key_press_with_mod(
+            KeyCode::BackTab,
+            KeyModifiers::SHIFT,
+        ));
+        assert_eq!(app.interaction_mode, InteractionMode::Normal);
+    }
+
+    #[test]
+    fn 测试交互模式在所有app模式下生效() {
+        // Shift+Tab 应该在任何 AppMode 下都能切换交互模式
+        for start_mode in [AppMode::Normal, AppMode::Input, AppMode::Command] {
+            let mut app = App::new("gpt-4");
+            app.mode = start_mode;
+            app.handle_key_event(key_press_with_mod(
+                KeyCode::BackTab,
+                KeyModifiers::SHIFT,
+            ));
+            assert_eq!(app.interaction_mode, InteractionMode::Plan);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 新功能测试：思考深度
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn 测试思考深度完整循环() {
+        let mut depth = ThinkingDepth::Off;
+        let expected = [
+            ThinkingDepth::Light,
+            ThinkingDepth::Medium,
+            ThinkingDepth::Deep,
+            ThinkingDepth::Maximum,
+            ThinkingDepth::Off,
+        ];
+        for expected_next in &expected {
+            depth = depth.next();
+            assert_eq!(&depth, expected_next);
+        }
+    }
+
+    #[test]
+    fn 测试思考深度字符串解析() {
+        assert_eq!(ThinkingDepth::from_str_name("off"), Some(ThinkingDepth::Off));
+        assert_eq!(ThinkingDepth::from_str_name("light"), Some(ThinkingDepth::Light));
+        assert_eq!(ThinkingDepth::from_str_name("medium"), Some(ThinkingDepth::Medium));
+        assert_eq!(ThinkingDepth::from_str_name("deep"), Some(ThinkingDepth::Deep));
+        assert_eq!(ThinkingDepth::from_str_name("maximum"), Some(ThinkingDepth::Maximum));
+        assert_eq!(ThinkingDepth::from_str_name("max"), Some(ThinkingDepth::Maximum));
+        assert_eq!(ThinkingDepth::from_str_name("invalid"), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // 新功能测试：斜杠命令
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn 测试输入模式下的斜杠命令() {
+        let mut app = App::new("gpt-4");
+        app.mode = AppMode::Input;
+
+        // 输入 "/model gpt-5"
+        for ch in "/model gpt-5".chars() {
+            app.handle_key_event(key_press(KeyCode::Char(ch)));
+        }
+
+        let action = app.handle_key_event(key_press(KeyCode::Enter));
+        assert_eq!(
+            action,
+            AppAction::SlashCommand {
+                name: "model".to_string(),
+                args: "gpt-5".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn 测试斜杠命令无参数() {
+        let mut app = App::new("gpt-4");
+        app.mode = AppMode::Input;
+
+        for ch in "/help".chars() {
+            app.handle_key_event(key_press(KeyCode::Char(ch)));
+        }
+
+        let action = app.handle_key_event(key_press(KeyCode::Enter));
+        assert_eq!(
+            action,
+            AppAction::SlashCommand {
+                name: "help".to_string(),
+                args: String::new(),
+            }
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // 新功能测试：侧边栏
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn 测试ctrl_b切换侧边栏() {
+        let mut app = App::new("gpt-4");
+        assert!(app.sidebar.visible);
+
+        let action =
+            app.handle_key_event(key_press_with_mod(KeyCode::Char('b'), KeyModifiers::CONTROL));
+        assert_eq!(action, AppAction::ToggleSidebar);
+        assert!(!app.sidebar.visible);
+
+        app.handle_key_event(key_press_with_mod(KeyCode::Char('b'), KeyModifiers::CONTROL));
+        assert!(app.sidebar.visible);
+    }
+
+    #[test]
+    fn 测试侧边栏面板切换() {
+        let mut sidebar = SidebarState::new();
+        assert_eq!(sidebar.active_panel, SidebarPanel::FileTree);
+
+        sidebar.next_panel();
+        assert_eq!(sidebar.active_panel, SidebarPanel::AgentStatus);
+
+        sidebar.next_panel();
+        assert_eq!(sidebar.active_panel, SidebarPanel::SessionList);
+
+        sidebar.next_panel();
+        assert_eq!(sidebar.active_panel, SidebarPanel::FileTree);
+    }
+
+    // -----------------------------------------------------------------------
+    // 新功能测试：交互模式属性
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn 测试交互模式属性() {
+        assert_eq!(InteractionMode::Normal.label(), "Normal");
+        assert_eq!(InteractionMode::Plan.label(), "Plan");
+        assert_eq!(InteractionMode::Autopilot.label(), "Autopilot");
+        assert_eq!(InteractionMode::UltraWork.label(), "UltraWork");
+        assert_eq!(InteractionMode::all().len(), 4);
+    }
+
+    #[test]
+    fn 测试交互模式字符串解析() {
+        assert_eq!(InteractionMode::from_str_name("normal"), Some(InteractionMode::Normal));
+        assert_eq!(InteractionMode::from_str_name("plan"), Some(InteractionMode::Plan));
+        assert_eq!(InteractionMode::from_str_name("autopilot"), Some(InteractionMode::Autopilot));
+        assert_eq!(InteractionMode::from_str_name("auto"), Some(InteractionMode::Autopilot));
+        assert_eq!(InteractionMode::from_str_name("ultrawork"), Some(InteractionMode::UltraWork));
+        assert_eq!(InteractionMode::from_str_name("ultra"), Some(InteractionMode::UltraWork));
+        assert_eq!(InteractionMode::from_str_name("invalid"), None);
     }
 
     #[test]

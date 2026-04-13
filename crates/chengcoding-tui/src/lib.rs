@@ -35,7 +35,10 @@ pub mod components;
 // ---------------------------------------------------------------------------
 
 /// 重导出应用核心类型
-pub use app::{App, AppAction, AppMode, DisplayMessage, InputState, StatusInfo};
+pub use app::{
+    App, AppAction, AppMode, DisplayMessage, FileEntry, InputState, InteractionMode,
+    SessionEntry, SidebarPanel, SidebarState, StatusInfo, ThinkingDepth,
+};
 
 /// 重导出 Markdown 渲染器
 pub use markdown::MarkdownRenderer;

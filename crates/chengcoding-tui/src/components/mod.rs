@@ -25,9 +25,17 @@ pub mod status_bar;
 /// 会话选择器组件 - 历史会话列表和选择
 pub mod session_selector;
 
+/// 侧边栏组件 - 文件树、智能体状态、会话列表
+pub mod sidebar;
+
+/// 主布局组件 - 协调所有子组件的渲染
+pub mod layout;
+
 // 便捷的重导出
 pub use input::InputView;
+pub use layout::MainLayout;
 pub use session::SessionView;
 pub use session_selector::SessionSelector;
+pub use sidebar::SidebarView;
 pub use status::StatusBar;
 pub use status_bar::EnhancedStatusBar;

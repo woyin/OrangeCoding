@@ -39,6 +39,8 @@ uuid = { workspace = true }
 base64 = { workspace = true }
 dashmap = { workspace = true }
 dirs = "5.0"
+ratatui = { workspace = true }
+crossterm = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
