@@ -344,13 +344,13 @@ impl ConfigManager {
         })
     }
 
-    /// 解析 XDG 配置目录路径
+    /// 解析配置目录路径
     ///
-    /// 优先使用 `dirs::config_dir()`（通常为 ~/.config），
-    /// 然后拼接 "chenagent" 子目录。
+    /// 始终使用 `~/.config/chenagent` 作为配置目录，
+    /// 遵循 XDG 规范，不使用 macOS 的 `~/Library/Application Support`。
     fn resolve_config_dir() -> chengcoding_core::Result<PathBuf> {
-        let base = dirs::config_dir().ok_or_else(|| CeairError::config("无法确定系统配置目录"))?;
-        Ok(base.join("chenagent"))
+        let home = dirs::home_dir().ok_or_else(|| CeairError::config("无法确定用户主目录"))?;
+        Ok(home.join(".config").join("chenagent"))
     }
 
     /// 从磁盘加载配置文件

@@ -111,11 +111,12 @@ impl OAuthTokenStore {
 
     /// 返回默认的令牌存储路径
     ///
-    /// 默认路径为 `~/.config/opencode/mcp-oauth.json`。
+    /// 默认路径为 `~/.config/chenagent/mcp-oauth.json`。
     pub fn default_path() -> PathBuf {
-        dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from(".config"))
-            .join("opencode")
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".config")
+            .join("chenagent")
             .join("mcp-oauth.json")
     }
 }
@@ -565,7 +566,7 @@ mod tests {
     fn 测试默认存储路径() {
         let path = OAuthTokenStore::default_path();
         let path_str = path.to_string_lossy();
-        assert!(path_str.contains("opencode"));
+        assert!(path_str.contains("chenagent"));
         assert!(path_str.ends_with("mcp-oauth.json"));
     }
 

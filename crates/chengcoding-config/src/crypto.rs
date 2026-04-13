@@ -100,9 +100,8 @@ impl CryptoStore {
     ///
     /// 存储文件位于 ~/.config/chenagent/secrets.json
     pub fn default_store() -> chengcoding_core::Result<Self> {
-        let config_dir =
-            dirs::config_dir().ok_or_else(|| CeairError::config("无法确定系统配置目录"))?;
-        let store_path = config_dir.join("chenagent").join("secrets.json");
+        let home = dirs::home_dir().ok_or_else(|| CeairError::config("无法确定用户主目录"))?;
+        let store_path = home.join(".config").join("chenagent").join("secrets.json");
         Ok(Self::new(store_path))
     }
 
