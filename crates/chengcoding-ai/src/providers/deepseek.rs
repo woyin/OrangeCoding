@@ -203,18 +203,12 @@ impl DeepSeekProvider {
         response
             .get("usage")
             .map(|u| TokenUsage {
-                prompt_tokens: u
-                    .get("prompt_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32,
+                prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                 completion_tokens: u
                     .get("completion_tokens")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0) as u32,
-                total_tokens: u
-                    .get("total_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32,
+                total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
             })
             .unwrap_or_default()
     }
@@ -312,9 +306,7 @@ impl AiProvider for DeepSeekProvider {
 
                         events
                             .into_iter()
-                            .map(|sse_event| {
-                                SseParser::parse_openai_stream_event(&sse_event.data)
-                            })
+                            .map(|sse_event| SseParser::parse_openai_stream_event(&sse_event.data))
                             .collect()
                     }
                     Err(e) => {
@@ -615,7 +607,13 @@ mod tests {
     fn test_handle_error_response_generic() {
         // 验证通用错误处理
         let err = DeepSeekProvider::handle_error_response(500, "Internal server error");
-        assert!(matches!(err, AiError::Api { status_code: 500, .. }));
+        assert!(matches!(
+            err,
+            AiError::Api {
+                status_code: 500,
+                ..
+            }
+        ));
     }
 
     #[test]

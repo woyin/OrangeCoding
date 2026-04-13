@@ -45,9 +45,7 @@ pub fn build_router(
         .route("/workers/:id/revoke", post(worker_api::revoke_worker))
         .with_state(registry);
 
-    let api_routes = Router::new()
-        .merge(session_routes)
-        .merge(worker_routes);
+    let api_routes = Router::new().merge(session_routes).merge(worker_routes);
 
     let auth_clone = auth.clone();
     let authed_api = api_routes.layer(middleware::from_fn(move |req, next| {
@@ -62,10 +60,7 @@ pub fn build_router(
 
     Router::new()
         .nest("/api/v1", authed_api)
-        .route(
-            "/api/v1/ws",
-            get(ws::ws_handler).with_state(ws_state),
-        )
+        .route("/api/v1/ws", get(ws::ws_handler).with_state(ws_state))
         .route("/health", get(health))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
@@ -75,11 +70,7 @@ async fn health() -> &'static str {
     "ok"
 }
 
-async fn auth_middleware(
-    auth: LocalAuth,
-    req: Request,
-    next: Next,
-) -> Response {
+async fn auth_middleware(auth: LocalAuth, req: Request, next: Next) -> Response {
     let auth_header = req
         .headers()
         .get("authorization")

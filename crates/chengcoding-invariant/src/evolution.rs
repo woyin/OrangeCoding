@@ -196,10 +196,7 @@ impl EvolutionEngine {
                 } => {
                     // 测试失败归入 Context 类别
                     let desc = format!("测试失败: {} — {}", test_name, output);
-                    if let Some(pattern) = self
-                        .patterns
-                        .iter_mut()
-                        .find(|p| p.description == desc)
+                    if let Some(pattern) = self.patterns.iter_mut().find(|p| p.description == desc)
                     {
                         pattern.frequency += 1;
                         pattern.last_seen = now;
@@ -222,10 +219,7 @@ impl EvolutionEngine {
                     context,
                 } => {
                     let desc = format!("运行时违规: {} — {}", guard_action, context);
-                    if let Some(pattern) = self
-                        .patterns
-                        .iter_mut()
-                        .find(|p| p.description == desc)
+                    if let Some(pattern) = self.patterns.iter_mut().find(|p| p.description == desc)
                     {
                         pattern.frequency += 1;
                         pattern.last_seen = now;
@@ -268,10 +262,7 @@ impl EvolutionEngine {
 
         // 如果已有关联策略则不重复生成
         if self.strategies.iter().any(|s| s.pattern_id == pattern_id) {
-            return self
-                .strategies
-                .iter()
-                .find(|s| s.pattern_id == pattern_id);
+            return self.strategies.iter().find(|s| s.pattern_id == pattern_id);
         }
 
         let (strategy_type, description, expected) =
@@ -383,10 +374,7 @@ impl EvolutionEngine {
         md.push_str("## 模式列表\n\n");
 
         for pattern in &self.patterns {
-            md.push_str(&format!(
-                "### {} — {}\n",
-                pattern.id, pattern.description
-            ));
+            md.push_str(&format!("### {} — {}\n", pattern.id, pattern.description));
             md.push_str(&format!("- **类别**: {:?}\n", pattern.category));
             md.push_str(&format!("- **频率**: {} 次\n", pattern.frequency));
             md.push_str(&format!(
@@ -422,10 +410,7 @@ impl EvolutionEngine {
         md.push_str("## 策略列表\n\n");
 
         for strategy in &self.strategies {
-            md.push_str(&format!(
-                "### {} — {}\n",
-                strategy.id, strategy.description
-            ));
+            md.push_str(&format!("### {} — {}\n", strategy.id, strategy.description));
             md.push_str(&format!("- **类型**: {:?}\n", strategy.strategy_type));
             md.push_str(&format!("- **关联模式**: {}\n", strategy.pattern_id));
             md.push_str(&format!("- **状态**: {:?}\n", strategy.status));
@@ -609,7 +594,10 @@ mod tests {
 
         assert_eq!(engine.patterns().len(), 2);
         assert_eq!(engine.patterns()[0].category, InvariantCategory::Auth);
-        assert_eq!(engine.patterns()[1].category, InvariantCategory::ToolPermission);
+        assert_eq!(
+            engine.patterns()[1].category,
+            InvariantCategory::ToolPermission
+        );
         assert_eq!(engine.patterns()[0].frequency, 1);
     }
 
@@ -639,7 +627,10 @@ mod tests {
         // TestFailure → Context
         assert_eq!(engine.patterns()[1].category, InvariantCategory::Context);
         // RuntimeViolation → ToolPermission
-        assert_eq!(engine.patterns()[2].category, InvariantCategory::ToolPermission);
+        assert_eq!(
+            engine.patterns()[2].category,
+            InvariantCategory::ToolPermission
+        );
     }
 
     #[test]

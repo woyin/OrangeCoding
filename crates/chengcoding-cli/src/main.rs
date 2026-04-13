@@ -73,8 +73,7 @@ fn init_tracing(level: &str, json_format: bool) -> Result<()> {
     use tracing_subscriber::EnvFilter;
 
     // 环境变量优先，否则使用命令行参数指定的级别
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(level));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
 
     if json_format {
         // JSON 格式日志，适合日志采集和分析
@@ -111,15 +110,16 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // 初始化日志系统
-    init_tracing(&cli.log_level, cli.json_log)
-        .context("日志系统初始化失败")?;
+    init_tracing(&cli.log_level, cli.json_log).context("日志系统初始化失败")?;
 
     info!("ChengCoding CLI 启动中...");
 
     // 加载配置
     let config_manager = chengcoding_config::ConfigManager::new()
         .map_err(|e| anyhow::anyhow!("配置管理器初始化失败: {}", e))?;
-    let config = config_manager.load().await
+    let config = config_manager
+        .load()
+        .await
         .map_err(|e| anyhow::anyhow!("配置加载失败: {}", e))?;
 
     info!("配置加载完成，AI 提供商: {}", config.ai.provider);
@@ -129,7 +129,9 @@ async fn main() -> Result<()> {
     tokio::pin!(shutdown_signal);
 
     // 根据子命令分发执行（未指定子命令时默认为 launch）
-    let command = cli.command.unwrap_or(Commands::Launch(commands::launch::LaunchArgs::default()));
+    let command = cli
+        .command
+        .unwrap_or(Commands::Launch(commands::launch::LaunchArgs::default()));
     let result = tokio::select! {
         // 正常执行子命令
         result = dispatch_command(command, config, config_manager) => result,
@@ -163,18 +165,10 @@ async fn dispatch_command(
     config_manager: chengcoding_config::ConfigManager,
 ) -> Result<()> {
     match command {
-        Commands::Launch(args) => {
-            commands::launch::execute(args, config).await
-        }
-        Commands::Config(args) => {
-            commands::config::execute(args, config_manager).await
-        }
-        Commands::Status(args) => {
-            commands::status::execute(args, config).await
-        }
-        Commands::Serve(args) => {
-            commands::serve::execute(args, config).await
-        }
+        Commands::Launch(args) => commands::launch::execute(args, config).await,
+        Commands::Config(args) => commands::config::execute(args, config_manager).await,
+        Commands::Status(args) => commands::status::execute(args, config).await,
+        Commands::Serve(args) => commands::serve::execute(args, config).await,
         Commands::Version => {
             print_version();
             Ok(())

@@ -251,8 +251,7 @@ mod tests {
     #[test]
     fn test_parse_model_id_with_thinking() {
         // 验证带思考级别的模型 ID 解析
-        let (provider, model, thinking) =
-            ModelRoleRouter::parse_model_id("claude-sonnet-4:high");
+        let (provider, model, thinking) = ModelRoleRouter::parse_model_id("claude-sonnet-4:high");
         assert!(provider.is_none());
         assert_eq!(model, "claude-sonnet-4");
         assert_eq!(thinking.unwrap(), ThinkingLevel::High);
@@ -281,10 +280,7 @@ mod tests {
             ],
         );
 
-        assert_eq!(
-            router.next_fallback(&ModelRole::Default, 0),
-            Some("gpt-4o")
-        );
+        assert_eq!(router.next_fallback(&ModelRole::Default, 0), Some("gpt-4o"));
         assert_eq!(
             router.next_fallback(&ModelRole::Default, 1),
             Some("gpt-4-turbo")

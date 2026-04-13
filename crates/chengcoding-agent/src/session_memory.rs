@@ -349,11 +349,7 @@ mod tests {
     #[test]
     fn test_custom_kind() {
         let mut mem = SessionMemory::new(100);
-        mem.add(
-            SessionMemoryKind::Custom("bookmark".into()),
-            "重要位置",
-            0,
-        );
+        mem.add(SessionMemoryKind::Custom("bookmark".into()), "重要位置", 0);
 
         let custom = mem.by_kind(&SessionMemoryKind::Custom("bookmark".into()));
         assert_eq!(custom.len(), 1);

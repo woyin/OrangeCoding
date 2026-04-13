@@ -63,9 +63,9 @@ impl BlobStore {
 
         // 创建子目录
         if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                SessionError::Io(format!("无法创建 Blob 目录 {:?}: {}", parent, e))
-            })?;
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| SessionError::Io(format!("无法创建 Blob 目录 {:?}: {}", parent, e)))?;
         }
 
         tokio::fs::write(&path, data)
@@ -100,30 +100,34 @@ impl BlobStore {
         }
 
         // 遍历子目录
-        let mut dir = tokio::fs::read_dir(&self.blob_dir).await.map_err(|e| {
-            SessionError::Io(format!("无法读取 Blob 目录: {}", e))
-        })?;
+        let mut dir = tokio::fs::read_dir(&self.blob_dir)
+            .await
+            .map_err(|e| SessionError::Io(format!("无法读取 Blob 目录: {}", e)))?;
 
-        while let Some(prefix_entry) = dir.next_entry().await.map_err(|e| {
-            SessionError::Io(format!("读取目录条目失败: {}", e))
-        })? {
+        while let Some(prefix_entry) = dir
+            .next_entry()
+            .await
+            .map_err(|e| SessionError::Io(format!("读取目录条目失败: {}", e)))?
+        {
             let prefix_path = prefix_entry.path();
             if !prefix_path.is_dir() {
                 continue;
             }
 
-            let mut sub_dir = tokio::fs::read_dir(&prefix_path).await.map_err(|e| {
-                SessionError::Io(format!("无法读取子目录: {}", e))
-            })?;
+            let mut sub_dir = tokio::fs::read_dir(&prefix_path)
+                .await
+                .map_err(|e| SessionError::Io(format!("无法读取子目录: {}", e)))?;
 
-            while let Some(blob_entry) = sub_dir.next_entry().await.map_err(|e| {
-                SessionError::Io(format!("读取 Blob 条目失败: {}", e))
-            })? {
+            while let Some(blob_entry) = sub_dir
+                .next_entry()
+                .await
+                .map_err(|e| SessionError::Io(format!("读取 Blob 条目失败: {}", e)))?
+            {
                 let file_name = blob_entry.file_name().to_string_lossy().to_string();
                 if !referenced.contains(&file_name) {
-                    tokio::fs::remove_file(blob_entry.path()).await.map_err(|e| {
-                        SessionError::Io(format!("删除 Blob 失败: {}", e))
-                    })?;
+                    tokio::fs::remove_file(blob_entry.path())
+                        .await
+                        .map_err(|e| SessionError::Io(format!("删除 Blob 失败: {}", e)))?;
                     deleted += 1;
                 }
             }
@@ -193,7 +197,11 @@ mod tests {
         let sha = store.store(b"test data").await.unwrap();
 
         assert!(store.exists(&sha).await);
-        assert!(!store.exists("0000000000000000000000000000000000000000000000000000000000000000").await);
+        assert!(
+            !store
+                .exists("0000000000000000000000000000000000000000000000000000000000000000")
+                .await
+        );
     }
 
     #[tokio::test]

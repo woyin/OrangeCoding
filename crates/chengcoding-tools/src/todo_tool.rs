@@ -42,10 +42,7 @@ impl TaskStatus {
             "in_progress" => Ok(TaskStatus::InProgress),
             "completed" => Ok(TaskStatus::Completed),
             "abandoned" => Ok(TaskStatus::Abandoned),
-            other => Err(ToolError::InvalidParams(format!(
-                "未知任务状态: {}",
-                other
-            ))),
+            other => Err(ToolError::InvalidParams(format!("未知任务状态: {}", other))),
         }
     }
 
@@ -225,9 +222,8 @@ impl TodoTool {
             .get("phases")
             .ok_or_else(|| ToolError::InvalidParams("replace 操作需要 phases 参数".to_string()))?;
 
-        let phases: Vec<Phase> = serde_json::from_value(phases_val.clone()).map_err(|e| {
-            ToolError::InvalidParams(format!("phases 参数格式错误: {}", e))
-        })?;
+        let phases: Vec<Phase> = serde_json::from_value(phases_val.clone())
+            .map_err(|e| ToolError::InvalidParams(format!("phases 参数格式错误: {}", e)))?;
 
         state.phases = phases;
 
@@ -244,9 +240,7 @@ impl TodoTool {
         let name = params
             .get("name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ToolError::InvalidParams("add_phase 操作需要 name 参数".to_string())
-            })?;
+            .ok_or_else(|| ToolError::InvalidParams("add_phase 操作需要 name 参数".to_string()))?;
 
         let tasks: Vec<TodoTask> = if let Some(tasks_val) = params.get("tasks") {
             serde_json::from_value(tasks_val.clone())
@@ -268,13 +262,11 @@ impl TodoTool {
         let phase_name = params
             .get("phase")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ToolError::InvalidParams("add_task 操作需要 phase 参数".to_string())
-            })?;
+            .ok_or_else(|| ToolError::InvalidParams("add_task 操作需要 phase 参数".to_string()))?;
 
-        let task_val = params.get("task").ok_or_else(|| {
-            ToolError::InvalidParams("add_task 操作需要 task 参数".to_string())
-        })?;
+        let task_val = params
+            .get("task")
+            .ok_or_else(|| ToolError::InvalidParams("add_task 操作需要 task 参数".to_string()))?;
 
         let id = task_val
             .get("id")
@@ -286,9 +278,9 @@ impl TodoTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidParams("task 需要 title 字段".to_string()))?;
 
-        let phase_idx = state.find_phase(phase_name).ok_or_else(|| {
-            ToolError::ExecutionError(format!("阶段不存在: {}", phase_name))
-        })?;
+        let phase_idx = state
+            .find_phase(phase_name)
+            .ok_or_else(|| ToolError::ExecutionError(format!("阶段不存在: {}", phase_name)))?;
 
         state.phases[phase_idx].tasks.push(TodoTask {
             id: id.to_string(),
@@ -304,22 +296,18 @@ impl TodoTool {
         let task_id = params
             .get("task_id")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ToolError::InvalidParams("update 操作需要 task_id 参数".to_string())
-            })?;
+            .ok_or_else(|| ToolError::InvalidParams("update 操作需要 task_id 参数".to_string()))?;
 
         let status_str = params
             .get("status")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ToolError::InvalidParams("update 操作需要 status 参数".to_string())
-            })?;
+            .ok_or_else(|| ToolError::InvalidParams("update 操作需要 status 参数".to_string()))?;
 
         let new_status = TaskStatus::from_str(status_str)?;
 
-        let (pi, ti) = state.find_task(task_id).ok_or_else(|| {
-            ToolError::ExecutionError(format!("任务不存在: {}", task_id))
-        })?;
+        let (pi, ti) = state
+            .find_task(task_id)
+            .ok_or_else(|| ToolError::ExecutionError(format!("任务不存在: {}", task_id)))?;
 
         state.phases[pi].tasks[ti].status = new_status;
 
@@ -335,9 +323,9 @@ impl TodoTool {
                 ToolError::InvalidParams("remove_task 操作需要 task_id 参数".to_string())
             })?;
 
-        let (pi, ti) = state.find_task(task_id).ok_or_else(|| {
-            ToolError::ExecutionError(format!("任务不存在: {}", task_id))
-        })?;
+        let (pi, ti) = state
+            .find_task(task_id)
+            .ok_or_else(|| ToolError::ExecutionError(format!("任务不存在: {}", task_id)))?;
 
         state.phases[pi].tasks.remove(ti);
 
@@ -443,10 +431,7 @@ impl Tool for TodoTool {
             "update" => Self::handle_update(&mut state, &params)?,
             "remove_task" => Self::handle_remove_task(&mut state, &params)?,
             other => {
-                return Err(ToolError::InvalidParams(format!(
-                    "未知操作: {}",
-                    other
-                )));
+                return Err(ToolError::InvalidParams(format!("未知操作: {}", other)));
             }
         }
 

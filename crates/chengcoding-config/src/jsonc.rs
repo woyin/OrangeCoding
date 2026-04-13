@@ -49,20 +49,18 @@ pub fn strip_jsonc(input: &str) -> String {
         let ch = chars[i];
 
         match state {
-            ParserState::Normal => {
-                match ch {
-                    '"' => {
-                        result.push(ch);
-                        state = ParserState::InString;
-                    }
-                    '/' => {
-                        state = ParserState::MaybeComment;
-                    }
-                    _ => {
-                        result.push(ch);
-                    }
+            ParserState::Normal => match ch {
+                '"' => {
+                    result.push(ch);
+                    state = ParserState::InString;
                 }
-            }
+                '/' => {
+                    state = ParserState::MaybeComment;
+                }
+                _ => {
+                    result.push(ch);
+                }
+            },
 
             ParserState::InString => {
                 result.push(ch);

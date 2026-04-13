@@ -97,7 +97,11 @@ async fn inv_auth_02_no_auth_header_returns_401() {
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "无 header 应返回 401");
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "无 header 应返回 401"
+    );
 }
 
 #[tokio::test]
@@ -109,7 +113,11 @@ async fn inv_auth_02_wrong_token_returns_401() {
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "错误 token 应返回 401");
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "错误 token 应返回 401"
+    );
 }
 
 #[tokio::test]
@@ -120,7 +128,11 @@ async fn inv_auth_02_health_no_auth_returns_200() {
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::OK, "/health 无需 token 应返回 200");
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "/health 无需 token 应返回 200"
+    );
 }
 
 // =========================================================================
@@ -161,12 +173,7 @@ fn inv_auth_03_no_token_in_log_macros() {
             }
             for pattern in &dangerous_patterns {
                 if trimmed.contains(pattern) {
-                    violations.push(format!(
-                        "{}:{}: {}",
-                        path.display(),
-                        line_no + 1,
-                        trimmed
-                    ));
+                    violations.push(format!("{}:{}: {}", path.display(), line_no + 1, trimmed));
                 }
             }
         }

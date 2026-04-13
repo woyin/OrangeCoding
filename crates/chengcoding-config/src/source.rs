@@ -113,7 +113,10 @@ impl ConfigLayer {
     /// 从 CeairConfig 构建配置层
     ///
     /// 将结构体扁平化为点分隔的键值对。
-    pub fn from_config(source: ConfigSource, config: &CeairConfig) -> chengcoding_core::Result<Self> {
+    pub fn from_config(
+        source: ConfigSource,
+        config: &CeairConfig,
+    ) -> chengcoding_core::Result<Self> {
         let mut layer = Self::new(source);
 
         // 将配置序列化为 TOML 值，然后扁平化
@@ -374,10 +377,7 @@ mod tests {
 
         // 设置值
         layer.set("ai.provider", toml::Value::String("openai".to_string()));
-        layer.set(
-            "agent.max_iterations",
-            toml::Value::Integer(100),
-        );
+        layer.set("agent.max_iterations", toml::Value::Integer(100));
 
         // 验证值
         assert_eq!(layer.len(), 2);
@@ -388,7 +388,11 @@ mod tests {
             "openai"
         );
         assert_eq!(
-            layer.get("agent.max_iterations").unwrap().as_integer().unwrap(),
+            layer
+                .get("agent.max_iterations")
+                .unwrap()
+                .as_integer()
+                .unwrap(),
             100
         );
 
@@ -408,8 +412,7 @@ mod tests {
         default_layer.set("ai.model", toml::Value::String("gpt-3.5".to_string()));
 
         // 文件层（中等优先级）
-        let mut file_layer =
-            ConfigLayer::new(ConfigSource::File(PathBuf::from("config.toml")));
+        let mut file_layer = ConfigLayer::new(ConfigSource::File(PathBuf::from("config.toml")));
         file_layer.set("ai.model", toml::Value::String("gpt-4".to_string()));
 
         // 环境变量层（高优先级）
@@ -462,7 +465,10 @@ max_iterations = 50
             (flat.get("ai.temperature").unwrap().as_float().unwrap() - 0.7).abs() < f64::EPSILON
         );
         assert_eq!(
-            flat.get("agent.max_iterations").unwrap().as_integer().unwrap(),
+            flat.get("agent.max_iterations")
+                .unwrap()
+                .as_integer()
+                .unwrap(),
             50
         );
 
@@ -482,8 +488,8 @@ max_iterations = 50
     #[test]
     fn test_layer_from_config() {
         let config = CeairConfig::default();
-        let layer = ConfigLayer::from_config(ConfigSource::Default, &config)
-            .expect("从配置构建层失败");
+        let layer =
+            ConfigLayer::from_config(ConfigSource::Default, &config).expect("从配置构建层失败");
 
         // 验证默认配置的值已被扁平化
         assert_eq!(
@@ -491,13 +497,14 @@ max_iterations = 50
             "openai"
         );
         assert_eq!(
-            layer.get("agent.max_iterations").unwrap().as_integer().unwrap(),
+            layer
+                .get("agent.max_iterations")
+                .unwrap()
+                .as_integer()
+                .unwrap(),
             50
         );
-        assert_eq!(
-            layer.get("tui.theme").unwrap().as_str().unwrap(),
-            "dark"
-        );
+        assert_eq!(layer.get("tui.theme").unwrap().as_str().unwrap(), "dark");
     }
 
     /// 测试获取有效配置（完整合并流程）
@@ -520,9 +527,7 @@ max_iterations = 50
         layered.add_layer(override_layer);
 
         // 获取合并后的有效配置
-        let effective = layered
-            .get_effective_config()
-            .expect("获取有效配置失败");
+        let effective = layered.get_effective_config().expect("获取有效配置失败");
 
         // 验证被覆盖的值
         assert_eq!(effective.ai.provider, "anthropic");

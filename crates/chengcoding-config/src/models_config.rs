@@ -221,7 +221,10 @@ providers:
         let config = ModelsConfig::load_from_file(&yaml_path).unwrap();
         let openai = config.get_provider("openai").unwrap();
 
-        assert_eq!(openai.base_url.as_deref(), Some("https://api.openai.com/v1"));
+        assert_eq!(
+            openai.base_url.as_deref(),
+            Some("https://api.openai.com/v1")
+        );
         assert_eq!(openai.api_key.as_deref(), Some("OPENAI_API_KEY"));
         assert_eq!(openai.api, Some(ApiType::OpenAiCompletions));
         assert_eq!(openai.auth, Some(AuthType::Bearer));
@@ -343,7 +346,10 @@ providers:
         // openai 被覆盖
         let openai = base.get_provider("openai").unwrap();
         assert_eq!(openai.api_key.as_deref(), Some("new-key"));
-        assert_eq!(openai.base_url.as_deref(), Some("https://custom-proxy.com/v1"));
+        assert_eq!(
+            openai.base_url.as_deref(),
+            Some("https://custom-proxy.com/v1")
+        );
         assert_eq!(openai.models.len(), 1);
 
         // anthropic 新增

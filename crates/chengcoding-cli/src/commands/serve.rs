@@ -14,8 +14,8 @@ use dashmap::DashMap;
 use tokio::sync::mpsc;
 use tracing::info;
 
-use chengcoding_agent::{AgentContext, AgentLoop, AgentLoopConfig};
 use chengcoding_agent::executor::ToolExecutor;
+use chengcoding_agent::{AgentContext, AgentLoop, AgentLoopConfig};
 use chengcoding_ai::{AiProvider, ChatOptions, ProviderConfig, ProviderFactory};
 use chengcoding_config::CeairConfig;
 use chengcoding_control_server::{start_server, ControlServerConfig};
@@ -147,7 +147,8 @@ fn setup_provider(config: &CeairConfig) -> Result<Box<dyn AiProvider>> {
 
     let api_key = config.ai.api_key.clone().or_else(|| {
         let env_key = format!("{}_API_KEY", provider_name.to_uppercase());
-        std::env::var(&env_key).ok()
+        std::env::var(&env_key)
+            .ok()
             .or_else(|| std::env::var("ChengCoding_API_KEY").ok())
     });
 

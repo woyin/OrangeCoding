@@ -144,10 +144,7 @@ async fn inv_approval_02_receiver_dropped_resolve_returns_false() {
     drop(rx);
 
     let resolved = bridge.resolve(&req.id, ApprovalDecision::Approved);
-    assert!(
-        !resolved,
-        "receiver 已 drop 时 resolve 应返回 false"
-    );
+    assert!(!resolved, "receiver 已 drop 时 resolve 应返回 false");
 }
 
 #[tokio::test]

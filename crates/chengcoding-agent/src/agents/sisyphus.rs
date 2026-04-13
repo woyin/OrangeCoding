@@ -56,10 +56,7 @@ impl AgentDefinition for SisyphusAgent {
     }
 
     fn fallback_models(&self) -> Vec<String> {
-        vec![
-            "claude-sonnet-4-6".to_string(),
-            "gpt-5.4".to_string(),
-        ]
+        vec!["claude-sonnet-4-6".to_string(), "gpt-5.4".to_string()]
     }
 
     fn system_prompt(&self) -> &str {

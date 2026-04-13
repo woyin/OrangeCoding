@@ -54,10 +54,7 @@ impl MainLayout {
             let sidebar_width = SidebarView::recommended_width(size.width);
             let horizontal = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Length(sidebar_width),
-                    Constraint::Min(40),
-                ])
+                .constraints([Constraint::Length(sidebar_width), Constraint::Min(40)])
                 .split(size);
 
             // 渲染侧边栏
@@ -87,7 +84,7 @@ impl MainLayout {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(5),   // 消息区域
+                Constraint::Min(5),    // 消息区域
                 Constraint::Length(3), // 输入区域
                 Constraint::Length(1), // 状态栏
             ])
@@ -137,7 +134,11 @@ impl MainLayout {
             Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
             // 思考深度
             Span::styled(
-                format!("{} {} ", app.thinking_depth.icon(), app.thinking_depth.label()),
+                format!(
+                    "{} {} ",
+                    app.thinking_depth.icon(),
+                    app.thinking_depth.label()
+                ),
                 Style::default().fg(depth_color),
             ),
             Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
@@ -165,8 +166,8 @@ impl MainLayout {
             ),
         ];
 
-        let status_line = Paragraph::new(Line::from(spans))
-            .style(Style::default().bg(Color::Rgb(30, 30, 30)));
+        let status_line =
+            Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::Rgb(30, 30, 30)));
 
         frame.render_widget(status_line, area);
     }

@@ -57,9 +57,8 @@ pub mod blob;
 
 /// 重导出条目类型
 pub use entry::{
-    BranchSummaryEntry, CompactionEntry, EntryData, EntryId, EntryType, LabelEntry,
-    MessageEntry, ModeChangeEntry, ModelChangeEntry, SessionEntry, ThinkingLevelEntry,
-    ToolCallEntry,
+    BranchSummaryEntry, CompactionEntry, EntryData, EntryId, EntryType, LabelEntry, MessageEntry,
+    ModeChangeEntry, ModelChangeEntry, SessionEntry, ThinkingLevelEntry, ToolCallEntry,
 };
 
 /// 重导出存储类型

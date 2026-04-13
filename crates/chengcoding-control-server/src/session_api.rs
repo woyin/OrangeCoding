@@ -24,13 +24,13 @@ pub async fn create_session(
     State(runtime): State<Arc<WorkerRuntime>>,
     Json(req): Json<CreateSessionRequest>,
 ) -> impl IntoResponse {
-    let info = runtime.sessions.create_session(req.title, req.working_directory);
+    let info = runtime
+        .sessions
+        .create_session(req.title, req.working_directory);
     (StatusCode::CREATED, Json(info))
 }
 
-pub async fn list_sessions(
-    State(runtime): State<Arc<WorkerRuntime>>,
-) -> impl IntoResponse {
+pub async fn list_sessions(State(runtime): State<Arc<WorkerRuntime>>) -> impl IntoResponse {
     let sessions = runtime.sessions.list_sessions();
     Json(SessionListResponse { sessions })
 }

@@ -69,8 +69,7 @@ impl OAuthTokenStore {
         let tokens = if path.exists() {
             let content = std::fs::read_to_string(&path)
                 .with_context(|| format!("读取令牌存储文件失败: {:?}", path))?;
-            serde_json::from_str(&content)
-                .with_context(|| "解析令牌存储 JSON 失败")?
+            serde_json::from_str(&content).with_context(|| "解析令牌存储 JSON 失败")?
         } else {
             HashMap::new()
         };
@@ -88,8 +87,8 @@ impl OAuthTokenStore {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("创建令牌存储目录失败: {:?}", parent))?;
         }
-        let content = serde_json::to_string_pretty(&self.tokens)
-            .with_context(|| "序列化令牌存储失败")?;
+        let content =
+            serde_json::to_string_pretty(&self.tokens).with_context(|| "序列化令牌存储失败")?;
         std::fs::write(&self.store_path, content)
             .with_context(|| format!("写入令牌存储文件失败: {:?}", self.store_path))?;
         Ok(())
@@ -214,10 +213,7 @@ impl OAuthDiscovery {
     /// 发现受保护资源的元数据（RFC 9728）
     ///
     /// 访问 `{server_url}/.well-known/oauth-protected-resource` 获取元数据。
-    pub async fn discover_protected_resource(
-        &self,
-        server_url: &str,
-    ) -> Result<ResourceMetadata> {
+    pub async fn discover_protected_resource(&self, server_url: &str) -> Result<ResourceMetadata> {
         let url = format!(
             "{}/.well-known/oauth-protected-resource",
             server_url.trim_end_matches('/')
@@ -238,10 +234,7 @@ impl OAuthDiscovery {
     /// 发现授权服务器元数据（RFC 8414）
     ///
     /// 访问 `{issuer_url}/.well-known/oauth-authorization-server` 获取元数据。
-    pub async fn discover_auth_server(
-        &self,
-        issuer_url: &str,
-    ) -> Result<AuthServerMetadata> {
+    pub async fn discover_auth_server(&self, issuer_url: &str) -> Result<AuthServerMetadata> {
         let url = format!(
             "{}/.well-known/oauth-authorization-server",
             issuer_url.trim_end_matches('/')
@@ -332,7 +325,8 @@ impl OAuthFlow {
         let mut auth_url = url::Url::parse(&auth_meta.authorization_endpoint)
             .with_context(|| "解析授权端点 URL 失败")?;
 
-        auth_url.query_pairs_mut()
+        auth_url
+            .query_pairs_mut()
             .append_pair("response_type", "code")
             .append_pair("client_id", client_id)
             .append_pair("code_challenge", &pkce.code_challenge)
@@ -380,13 +374,11 @@ impl OAuthFlow {
             .await
             .with_context(|| "令牌交换请求失败")?;
 
-        let token: OAuthToken = resp
-            .json()
-            .await
-            .with_context(|| "解析令牌响应失败")?;
+        let token: OAuthToken = resp.json().await.with_context(|| "解析令牌响应失败")?;
 
         // 自动存储获取到的令牌
-        self.store.store_token(self.config.server_url.clone(), token.clone());
+        self.store
+            .store_token(self.config.server_url.clone(), token.clone());
 
         Ok(token)
     }
@@ -423,10 +415,7 @@ impl OAuthFlow {
             .await
             .with_context(|| "刷新令牌请求失败")?;
 
-        let new_token: OAuthToken = resp
-            .json()
-            .await
-            .with_context(|| "解析刷新令牌响应失败")?;
+        let new_token: OAuthToken = resp.json().await.with_context(|| "解析刷新令牌响应失败")?;
 
         Ok(new_token)
     }

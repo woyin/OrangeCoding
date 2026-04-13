@@ -161,11 +161,7 @@ impl MessageGrouper {
         // 跳过 system round (index 0 通常是 system)
         rounds[..cutoff]
             .iter()
-            .filter(|r| {
-                !r.messages
-                    .iter()
-                    .all(|m| m.role == MessageRole::System)
-            })
+            .filter(|r| !r.messages.iter().all(|m| m.role == MessageRole::System))
             .map(|r| r.index)
             .collect()
     }
@@ -224,7 +220,9 @@ mod tests {
     #[test]
     fn test_round_has_tool_calls() {
         let mut round = Round::new(0);
-        round.messages.push(msg(MessageRole::Assistant, "调用工具", 0));
+        round
+            .messages
+            .push(msg(MessageRole::Assistant, "调用工具", 0));
         assert!(!round.has_tool_calls());
 
         round.messages.push(msg(MessageRole::Tool, "结果", 1));

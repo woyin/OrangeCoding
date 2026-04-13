@@ -220,8 +220,7 @@ impl DreamLock {
                     ));
                 }
             }
-            std::fs::remove_file(&self.lock_path)
-                .map_err(|e| format!("删除锁文件失败: {}", e))
+            std::fs::remove_file(&self.lock_path).map_err(|e| format!("删除锁文件失败: {}", e))
         } else {
             Ok(())
         }

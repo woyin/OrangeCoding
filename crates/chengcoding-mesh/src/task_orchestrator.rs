@@ -555,10 +555,7 @@ impl TaskOrchestrator {
             in_degree.entry(id.clone()).or_insert(0);
             for dep in &task.dependencies {
                 *in_degree.entry(id.clone()).or_insert(0) += 1;
-                reverse_adj
-                    .entry(dep.clone())
-                    .or_default()
-                    .push(id.clone());
+                reverse_adj.entry(dep.clone()).or_default().push(id.clone());
             }
         }
 
@@ -692,7 +689,10 @@ mod tests {
 
         let result = orch.add_task(Task::new("t1", "重复", "重复任务"));
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), OrchestratorError::DuplicateTask(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            OrchestratorError::DuplicateTask(_)
+        ));
     }
 
     #[test]
@@ -729,8 +729,10 @@ mod tests {
         orch.add_task(Task::new("c", "C", "")).unwrap();
 
         // a -> b -> c -> a（循环）
-        orch.add_dependency(&TaskId::new("a"), &TaskId::new("b")).unwrap();
-        orch.add_dependency(&TaskId::new("b"), &TaskId::new("c")).unwrap();
+        orch.add_dependency(&TaskId::new("a"), &TaskId::new("b"))
+            .unwrap();
+        orch.add_dependency(&TaskId::new("b"), &TaskId::new("c"))
+            .unwrap();
 
         let result = orch.add_dependency(&TaskId::new("c"), &TaskId::new("a"));
         assert!(result.is_err());
@@ -790,7 +792,8 @@ mod tests {
     fn 测试完成任务() {
         let orch = TaskOrchestrator::new();
         orch.add_task(Task::new("t1", "任务1", "")).unwrap();
-        orch.assign_task(&TaskId::new("t1"), AgentId::new()).unwrap();
+        orch.assign_task(&TaskId::new("t1"), AgentId::new())
+            .unwrap();
 
         orch.complete_task(&TaskId::new("t1"), Some(json!({"output": "成功"})))
             .unwrap();
@@ -804,7 +807,8 @@ mod tests {
     fn 测试任务失败() {
         let orch = TaskOrchestrator::new();
         orch.add_task(Task::new("t1", "任务1", "")).unwrap();
-        orch.assign_task(&TaskId::new("t1"), AgentId::new()).unwrap();
+        orch.assign_task(&TaskId::new("t1"), AgentId::new())
+            .unwrap();
 
         orch.fail_task(&TaskId::new("t1"), Some(json!({"error": "超时"})))
             .unwrap();
@@ -842,7 +846,8 @@ mod tests {
     fn 测试已完成的任务不能取消() {
         let orch = TaskOrchestrator::new();
         orch.add_task(Task::new("t1", "任务1", "")).unwrap();
-        orch.assign_task(&TaskId::new("t1"), AgentId::new()).unwrap();
+        orch.assign_task(&TaskId::new("t1"), AgentId::new())
+            .unwrap();
         orch.complete_task(&TaskId::new("t1"), None).unwrap();
 
         let result = orch.cancel_task(&TaskId::new("t1"));
@@ -869,8 +874,10 @@ mod tests {
         orch.add_task(Task::new("c", "C", "")).unwrap();
 
         // c -> b -> a（c 依赖 b，b 依赖 a）
-        orch.add_dependency(&TaskId::new("b"), &TaskId::new("a")).unwrap();
-        orch.add_dependency(&TaskId::new("c"), &TaskId::new("b")).unwrap();
+        orch.add_dependency(&TaskId::new("b"), &TaskId::new("a"))
+            .unwrap();
+        orch.add_dependency(&TaskId::new("c"), &TaskId::new("b"))
+            .unwrap();
 
         let order = orch.get_execution_order().unwrap();
         assert_eq!(order.len(), 3);
@@ -896,10 +903,14 @@ mod tests {
         orch.add_task(Task::new("c", "C", "")).unwrap();
         orch.add_task(Task::new("d", "D", "")).unwrap();
 
-        orch.add_dependency(&TaskId::new("b"), &TaskId::new("a")).unwrap();
-        orch.add_dependency(&TaskId::new("c"), &TaskId::new("a")).unwrap();
-        orch.add_dependency(&TaskId::new("d"), &TaskId::new("b")).unwrap();
-        orch.add_dependency(&TaskId::new("d"), &TaskId::new("c")).unwrap();
+        orch.add_dependency(&TaskId::new("b"), &TaskId::new("a"))
+            .unwrap();
+        orch.add_dependency(&TaskId::new("c"), &TaskId::new("a"))
+            .unwrap();
+        orch.add_dependency(&TaskId::new("d"), &TaskId::new("b"))
+            .unwrap();
+        orch.add_dependency(&TaskId::new("d"), &TaskId::new("c"))
+            .unwrap();
 
         let order = orch.get_execution_order().unwrap();
         assert_eq!(order.len(), 4);
@@ -983,8 +994,10 @@ mod tests {
         orch.add_task(Task::new("a", "A", "")).unwrap();
         orch.add_task(Task::new("b", "B", "")).unwrap();
 
-        orch.add_dependency(&TaskId::new("b"), &TaskId::new("a")).unwrap();
-        orch.add_dependency(&TaskId::new("b"), &TaskId::new("a")).unwrap();
+        orch.add_dependency(&TaskId::new("b"), &TaskId::new("a"))
+            .unwrap();
+        orch.add_dependency(&TaskId::new("b"), &TaskId::new("a"))
+            .unwrap();
 
         let task = orch.get_task(&TaskId::new("b")).unwrap();
         assert_eq!(task.dependencies.len(), 1);
@@ -995,13 +1008,18 @@ mod tests {
         let orch = TaskOrchestrator::new();
 
         // 创建任务
-        orch.add_task(Task::new("plan", "规划", "制定计划")).unwrap();
-        orch.add_task(Task::new("code", "编码", "编写代码")).unwrap();
-        orch.add_task(Task::new("test", "测试", "运行测试")).unwrap();
+        orch.add_task(Task::new("plan", "规划", "制定计划"))
+            .unwrap();
+        orch.add_task(Task::new("code", "编码", "编写代码"))
+            .unwrap();
+        orch.add_task(Task::new("test", "测试", "运行测试"))
+            .unwrap();
 
         // 设置依赖
-        orch.add_dependency(&TaskId::new("code"), &TaskId::new("plan")).unwrap();
-        orch.add_dependency(&TaskId::new("test"), &TaskId::new("code")).unwrap();
+        orch.add_dependency(&TaskId::new("code"), &TaskId::new("plan"))
+            .unwrap();
+        orch.add_dependency(&TaskId::new("test"), &TaskId::new("code"))
+            .unwrap();
 
         // 第一轮：只有 plan 就绪
         let ready = orch.get_ready_tasks();
@@ -1010,7 +1028,8 @@ mod tests {
 
         // 执行 plan
         let agent = AgentId::new();
-        orch.assign_task(&TaskId::new("plan"), agent.clone()).unwrap();
+        orch.assign_task(&TaskId::new("plan"), agent.clone())
+            .unwrap();
         orch.complete_task(&TaskId::new("plan"), Some(json!("计划已完成")))
             .unwrap();
 
@@ -1020,7 +1039,8 @@ mod tests {
         assert_eq!(ready[0].id, TaskId::new("code"));
 
         // 执行 code
-        orch.assign_task(&TaskId::new("code"), agent.clone()).unwrap();
+        orch.assign_task(&TaskId::new("code"), agent.clone())
+            .unwrap();
         orch.complete_task(&TaskId::new("code"), None).unwrap();
 
         // 第三轮：test 变为就绪

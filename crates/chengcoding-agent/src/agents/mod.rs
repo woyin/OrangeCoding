@@ -19,17 +19,17 @@
 //! | Junior | 任务执行 | (由 Category 决定) |
 //! | Multimodal | 视觉分析 | gpt-5.4 |
 
-pub mod sisyphus;
-pub mod hephaestus;
-pub mod prometheus;
 pub mod atlas;
-pub mod oracle;
-pub mod librarian;
 pub mod explore;
+pub mod hephaestus;
+pub mod junior;
+pub mod librarian;
 pub mod metis;
 pub mod momus;
-pub mod junior;
 pub mod multimodal;
+pub mod oracle;
+pub mod prometheus;
+pub mod sisyphus;
 
 use std::collections::HashSet;
 use std::fmt;
@@ -358,19 +358,40 @@ mod tests {
     /// 测试 AgentKind 从字符串解析
     #[test]
     fn test_agent_kind_from_str() {
-        assert_eq!(AgentKind::from_str("sisyphus").unwrap(), AgentKind::Sisyphus);
-        assert_eq!(AgentKind::from_str("Hephaestus").unwrap(), AgentKind::Hephaestus);
-        assert_eq!(AgentKind::from_str("PROMETHEUS").unwrap(), AgentKind::Prometheus);
+        assert_eq!(
+            AgentKind::from_str("sisyphus").unwrap(),
+            AgentKind::Sisyphus
+        );
+        assert_eq!(
+            AgentKind::from_str("Hephaestus").unwrap(),
+            AgentKind::Hephaestus
+        );
+        assert_eq!(
+            AgentKind::from_str("PROMETHEUS").unwrap(),
+            AgentKind::Prometheus
+        );
         assert_eq!(AgentKind::from_str("atlas").unwrap(), AgentKind::Atlas);
         assert_eq!(AgentKind::from_str("oracle").unwrap(), AgentKind::Oracle);
-        assert_eq!(AgentKind::from_str("librarian").unwrap(), AgentKind::Librarian);
+        assert_eq!(
+            AgentKind::from_str("librarian").unwrap(),
+            AgentKind::Librarian
+        );
         assert_eq!(AgentKind::from_str("explore").unwrap(), AgentKind::Explore);
         assert_eq!(AgentKind::from_str("metis").unwrap(), AgentKind::Metis);
         assert_eq!(AgentKind::from_str("momus").unwrap(), AgentKind::Momus);
         assert_eq!(AgentKind::from_str("junior").unwrap(), AgentKind::Junior);
-        assert_eq!(AgentKind::from_str("sisyphus-junior").unwrap(), AgentKind::Junior);
-        assert_eq!(AgentKind::from_str("multimodal").unwrap(), AgentKind::Multimodal);
-        assert_eq!(AgentKind::from_str("multimodal-looker").unwrap(), AgentKind::Multimodal);
+        assert_eq!(
+            AgentKind::from_str("sisyphus-junior").unwrap(),
+            AgentKind::Junior
+        );
+        assert_eq!(
+            AgentKind::from_str("multimodal").unwrap(),
+            AgentKind::Multimodal
+        );
+        assert_eq!(
+            AgentKind::from_str("multimodal-looker").unwrap(),
+            AgentKind::Multimodal
+        );
     }
 
     /// 测试未知 Agent 名称返回错误
@@ -574,7 +595,9 @@ mod tests {
     fn test_all_agents_have_valid_models() {
         let registry = AgentRegistry::with_defaults();
         for kind in AgentKind::all() {
-            let agent = registry.get(kind).expect(&format!("Agent {:?} 应存在", kind));
+            let agent = registry
+                .get(kind)
+                .expect(&format!("Agent {:?} 应存在", kind));
             let model = agent.default_model();
             assert!(!model.is_empty(), "Agent {:?} 的默认模型不应为空", kind);
         }

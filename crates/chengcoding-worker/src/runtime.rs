@@ -168,7 +168,10 @@ mod tests {
         let rt = WorkerRuntime::new();
         let info = rt.sessions.create_session(Some("test".into()), None);
         assert_eq!(rt.sessions.count(), 1);
-        assert_eq!(rt.sessions.get_session(&info.id).unwrap().title, Some("test".into()));
+        assert_eq!(
+            rt.sessions.get_session(&info.id).unwrap().title,
+            Some("test".into())
+        );
     }
 
     #[tokio::test]

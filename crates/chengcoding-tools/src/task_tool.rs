@@ -92,7 +92,14 @@ impl TaskTool {
 
     /// 生成唯一任务 ID
     fn generate_task_id() -> String {
-        format!("task-{}", Uuid::new_v4().to_string().split('-').next().unwrap_or("unknown"))
+        format!(
+            "task-{}",
+            Uuid::new_v4()
+                .to_string()
+                .split('-')
+                .next()
+                .unwrap_or("unknown")
+        )
     }
 }
 
@@ -132,9 +139,7 @@ impl Tool for TaskTool {
         let description = params
             .get("description")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ToolError::InvalidParams("缺少必要参数: description".to_string())
-            })?;
+            .ok_or_else(|| ToolError::InvalidParams("缺少必要参数: description".to_string()))?;
 
         let _context = params.get("context").and_then(|v| v.as_str());
 
@@ -177,11 +182,7 @@ mod tests {
     /// 测试任务请求创建
     #[test]
     fn test_task_request_creation() {
-        let request = TaskTool::create_request(
-            "分析代码库",
-            Some("检查 src/ 目录"),
-            Some(10),
-        );
+        let request = TaskTool::create_request("分析代码库", Some("检查 src/ 目录"), Some(10));
 
         assert_eq!(request.description, "分析代码库");
         assert_eq!(request.context, Some("检查 src/ 目录".to_string()));

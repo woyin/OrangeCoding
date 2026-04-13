@@ -309,10 +309,7 @@ impl fmt::Display for AgentEvent {
                 timestamp,
                 ..
             } => {
-                write!(
-                    f,
-                    "[{timestamp}] 代理 {agent_id} {usage}"
-                )
+                write!(f, "[{timestamp}] 代理 {agent_id} {usage}")
             }
             AgentEvent::StreamChunk {
                 agent_id,
@@ -342,10 +339,7 @@ impl fmt::Display for AgentEvent {
                 timestamp,
                 ..
             } => {
-                write!(
-                    f,
-                    "[{timestamp}] 代理 {agent_id} 错误: {error_message}"
-                )
+                write!(f, "[{timestamp}] 代理 {agent_id} 错误: {error_message}")
             }
             AgentEvent::AutopilotPhaseChanged {
                 agent_id,
@@ -381,7 +375,11 @@ impl fmt::Display for AgentEvent {
                 timestamp,
                 ..
             } => {
-                let verify = if *verification_passed { "通过" } else { "未通过" };
+                let verify = if *verification_passed {
+                    "通过"
+                } else {
+                    "未通过"
+                };
                 write!(
                     f,
                     "[{timestamp}] 代理 {agent_id} Autopilot 第{cycle}轮完成: {tasks_completed}成功/{tasks_failed}失败 验证{verify}"
@@ -451,11 +449,7 @@ impl AgentEvent {
     /// 创建一个消息接收事件
     ///
     /// 自动将内容截断为指定长度作为预览。
-    pub fn message_received(
-        agent_id: AgentId,
-        session_id: SessionId,
-        content: &str,
-    ) -> Self {
+    pub fn message_received(agent_id: AgentId, session_id: SessionId, content: &str) -> Self {
         /// 预览文本的最大字符数
         const MAX_PREVIEW_LEN: usize = 200;
 
@@ -534,11 +528,7 @@ impl AgentEvent {
     }
 
     /// 创建一个代理完成事件
-    pub fn completed(
-        agent_id: AgentId,
-        session_id: SessionId,
-        summary: impl Into<String>,
-    ) -> Self {
+    pub fn completed(agent_id: AgentId, session_id: SessionId, summary: impl Into<String>) -> Self {
         AgentEvent::Completed {
             agent_id,
             session_id,
@@ -639,8 +629,7 @@ mod tests {
         let session_id = SessionId::new();
         // 创建一个超长字符串
         let long_content = "a".repeat(500);
-        let event =
-            AgentEvent::message_received(agent_id, session_id, &long_content);
+        let event = AgentEvent::message_received(agent_id, session_id, &long_content);
 
         match &event {
             AgentEvent::MessageReceived {
@@ -659,8 +648,7 @@ mod tests {
         let agent_id = AgentId::new();
         let session_id = SessionId::new();
         let short_content = "你好世界";
-        let event =
-            AgentEvent::message_received(agent_id, session_id, short_content);
+        let event = AgentEvent::message_received(agent_id, session_id, short_content);
 
         match &event {
             AgentEvent::MessageReceived {
@@ -719,8 +707,7 @@ mod tests {
     fn 测试流式输出事件() {
         let agent_id = AgentId::new();
         let session_id = SessionId::new();
-        let event =
-            AgentEvent::stream_chunk(agent_id, session_id, "Hello, World!");
+        let event = AgentEvent::stream_chunk(agent_id, session_id, "Hello, World!");
 
         match &event {
             AgentEvent::StreamChunk { content, .. } => {
@@ -735,11 +722,7 @@ mod tests {
         let agent_id = AgentId::new();
         let session_id = SessionId::new();
         let usage = TokenUsage::new(100, 50);
-        let event = AgentEvent::token_usage_updated(
-            agent_id,
-            session_id,
-            usage.clone(),
-        );
+        let event = AgentEvent::token_usage_updated(agent_id, session_id, usage.clone());
 
         match &event {
             AgentEvent::TokenUsageUpdated {
@@ -755,8 +738,7 @@ mod tests {
     fn 测试事件的JSON序列化和反序列化() {
         let agent_id = AgentId::new();
         let session_id = SessionId::new();
-        let event =
-            AgentEvent::completed(agent_id, session_id, "任务已完成");
+        let event = AgentEvent::completed(agent_id, session_id, "任务已完成");
 
         let json = serde_json::to_string(&event).unwrap();
         let deserialized: AgentEvent = serde_json::from_str(&json).unwrap();
@@ -775,11 +757,8 @@ mod tests {
             serde_json::json!({"path": "/src/main.rs"}),
         );
 
-        let event = AgentEvent::tool_call_requested(
-            agent_id.clone(),
-            session_id.clone(),
-            tool_call,
-        );
+        let event =
+            AgentEvent::tool_call_requested(agent_id.clone(), session_id.clone(), tool_call);
 
         assert_eq!(event.event_kind(), "tool_call_requested");
         match &event {
@@ -800,13 +779,11 @@ mod tests {
             "started"
         );
         assert_eq!(
-            AgentEvent::message_received(aid.clone(), sid.clone(), "hi")
-                .event_kind(),
+            AgentEvent::message_received(aid.clone(), sid.clone(), "hi").event_kind(),
             "message_received"
         );
         assert_eq!(
-            AgentEvent::completed(aid.clone(), sid.clone(), "done")
-                .event_kind(),
+            AgentEvent::completed(aid.clone(), sid.clone(), "done").event_kind(),
             "completed"
         );
         assert_eq!(
@@ -814,8 +791,7 @@ mod tests {
             "error"
         );
         assert_eq!(
-            AgentEvent::stream_chunk(aid.clone(), sid.clone(), "x")
-                .event_kind(),
+            AgentEvent::stream_chunk(aid.clone(), sid.clone(), "x").event_kind(),
             "stream_chunk"
         );
         assert_eq!(
@@ -829,8 +805,7 @@ mod tests {
             "autopilot_task_completed"
         );
         assert_eq!(
-            AgentEvent::autopilot_cycle_complete(aid, sid, 1, 3, 0, true)
-                .event_kind(),
+            AgentEvent::autopilot_cycle_complete(aid, sid, 1, 3, 0, true).event_kind(),
             "autopilot_cycle_complete"
         );
     }

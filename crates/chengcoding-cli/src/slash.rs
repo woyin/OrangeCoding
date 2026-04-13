@@ -83,8 +83,14 @@ impl SlashCommandRegistry {
             ("copy", "复制最后一条消息"),
             ("debug", "调试工具"),
             // 扩展命令
-            ("init-deep", "深度初始化：扫描项目结构，创建 boulder.json，初始化 Agent 状态"),
-            ("ralph-loop", "Ralph 循环：持续改进循环（plan → implement → review → refine）"),
+            (
+                "init-deep",
+                "深度初始化：扫描项目结构，创建 boulder.json，初始化 Agent 状态",
+            ),
+            (
+                "ralph-loop",
+                "Ralph 循环：持续改进循环（plan → implement → review → refine）",
+            ),
             ("ulw-loop", "UltraWork 循环：全自动模式启动"),
             ("refactor", "重构助手：分析代码并提出重构建议"),
             ("start-work", "开始工作：创建新的工作会话，初始化 Boulder"),
@@ -186,10 +192,7 @@ impl SlashCommandRegistry {
                             let processed = substitute_args(tpl, args);
                             SlashCommandResult::Prompt(processed)
                         }
-                        None => SlashCommandResult::Error(format!(
-                            "命令 '{}' 缺少模板内容",
-                            name
-                        )),
+                        None => SlashCommandResult::Error(format!("命令 '{}' 缺少模板内容", name)),
                     }
                 }
             },
@@ -408,11 +411,7 @@ mod tests {
             "---\ndescription: 代码审查\n---\n审查以下代码变更。",
         )
         .unwrap();
-        fs::write(
-            dir.path().join("summarize.md"),
-            "总结以下内容。",
-        )
-        .unwrap();
+        fs::write(dir.path().join("summarize.md"), "总结以下内容。").unwrap();
 
         // 创建一个非 .md 文件，应被忽略
         fs::write(dir.path().join("notes.txt"), "这不是命令").unwrap();
@@ -447,7 +446,8 @@ mod tests {
 
     #[test]
     fn test_frontmatter_parsing() {
-        let content = "---\ndescription: Review staged git changes\n---\n\nReview the staged changes.";
+        let content =
+            "---\ndescription: Review staged git changes\n---\n\nReview the staged changes.";
         let (desc, body) = parse_frontmatter(content);
 
         assert_eq!(desc, "Review staged git changes");

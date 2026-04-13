@@ -108,10 +108,7 @@ mod tests {
         let router = SessionRouter::new(registry.clone());
         router.assign("sess-1");
 
-        assert_eq!(
-            router.get_worker_for_session("sess-1").unwrap(),
-            "w-1"
-        );
+        assert_eq!(router.get_worker_for_session("sess-1").unwrap(), "w-1");
         assert_eq!(router.route_count(), 1);
 
         let removed = router.remove("sess-1").unwrap();

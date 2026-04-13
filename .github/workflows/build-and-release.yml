@@ -4,14 +4,51 @@ on:
   push:
     branches: [master]
     tags: ["v*"]
+  pull_request:
+    branches: [master]
 
 env:
   CARGO_TERM_COLOR: always
   BINARY_NAME: chengcoding
 
 jobs:
+  # 测试任务 — 先运行所有测试和检查，通过后才构建
+  test:
+    name: Test & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: test-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: test-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Check workspace compiles
+        run: cargo check --workspace
+
   build:
     name: Build ${{ matrix.target }}
+    needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

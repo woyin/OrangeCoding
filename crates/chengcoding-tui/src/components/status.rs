@@ -97,8 +97,8 @@ impl StatusBar {
         spans.extend(right_content);
 
         let line = Line::from(spans);
-        let paragraph = Paragraph::new(line)
-            .style(Style::default().bg(Color::DarkGray).fg(Color::White));
+        let paragraph =
+            Paragraph::new(line).style(Style::default().bg(Color::DarkGray).fg(Color::White));
 
         frame.render_widget(paragraph, area);
     }

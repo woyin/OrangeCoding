@@ -77,7 +77,11 @@ impl JsonRpcRequest {
     /// - `method`: 要调用的方法名称
     /// - `params`: 方法参数（可选的 JSON 值）
     /// - `id`: 请求标识符
-    pub fn new(method: impl Into<String>, params: Option<serde_json::Value>, id: RequestId) -> Self {
+    pub fn new(
+        method: impl Into<String>,
+        params: Option<serde_json::Value>,
+        id: RequestId,
+    ) -> Self {
         Self {
             jsonrpc: "2.0".to_string(),
             method: method.into(),
@@ -283,8 +287,7 @@ mod tests {
         );
 
         let serialized = serde_json::to_string(&request).expect("序列化失败");
-        let deserialized: JsonRpcRequest =
-            serde_json::from_str(&serialized).expect("反序列化失败");
+        let deserialized: JsonRpcRequest = serde_json::from_str(&serialized).expect("反序列化失败");
 
         assert_eq!(deserialized.jsonrpc, "2.0");
         assert_eq!(deserialized.method, "initialize");
@@ -333,7 +336,10 @@ mod tests {
     fn test_error_codes() {
         assert_eq!(JsonRpcError::parse_error("test").code, PARSE_ERROR);
         assert_eq!(JsonRpcError::invalid_request("test").code, INVALID_REQUEST);
-        assert_eq!(JsonRpcError::method_not_found("test").code, METHOD_NOT_FOUND);
+        assert_eq!(
+            JsonRpcError::method_not_found("test").code,
+            METHOD_NOT_FOUND
+        );
         assert_eq!(JsonRpcError::invalid_params("test").code, INVALID_PARAMS);
         assert_eq!(JsonRpcError::internal_error("test").code, INTERNAL_ERROR);
     }
@@ -369,11 +375,8 @@ mod tests {
     /// 测试带附加数据的错误
     #[test]
     fn test_error_with_data() {
-        let error = JsonRpcError::with_data(
-            INTERNAL_ERROR,
-            "处理失败",
-            json!({"detail": "堆栈溢出"}),
-        );
+        let error =
+            JsonRpcError::with_data(INTERNAL_ERROR, "处理失败", json!({"detail": "堆栈溢出"}));
         assert_eq!(error.code, INTERNAL_ERROR);
         assert!(error.data.is_some());
     }

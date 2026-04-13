@@ -66,10 +66,7 @@ impl SecretObfuscator {
         Self {
             mode,
             secrets: RwLock::new(Vec::new()),
-            env_patterns: DEFAULT_ENV_PATTERNS
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
+            env_patterns: DEFAULT_ENV_PATTERNS.iter().map(|s| s.to_string()).collect(),
         }
     }
 
@@ -193,11 +190,7 @@ mod tests {
     #[test]
     fn test_disabled_mode_no_obfuscation() {
         let obfuscator = SecretObfuscator::new();
-        obfuscator.register_secret(
-            "OPENAI_API_KEY",
-            "sk-abc123xyz",
-            SecretSource::Manual,
-        );
+        obfuscator.register_secret("OPENAI_API_KEY", "sk-abc123xyz", SecretSource::Manual);
         let text = "my key is sk-abc123xyz";
         assert_eq!(obfuscator.obfuscate(text), text);
     }
@@ -206,11 +199,7 @@ mod tests {
     #[test]
     fn test_placeholder_mode() {
         let obfuscator = SecretObfuscator::with_mode(ObfuscationMode::Placeholder);
-        obfuscator.register_secret(
-            "OPENAI_API_KEY",
-            "sk-abc123xyz",
-            SecretSource::Manual,
-        );
+        obfuscator.register_secret("OPENAI_API_KEY", "sk-abc123xyz", SecretSource::Manual);
         let result = obfuscator.obfuscate("my key is sk-abc123xyz");
         assert_eq!(result, "my key is <<$env:OPENAI_API_KEY>>");
     }
@@ -219,11 +208,7 @@ mod tests {
     #[test]
     fn test_redact_mode() {
         let obfuscator = SecretObfuscator::with_mode(ObfuscationMode::Redact);
-        obfuscator.register_secret(
-            "OPENAI_API_KEY",
-            "sk-abc123xyz",
-            SecretSource::Manual,
-        );
+        obfuscator.register_secret("OPENAI_API_KEY", "sk-abc123xyz", SecretSource::Manual);
         let result = obfuscator.obfuscate("my key is sk-abc123xyz");
         assert_eq!(result, "my key is ***");
     }
@@ -277,8 +262,7 @@ mod tests {
     fn test_obfuscate_multiple_occurrences() {
         let obfuscator = SecretObfuscator::with_mode(ObfuscationMode::Redact);
         obfuscator.register_secret("MY_TOKEN", "abcdefgh", SecretSource::Manual);
-        let result =
-            obfuscator.obfuscate("first=abcdefgh second=abcdefgh third=abcdefgh");
+        let result = obfuscator.obfuscate("first=abcdefgh second=abcdefgh third=abcdefgh");
         assert_eq!(result, "first=*** second=*** third=***");
     }
 
@@ -295,11 +279,7 @@ mod tests {
     #[test]
     fn test_deobfuscate_placeholder() {
         let obfuscator = SecretObfuscator::with_mode(ObfuscationMode::Placeholder);
-        obfuscator.register_secret(
-            "OPENAI_API_KEY",
-            "sk-abc123xyz",
-            SecretSource::Manual,
-        );
+        obfuscator.register_secret("OPENAI_API_KEY", "sk-abc123xyz", SecretSource::Manual);
 
         let obfuscated = obfuscator.obfuscate("my key is sk-abc123xyz");
         assert_eq!(obfuscated, "my key is <<$env:OPENAI_API_KEY>>");
@@ -312,11 +292,7 @@ mod tests {
     #[test]
     fn test_deobfuscate_redact_fails() {
         let obfuscator = SecretObfuscator::with_mode(ObfuscationMode::Redact);
-        obfuscator.register_secret(
-            "OPENAI_API_KEY",
-            "sk-abc123xyz",
-            SecretSource::Manual,
-        );
+        obfuscator.register_secret("OPENAI_API_KEY", "sk-abc123xyz", SecretSource::Manual);
 
         let obfuscated = obfuscator.obfuscate("my key is sk-abc123xyz");
         assert_eq!(obfuscated, "my key is ***");
@@ -330,11 +306,7 @@ mod tests {
     #[test]
     fn test_contains_secret() {
         let obfuscator = SecretObfuscator::new();
-        obfuscator.register_secret(
-            "MY_SECRET",
-            "supersecret123",
-            SecretSource::Manual,
-        );
+        obfuscator.register_secret("MY_SECRET", "supersecret123", SecretSource::Manual);
         assert!(obfuscator.contains_secret("the value is supersecret123 here"));
     }
 
@@ -342,11 +314,7 @@ mod tests {
     #[test]
     fn test_contains_secret_no_match() {
         let obfuscator = SecretObfuscator::new();
-        obfuscator.register_secret(
-            "MY_SECRET",
-            "supersecret123",
-            SecretSource::Manual,
-        );
+        obfuscator.register_secret("MY_SECRET", "supersecret123", SecretSource::Manual);
         assert!(!obfuscator.contains_secret("nothing sensitive here"));
     }
 

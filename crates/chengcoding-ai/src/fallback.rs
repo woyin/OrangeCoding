@@ -13,9 +13,9 @@
 //! | 401 | 认证失败 | 是（配置错误） |
 //! | 5xx | 服务器错误 | 部分触发 |
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use serde::{Deserialize, Serialize};
 
 // ============================================================
 // FallbackEntry — 回退链中的单个条目
@@ -190,7 +190,10 @@ impl CooldownManager {
     /// 返回当前冷却中的模型数量
     pub fn cooling_count(&self) -> usize {
         let now = Instant::now();
-        self.cooldowns.values().filter(|until| now < **until).count()
+        self.cooldowns
+            .values()
+            .filter(|until| now < **until)
+            .count()
     }
 }
 
@@ -409,10 +412,7 @@ mod tests {
     #[test]
     fn test_resolver_primary_first() {
         let resolver = FallbackResolver::default();
-        let chain = FallbackChain::new(
-            "primary-model",
-            vec![FallbackEntry::simple("fallback-1")],
-        );
+        let chain = FallbackChain::new("primary-model", vec![FallbackEntry::simple("fallback-1")]);
 
         let resolved = resolver.resolve(&chain);
         assert_eq!(resolved.model, "primary-model");
@@ -467,10 +467,7 @@ mod tests {
     #[test]
     fn test_resolver_force_primary_when_all_cooling() {
         let mut resolver = FallbackResolver::default();
-        let chain = FallbackChain::new(
-            "primary",
-            vec![FallbackEntry::simple("fallback-1")],
-        );
+        let chain = FallbackChain::new("primary", vec![FallbackEntry::simple("fallback-1")]);
 
         resolver.mark_failed("primary");
         resolver.mark_failed("fallback-1");

@@ -6,13 +6,11 @@
 
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
 use chengcoding_core::message::{Message, Role};
 use chengcoding_core::TokenUsage;
+use chrono::{DateTime, Utc};
 
-use crate::entry::{
-    CompactionEntry, EntryId, MessageEntry, SessionEntry,
-};
+use crate::entry::{CompactionEntry, EntryId, MessageEntry, SessionEntry};
 use crate::error::SessionError;
 use crate::storage::{encode_cwd, SessionHeader, SessionStorage};
 use crate::tree::SessionTree;
@@ -96,13 +94,15 @@ impl SessionManager {
         }
 
         let mut latest: Option<(PathBuf, DateTime<Utc>)> = None;
-        let mut dir = tokio::fs::read_dir(&cwd_dir).await.map_err(|e| {
-            SessionError::Io(format!("无法读取目录 {:?}: {}", cwd_dir, e))
-        })?;
+        let mut dir = tokio::fs::read_dir(&cwd_dir)
+            .await
+            .map_err(|e| SessionError::Io(format!("无法读取目录 {:?}: {}", cwd_dir, e)))?;
 
-        while let Some(entry) = dir.next_entry().await.map_err(|e| {
-            SessionError::Io(format!("读取目录条目失败: {}", e))
-        })? {
+        while let Some(entry) = dir
+            .next_entry()
+            .await
+            .map_err(|e| SessionError::Io(format!("读取目录条目失败: {}", e)))?
+        {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
                 continue;
@@ -144,13 +144,15 @@ impl SessionManager {
         }
 
         // 遍历所有子目录
-        let mut base_dir = tokio::fs::read_dir(&self.base_dir).await.map_err(|e| {
-            SessionError::Io(format!("无法读取基础目录: {}", e))
-        })?;
+        let mut base_dir = tokio::fs::read_dir(&self.base_dir)
+            .await
+            .map_err(|e| SessionError::Io(format!("无法读取基础目录: {}", e)))?;
 
-        while let Some(cwd_entry) = base_dir.next_entry().await.map_err(|e| {
-            SessionError::Io(format!("读取目录条目失败: {}", e))
-        })? {
+        while let Some(cwd_entry) = base_dir
+            .next_entry()
+            .await
+            .map_err(|e| SessionError::Io(format!("读取目录条目失败: {}", e)))?
+        {
             let cwd_path = cwd_entry.path();
             if !cwd_path.is_dir() {
                 continue;
@@ -161,9 +163,11 @@ impl SessionManager {
                 Err(_) => continue,
             };
 
-            while let Some(file_entry) = dir.next_entry().await.map_err(|e| {
-                SessionError::Io(format!("读取文件条目失败: {}", e))
-            })? {
+            while let Some(file_entry) = dir
+                .next_entry()
+                .await
+                .map_err(|e| SessionError::Io(format!("读取文件条目失败: {}", e)))?
+            {
                 let path = file_entry.path();
                 let file_stem = path
                     .file_stem()
@@ -198,13 +202,15 @@ impl SessionManager {
         }
 
         let mut sessions = Vec::new();
-        let mut dir = tokio::fs::read_dir(&cwd_dir).await.map_err(|e| {
-            SessionError::Io(format!("无法读取目录: {}", e))
-        })?;
+        let mut dir = tokio::fs::read_dir(&cwd_dir)
+            .await
+            .map_err(|e| SessionError::Io(format!("无法读取目录: {}", e)))?;
 
-        while let Some(entry) = dir.next_entry().await.map_err(|e| {
-            SessionError::Io(format!("读取目录条目失败: {}", e))
-        })? {
+        while let Some(entry) = dir
+            .next_entry()
+            .await
+            .map_err(|e| SessionError::Io(format!("读取目录条目失败: {}", e)))?
+        {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
                 continue;
@@ -247,13 +253,15 @@ impl SessionManager {
         let cutoff = Utc::now() - chrono::Duration::days(max_age_days as i64);
         let mut deleted = 0u32;
 
-        let mut base_dir = tokio::fs::read_dir(&self.base_dir).await.map_err(|e| {
-            SessionError::Io(format!("无法读取基础目录: {}", e))
-        })?;
+        let mut base_dir = tokio::fs::read_dir(&self.base_dir)
+            .await
+            .map_err(|e| SessionError::Io(format!("无法读取基础目录: {}", e)))?;
 
-        while let Some(cwd_entry) = base_dir.next_entry().await.map_err(|e| {
-            SessionError::Io(format!("读取目录条目失败: {}", e))
-        })? {
+        while let Some(cwd_entry) = base_dir
+            .next_entry()
+            .await
+            .map_err(|e| SessionError::Io(format!("读取目录条目失败: {}", e)))?
+        {
             let cwd_path = cwd_entry.path();
             if !cwd_path.is_dir() {
                 continue;
@@ -264,9 +272,11 @@ impl SessionManager {
                 Err(_) => continue,
             };
 
-            while let Some(file_entry) = dir.next_entry().await.map_err(|e| {
-                SessionError::Io(format!("读取文件条目失败: {}", e))
-            })? {
+            while let Some(file_entry) = dir
+                .next_entry()
+                .await
+                .map_err(|e| SessionError::Io(format!("读取文件条目失败: {}", e)))?
+            {
                 let path = file_entry.path();
                 if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
                     continue;
@@ -466,8 +476,7 @@ impl Session {
             parent_session: Some(parent_id),
         };
 
-        let storage =
-            SessionStorage::create_with_header(manager.base_dir(), header).await?;
+        let storage = SessionStorage::create_with_header(manager.base_dir(), header).await?;
 
         // 复制从根到 from_entry 的所有条目到新会话
         let mut tree = SessionTree::new();

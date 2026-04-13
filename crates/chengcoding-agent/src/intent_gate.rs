@@ -59,10 +59,7 @@ impl IntentKind {
 
     /// 该意图是否需要深度推理
     pub fn requires_deep_thinking(&self) -> bool {
-        matches!(
-            self,
-            Self::Investigation | Self::Refactor | Self::Planning
-        )
+        matches!(self, Self::Investigation | Self::Refactor | Self::Planning)
     }
 }
 
@@ -230,9 +227,18 @@ impl IntentGate {
             // 研究类关键词
             KeywordRule {
                 keywords: vec![
-                    "research", "explore", "look into", "study",
-                    "what is", "how does", "explain", "describe",
-                    "调研", "研究", "探索", "了解",
+                    "research",
+                    "explore",
+                    "look into",
+                    "study",
+                    "what is",
+                    "how does",
+                    "explain",
+                    "describe",
+                    "调研",
+                    "研究",
+                    "探索",
+                    "了解",
                 ],
                 intent: IntentKind::Research,
                 weight: 3,
@@ -240,9 +246,20 @@ impl IntentGate {
             // 实现类关键词
             KeywordRule {
                 keywords: vec![
-                    "build", "create", "implement", "add", "develop",
-                    "make", "write", "code", "construct",
-                    "实现", "创建", "构建", "开发", "编写",
+                    "build",
+                    "create",
+                    "implement",
+                    "add",
+                    "develop",
+                    "make",
+                    "write",
+                    "code",
+                    "construct",
+                    "实现",
+                    "创建",
+                    "构建",
+                    "开发",
+                    "编写",
                 ],
                 intent: IntentKind::Implementation,
                 weight: 3,
@@ -250,9 +267,20 @@ impl IntentGate {
             // 修复类关键词
             KeywordRule {
                 keywords: vec![
-                    "fix", "bug", "broken", "not working", "error",
-                    "crash", "issue", "problem", "wrong",
-                    "修复", "修正", "错误", "问题", "故障",
+                    "fix",
+                    "bug",
+                    "broken",
+                    "not working",
+                    "error",
+                    "crash",
+                    "issue",
+                    "problem",
+                    "wrong",
+                    "修复",
+                    "修正",
+                    "错误",
+                    "问题",
+                    "故障",
                 ],
                 intent: IntentKind::Fix,
                 weight: 4,
@@ -260,9 +288,17 @@ impl IntentGate {
             // 调查类关键词
             KeywordRule {
                 keywords: vec![
-                    "investigate", "debug", "trace", "root cause",
-                    "why does", "how come", "analyze",
-                    "调查", "排查", "分析", "根因",
+                    "investigate",
+                    "debug",
+                    "trace",
+                    "root cause",
+                    "why does",
+                    "how come",
+                    "analyze",
+                    "调查",
+                    "排查",
+                    "分析",
+                    "根因",
                 ],
                 intent: IntentKind::Investigation,
                 weight: 5,
@@ -270,9 +306,17 @@ impl IntentGate {
             // 重构类关键词
             KeywordRule {
                 keywords: vec![
-                    "refactor", "restructure", "reorganize", "clean up",
-                    "simplify", "optimize", "improve",
-                    "重构", "优化", "简化", "整理",
+                    "refactor",
+                    "restructure",
+                    "reorganize",
+                    "clean up",
+                    "simplify",
+                    "optimize",
+                    "improve",
+                    "重构",
+                    "优化",
+                    "简化",
+                    "整理",
                 ],
                 intent: IntentKind::Refactor,
                 weight: 4,
@@ -280,9 +324,17 @@ impl IntentGate {
             // 规划类关键词
             KeywordRule {
                 keywords: vec![
-                    "plan", "design", "architect", "strategy",
-                    "propose", "blueprint", "roadmap",
-                    "规划", "设计", "架构", "策略",
+                    "plan",
+                    "design",
+                    "architect",
+                    "strategy",
+                    "propose",
+                    "blueprint",
+                    "roadmap",
+                    "规划",
+                    "设计",
+                    "架构",
+                    "策略",
                 ],
                 intent: IntentKind::Planning,
                 weight: 4,
@@ -290,9 +342,16 @@ impl IntentGate {
             // 快速修复关键词（高权重，短文本优先）
             KeywordRule {
                 keywords: vec![
-                    "typo", "rename", "quick", "simple",
-                    "just change", "just update", "trivial",
-                    "简单", "改个", "快速",
+                    "typo",
+                    "rename",
+                    "quick",
+                    "simple",
+                    "just change",
+                    "just update",
+                    "trivial",
+                    "简单",
+                    "改个",
+                    "快速",
                 ],
                 intent: IntentKind::QuickFix,
                 weight: 5,
@@ -422,11 +481,20 @@ mod tests {
     #[test]
     fn test_recommended_categories() {
         assert_eq!(IntentKind::Research.recommended_category(), "deep");
-        assert_eq!(IntentKind::Implementation.recommended_category(), "unspecified-high");
+        assert_eq!(
+            IntentKind::Implementation.recommended_category(),
+            "unspecified-high"
+        );
         assert_eq!(IntentKind::Fix.recommended_category(), "unspecified-low");
-        assert_eq!(IntentKind::Investigation.recommended_category(), "ultrabrain");
+        assert_eq!(
+            IntentKind::Investigation.recommended_category(),
+            "ultrabrain"
+        );
         assert_eq!(IntentKind::Refactor.recommended_category(), "deep");
-        assert_eq!(IntentKind::Planning.recommended_category(), "unspecified-high");
+        assert_eq!(
+            IntentKind::Planning.recommended_category(),
+            "unspecified-high"
+        );
         assert_eq!(IntentKind::QuickFix.recommended_category(), "quick");
     }
 

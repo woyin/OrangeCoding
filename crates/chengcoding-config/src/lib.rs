@@ -26,7 +26,7 @@ pub mod jsonc;
 
 // 重新导出常用类型，方便外部使用
 pub use config::{
-    AiConfig, AgentConfig, CeairConfig, ConfigManager, LoggingConfig, ToolsConfig, TuiConfig,
+    AgentConfig, AiConfig, CeairConfig, ConfigManager, LoggingConfig, ToolsConfig, TuiConfig,
 };
 pub use crypto::CryptoStore;
 pub use discovery::{ConfigDiscovery, ConfigProvider, DiscoveredItem, DiscoveryType};

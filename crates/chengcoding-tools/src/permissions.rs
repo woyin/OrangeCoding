@@ -346,10 +346,7 @@ mod tests {
         let mut policy = PermissionPolicy::default();
         // 移除一个条目后验证默认值
         policy.levels.remove(&PermissionKind::WebFetch);
-        assert_eq!(
-            policy.check(PermissionKind::WebFetch),
-            PermissionLevel::Ask
-        );
+        assert_eq!(policy.check(PermissionKind::WebFetch), PermissionLevel::Ask);
     }
 
     /// 测试 PermissionChecker 的创建与工具名称

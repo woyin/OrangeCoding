@@ -70,10 +70,7 @@ pub enum RpcMessage {
 
     /// 模型信息
     #[serde(rename = "model_info")]
-    ModelInfo {
-        provider: String,
-        model: String,
-    },
+    ModelInfo { provider: String, model: String },
 
     /// 会话信息
     #[serde(rename = "session_info")]
@@ -85,10 +82,7 @@ pub enum RpcMessage {
 
     /// 错误
     #[serde(rename = "error")]
-    Error {
-        code: String,
-        message: String,
-    },
+    Error { code: String, message: String },
 
     /// 心跳
     #[serde(rename = "ping")]
@@ -410,11 +404,7 @@ mod tests {
         for original in &messages {
             let encoded = RpcCodec::encode(original).unwrap();
             let decoded = RpcCodec::decode(&encoded).unwrap();
-            assert_eq!(
-                original, &decoded,
-                "往返测试失败: {:?}",
-                original
-            );
+            assert_eq!(original, &decoded, "往返测试失败: {:?}", original);
         }
     }
 
@@ -534,6 +524,10 @@ mod tests {
         session.handle_message(RpcMessage::Exit);
 
         let history = session.history();
-        assert_eq!(history.len(), 2, "应只有 2 条历史记录（Ping 和 Exit 不记录）");
+        assert_eq!(
+            history.len(),
+            2,
+            "应只有 2 条历史记录（Ping 和 Exit 不记录）"
+        );
     }
 }

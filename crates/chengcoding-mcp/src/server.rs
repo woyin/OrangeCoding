@@ -272,11 +272,7 @@ impl McpServer {
     /// # 参数
     /// - `definition`: 工具的定义信息
     /// - `handler`: 工具的调用处理器
-    pub async fn register_tool(
-        &self,
-        definition: ToolDefinition,
-        handler: Arc<dyn ToolHandler>,
-    ) {
+    pub async fn register_tool(&self, definition: ToolDefinition, handler: Arc<dyn ToolHandler>) {
         let name = definition.name.clone();
         self.tools.write().await.insert(name.clone(), definition);
         self.handlers.write().await.insert(name.clone(), handler);
@@ -318,10 +314,7 @@ impl McpServer {
             match message {
                 JsonRpcMessage::Request(request) => {
                     let response = self.handle_request(&request).await;
-                    if let Err(e) = transport
-                        .send(&JsonRpcMessage::Response(response))
-                        .await
-                    {
+                    if let Err(e) = transport.send(&JsonRpcMessage::Response(response)).await {
                         tracing::error!("发送响应失败: {}", e);
                     }
                 }
@@ -508,9 +501,9 @@ impl McpServer {
             Err(e) => {
                 // 工具执行出错时返回错误结果（不是 JSON-RPC 层面的错误）
                 let error_result = ToolResult::error(format!("工具执行失败: {}", e));
-                let result_json = serde_json::to_value(&error_result).unwrap_or_else(|_| {
-                    json!({"content": [{"type": "text", "text": "未知错误"}], "isError": true})
-                });
+                let result_json = serde_json::to_value(&error_result).unwrap_or_else(
+                    |_| json!({"content": [{"type": "text", "text": "未知错误"}], "isError": true}),
+                );
                 JsonRpcResponse::success(request.id.clone(), result_json)
             }
         }
@@ -849,11 +842,7 @@ mod tests {
     /// 测试 ToolDefinition 的序列化
     #[test]
     fn test_tool_definition_serialization() {
-        let tool = ToolDefinition::new(
-            "test_tool",
-            "测试工具",
-            json!({"type": "object"}),
-        );
+        let tool = ToolDefinition::new("test_tool", "测试工具", json!({"type": "object"}));
         let json = serde_json::to_value(&tool).expect("序列化失败");
         assert_eq!(json["name"], "test_tool");
         assert_eq!(json["description"], "测试工具");

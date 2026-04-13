@@ -33,12 +33,12 @@ pub mod model_roles;
 pub mod fallback;
 
 // 重新导出核心类型，方便外部使用
+pub use model_roles::{ModelConfig, ModelRole, ModelRoleRouter, ThinkingLevel};
 pub use provider::{
-    AiProvider, AiResponse, ChatMessage, ChatOptions, MessageRole, ProviderConfig,
-    ProviderFactory, StreamEvent, TokenUsage, ToolCall, ToolDefinition, ToolParameter,
+    AiProvider, AiResponse, ChatMessage, ChatOptions, MessageRole, ProviderConfig, ProviderFactory,
+    StreamEvent, TokenUsage, ToolCall, ToolDefinition, ToolParameter,
 };
 pub use stream::{SseParser, StreamAggregator};
-pub use model_roles::{ModelConfig, ModelRole, ModelRoleRouter, ThinkingLevel};
 
 /// AI 模块专用错误类型
 #[derive(Debug, thiserror::Error)]

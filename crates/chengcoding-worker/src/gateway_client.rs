@@ -78,10 +78,7 @@ impl GatewayClient {
                 format!("Bearer {}", self.auth_token),
             ),
             ("X-Worker-Id".to_string(), self.worker_id.clone()),
-            (
-                "X-Worker-Version".to_string(),
-                self.worker_version.clone(),
-            ),
+            ("X-Worker-Version".to_string(), self.worker_version.clone()),
         ]
     }
 

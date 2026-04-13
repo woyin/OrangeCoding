@@ -146,7 +146,10 @@ impl AgentRegistry {
 
     /// 获取所有已注册代理的信息列表
     pub fn list(&self) -> Vec<AgentInfo> {
-        self.agents.iter().map(|entry| entry.value().clone()).collect()
+        self.agents
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
     }
 
     /// 按角色查找代理
@@ -302,7 +305,11 @@ mod tests {
         let registry = AgentRegistry::new();
         registry.register(AgentInfo::new(AgentId::new(), "编码者1", AgentRole::Coder));
         registry.register(AgentInfo::new(AgentId::new(), "编码者2", AgentRole::Coder));
-        registry.register(AgentInfo::new(AgentId::new(), "审查者1", AgentRole::Reviewer));
+        registry.register(AgentInfo::new(
+            AgentId::new(),
+            "审查者1",
+            AgentRole::Reviewer,
+        ));
 
         let coders = registry.find_by_role(&AgentRole::Coder);
         assert_eq!(coders.len(), 2);
@@ -326,7 +333,11 @@ mod tests {
             caps,
         ));
 
-        registry.register(AgentInfo::new(AgentId::new(), "普通代理", AgentRole::Executor));
+        registry.register(AgentInfo::new(
+            AgentId::new(),
+            "普通代理",
+            AgentRole::Executor,
+        ));
 
         let generators = registry.find_by_capability("代码生成");
         assert_eq!(generators.len(), 1);

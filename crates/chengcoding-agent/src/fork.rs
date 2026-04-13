@@ -140,10 +140,7 @@ pub enum ForkValidation {
 /// 检查：
 /// 1. fork 深度是否在限制内
 /// 2. 是否提供了指令
-pub fn validate_fork(
-    parent: &ForkParentContext,
-    config: &ForkConfig,
-) -> ForkValidation {
+pub fn validate_fork(parent: &ForkParentContext, config: &ForkConfig) -> ForkValidation {
     // 检查深度（实际深度 = 父深度 + 1）
     let new_depth = parent.current_depth + 1;
     if new_depth > MAX_FORK_DEPTH {
@@ -161,10 +158,7 @@ pub fn validate_fork(
 /// 构建子 Agent 的初始消息列表
 ///
 /// 根据配置决定是否继承父对话历史
-pub fn build_fork_messages(
-    parent: &ForkParentContext,
-    config: &ForkConfig,
-) -> Vec<String> {
+pub fn build_fork_messages(parent: &ForkParentContext, config: &ForkConfig) -> Vec<String> {
     let mut messages = Vec::new();
 
     // 始终包含 system prompt

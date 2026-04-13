@@ -56,12 +56,7 @@ impl AuditRecorder {
     }
 
     /// 记录一条审计事件
-    pub fn record(
-        &self,
-        event_type: AuditEventType,
-        context: RemoteAuditContext,
-        details: &str,
-    ) {
+    pub fn record(&self, event_type: AuditEventType, context: RemoteAuditContext, details: &str) {
         let record = AuditRecord {
             id: Uuid::new_v4().to_string(),
             event_type,
@@ -121,10 +116,7 @@ impl Default for AuditRecorder {
 mod tests {
     use super::*;
 
-    fn make_context(
-        session_id: Option<&str>,
-        user_id: Option<&str>,
-    ) -> RemoteAuditContext {
+    fn make_context(session_id: Option<&str>, user_id: Option<&str>) -> RemoteAuditContext {
         RemoteAuditContext {
             trace_id: Uuid::new_v4().to_string(),
             request_id: Uuid::new_v4().to_string(),
@@ -234,7 +226,9 @@ mod tests {
     #[test]
     fn query_empty_returns_nothing() {
         let recorder = AuditRecorder::new();
-        assert!(recorder.query_by_type(&AuditEventType::HighRiskToolExec).is_empty());
+        assert!(recorder
+            .query_by_type(&AuditEventType::HighRiskToolExec)
+            .is_empty());
         assert!(recorder.query_by_session("nonexistent").is_empty());
         assert!(recorder.query_by_user("nobody").is_empty());
     }

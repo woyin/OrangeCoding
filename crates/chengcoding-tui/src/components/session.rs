@@ -163,9 +163,7 @@ impl SessionView {
             // 角色标签
             Span::styled(
                 format!(" {} ", message.role_label()),
-                Style::default()
-                    .fg(role_color)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(role_color).add_modifier(Modifier::BOLD),
             ),
             // 时间戳
             Span::styled(

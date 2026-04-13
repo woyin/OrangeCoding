@@ -252,8 +252,7 @@ impl PatternMatcher {
                 }
 
                 if line.contains(&pattern.pattern) {
-                    let (file, line_range) =
-                        Self::extract_file_context(diff, line_idx);
+                    let (file, line_range) = Self::extract_file_context(diff, line_idx);
                     findings.push(ReviewFinding {
                         severity: pattern.severity.clone(),
                         file,
@@ -301,7 +300,10 @@ impl PatternMatcher {
                 }
             }
             if l.starts_with("+++ ") {
-                file = l.trim_start_matches("+++ ").trim_start_matches("b/").to_string();
+                file = l
+                    .trim_start_matches("+++ ")
+                    .trim_start_matches("b/")
+                    .to_string();
                 break;
             }
         }
@@ -405,9 +407,7 @@ impl PatternMatcher {
                         file,
                         line_range,
                         issue: "test_no_assertion".into(),
-                        explanation: format!(
-                            "测试函数 `{fn_name}` 缺少断言，无法验证行为"
-                        ),
+                        explanation: format!("测试函数 `{fn_name}` 缺少断言，无法验证行为"),
                         suggestion: "添加 assert!、assert_eq! 或 assert_ne! 断言".into(),
                         dimension: ReviewDimension::Testing,
                     });
@@ -622,9 +622,9 @@ impl CodeReviewer {
             findings = self.review_iteration(diff);
 
             // 无 Critical/High 发现则提前结束
-            let has_severe = findings.iter().any(|f| {
-                matches!(f.severity, ReviewSeverity::Critical | ReviewSeverity::High)
-            });
+            let has_severe = findings
+                .iter()
+                .any(|f| matches!(f.severity, ReviewSeverity::Critical | ReviewSeverity::High));
 
             if !has_severe {
                 break;
@@ -652,9 +652,9 @@ impl CodeReviewer {
 
     /// 根据发现确定裁决
     fn determine_verdict(findings: &[ReviewFinding]) -> ReviewVerdict {
-        let has_critical_or_high = findings.iter().any(|f| {
-            matches!(f.severity, ReviewSeverity::Critical | ReviewSeverity::High)
-        });
+        let has_critical_or_high = findings
+            .iter()
+            .any(|f| matches!(f.severity, ReviewSeverity::Critical | ReviewSeverity::High));
 
         if has_critical_or_high {
             ReviewVerdict::Incorrect
@@ -833,7 +833,13 @@ mod tests {
     // 7. 检测被忽略的测试
     #[test]
     fn detect_ignored_test() {
-        let diff = make_diff(&["#[ignore]", "#[test]", "fn my_test() {", "    assert!(true);", "}"]);
+        let diff = make_diff(&[
+            "#[ignore]",
+            "#[test]",
+            "fn my_test() {",
+            "    assert!(true);",
+            "}",
+        ]);
         let reviewer = CodeReviewer::new();
         let report = reviewer.review(&diff);
         let ignored: Vec<_> = report
@@ -848,11 +854,7 @@ mod tests {
     // 8. 安全的 diff → Correct 裁决
     #[test]
     fn clean_diff_correct_verdict() {
-        let diff = make_diff(&[
-            "pub fn add(a: i32, b: i32) -> i32 {",
-            "    a + b",
-            "}",
-        ]);
+        let diff = make_diff(&["pub fn add(a: i32, b: i32) -> i32 {", "    a + b", "}"]);
         let reviewer = CodeReviewer::new();
         let report = reviewer.review(&diff);
         assert_eq!(report.verdict, ReviewVerdict::Correct);
@@ -932,7 +934,7 @@ mod tests {
     fn findings_by_severity() {
         let diff = make_diff(&[
             r#"let password = "pw";"#, // Critical
-            "    todo!()",              // High
+            "    todo!()",             // High
             "let x = val.unwrap();",   // Medium
         ]);
         let reviewer = CodeReviewer::new();
@@ -952,7 +954,7 @@ mod tests {
     fn findings_by_dimension() {
         let diff = make_diff(&[
             r#"let password = "pw";"#, // Security
-            "    todo!()",              // Correctness
+            "    todo!()",             // Correctness
             "#[ignore]",               // Testing
         ]);
         let reviewer = CodeReviewer::new();

@@ -558,9 +558,7 @@ mod tests {
         let guard = FileOperationGuard::with_defaults(inner);
 
         // 尝试路径遍历应被阻止
-        let result = guard
-            .execute(json!({"path": "../../etc/shadow"}))
-            .await;
+        let result = guard.execute(json!({"path": "../../etc/shadow"})).await;
         assert!(result.is_err());
         match result.unwrap_err() {
             ToolError::SecurityViolation(msg) => {

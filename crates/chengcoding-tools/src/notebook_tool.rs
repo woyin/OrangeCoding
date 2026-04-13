@@ -289,8 +289,7 @@ impl NotebookTool {
             "cells": cells,
         });
 
-        serde_json::to_string_pretty(&notebook_json)
-            .map_err(|e| format!("JSON 序列化失败: {}", e))
+        serde_json::to_string_pretty(&notebook_json).map_err(|e| format!("JSON 序列化失败: {}", e))
     }
 
     /// 格式化 notebook 为可读文本
@@ -440,8 +439,8 @@ impl Tool for NotebookTool {
                 let content = tokio::fs::read_to_string(path)
                     .await
                     .map_err(|e| ToolError::Io(e))?;
-                let notebook = Self::parse_notebook(&content)
-                    .map_err(|e| ToolError::ExecutionError(e))?;
+                let notebook =
+                    Self::parse_notebook(&content).map_err(|e| ToolError::ExecutionError(e))?;
                 Ok(Self::format_notebook(&notebook))
             }
             "create" => {
@@ -461,8 +460,8 @@ impl Tool for NotebookTool {
                 let content = tokio::fs::read_to_string(path)
                     .await
                     .map_err(|e| ToolError::Io(e))?;
-                let mut notebook = Self::parse_notebook(&content)
-                    .map_err(|e| ToolError::ExecutionError(e))?;
+                let mut notebook =
+                    Self::parse_notebook(&content).map_err(|e| ToolError::ExecutionError(e))?;
 
                 let cell_type_str = params
                     .get("cell_type")
@@ -480,11 +479,11 @@ impl Tool for NotebookTool {
                     }
                 };
 
-                let source = params
-                    .get("source")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let position = params.get("position").and_then(|v| v.as_u64()).map(|v| v as usize);
+                let source = params.get("source").and_then(|v| v.as_str()).unwrap_or("");
+                let position = params
+                    .get("position")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as usize);
 
                 Self::add_cell(&mut notebook, cell_type, source, position);
 
@@ -500,8 +499,8 @@ impl Tool for NotebookTool {
                 let content = tokio::fs::read_to_string(path)
                     .await
                     .map_err(|e| ToolError::Io(e))?;
-                let mut notebook = Self::parse_notebook(&content)
-                    .map_err(|e| ToolError::ExecutionError(e))?;
+                let mut notebook =
+                    Self::parse_notebook(&content).map_err(|e| ToolError::ExecutionError(e))?;
 
                 let index = params
                     .get("index")
@@ -536,8 +535,8 @@ impl Tool for NotebookTool {
                 let content = tokio::fs::read_to_string(path)
                     .await
                     .map_err(|e| ToolError::Io(e))?;
-                let mut notebook = Self::parse_notebook(&content)
-                    .map_err(|e| ToolError::ExecutionError(e))?;
+                let mut notebook =
+                    Self::parse_notebook(&content).map_err(|e| ToolError::ExecutionError(e))?;
 
                 let index = params
                     .get("index")
@@ -563,10 +562,7 @@ impl Tool for NotebookTool {
 
                 Ok(format!("已删除第 {} 个单元格", index))
             }
-            other => Err(ToolError::InvalidParams(format!(
-                "未知操作: {}",
-                other
-            ))),
+            other => Err(ToolError::InvalidParams(format!("未知操作: {}", other))),
         }
     }
 }

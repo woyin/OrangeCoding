@@ -537,7 +537,12 @@ mod tests {
     #[test]
     fn test_execute_block() {
         let mut reg = HookRegistry::new();
-        reg.register(make_hook("blocker", HookEvent::PreToolCall, 0, "block:denied"));
+        reg.register(make_hook(
+            "blocker",
+            HookEvent::PreToolCall,
+            0,
+            "block:denied",
+        ));
 
         let ctx = HookContext {
             event: HookEvent::PreToolCall,
@@ -718,7 +723,11 @@ mod tests {
     #[test]
     fn test_extended_registry_fire() {
         let mut reg = ExtendedHookRegistry::new();
-        reg.register("msg_hook", HookPriority::Normal, vec![HookEventType::Message]);
+        reg.register(
+            "msg_hook",
+            HookPriority::Normal,
+            vec![HookEventType::Message],
+        );
         reg.register(
             "event_hook",
             HookPriority::Normal,

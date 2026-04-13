@@ -85,12 +85,14 @@ async fn show_config(config_manager: &ConfigManager, json: bool) -> Result<()> {
 
     if json {
         // JSON 格式输出
-        let output = config.to_json()
+        let output = config
+            .to_json()
             .map_err(|e| anyhow::anyhow!("配置序列化为 JSON 失败: {}", e))?;
         println!("{}", output);
     } else {
         // TOML 格式输出（默认）
-        let output = config.to_toml()
+        let output = config
+            .to_toml()
             .map_err(|e| anyhow::anyhow!("配置序列化为 TOML 失败: {}", e))?;
         println!("{}", output);
     }
@@ -122,11 +124,7 @@ async fn show_config(config_manager: &ConfigManager, json: bool) -> Result<()> {
 /// - `tui.show_timestamps` - 显示时间戳
 /// - `logging.level` - 日志级别
 /// - `logging.json_format` - JSON 格式日志
-async fn set_config(
-    config_manager: &ConfigManager,
-    key: &str,
-    value: &str,
-) -> Result<()> {
+async fn set_config(config_manager: &ConfigManager, key: &str, value: &str) -> Result<()> {
     // 判断是否为敏感字段（不在日志中输出值）
     let is_sensitive = key.contains("api_key") || key.contains("secret");
 
@@ -157,11 +155,7 @@ async fn set_config(
 ///
 /// 根据点分隔的键名路径，定位到对应的配置字段并更新值。
 /// 不支持的键名会打印警告信息。
-fn apply_config_value(
-    config: &mut chengcoding_config::CeairConfig,
-    key: &str,
-    value: &str,
-) {
+fn apply_config_value(config: &mut chengcoding_config::CeairConfig, key: &str, value: &str) {
     match key {
         // AI 相关配置
         "ai.provider" => config.ai.provider = value.to_string(),
@@ -235,10 +229,7 @@ fn apply_config_value(
 ///
 /// 支持多种布尔值表示方式：true/false, yes/no, 1/0, on/off
 fn parse_bool(value: &str) -> bool {
-    matches!(
-        value.to_lowercase().as_str(),
-        "true" | "yes" | "1" | "on"
-    )
+    matches!(value.to_lowercase().as_str(), "true" | "yes" | "1" | "on")
 }
 
 // ============================================================
@@ -268,7 +259,11 @@ async fn get_config(config_manager: &ConfigManager, key: &str) -> Result<()> {
         }
         "ai.temperature" => config.ai.temperature.to_string(),
         "ai.max_tokens" => config.ai.max_tokens.to_string(),
-        "ai.base_url" => config.ai.base_url.clone().unwrap_or_else(|| "[未设置]".to_string()),
+        "ai.base_url" => config
+            .ai
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "[未设置]".to_string()),
 
         // 智能体相关配置
         "agent.max_iterations" => config.agent.max_iterations.to_string(),
@@ -286,7 +281,10 @@ async fn get_config(config_manager: &ConfigManager, key: &str) -> Result<()> {
 
         // 未知键
         _ => {
-            anyhow::bail!("未知的配置键: '{}'\n使用 'ceair config show' 查看所有可用的配置项", key);
+            anyhow::bail!(
+                "未知的配置键: '{}'\n使用 'ceair config show' 查看所有可用的配置项",
+                key
+            );
         }
     };
 

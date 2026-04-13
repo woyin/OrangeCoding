@@ -62,10 +62,7 @@ impl AgentDefinition for ExploreAgent {
     }
 
     fn fallback_models(&self) -> Vec<String> {
-        vec![
-            "claude-sonnet-4-6".to_string(),
-            "gpt-5.4".to_string(),
-        ]
+        vec!["claude-sonnet-4-6".to_string(), "gpt-5.4".to_string()]
     }
 
     /// 阻止写入、编辑和委派相关工具

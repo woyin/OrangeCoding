@@ -184,10 +184,7 @@ impl Tool for EditTool {
 
         // 检查文件存在
         if !Path::new(path).exists() {
-            return Err(ToolError::ExecutionError(format!(
-                "文件不存在: {}",
-                path
-            )));
+            return Err(ToolError::ExecutionError(format!("文件不存在: {}", path)));
         }
 
         // 读取内容并应用编辑

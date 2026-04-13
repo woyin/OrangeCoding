@@ -179,11 +179,7 @@ impl ContextCompactor {
     }
 
     /// 应用压缩结果：生成新的消息列表
-    pub fn apply_compaction(
-        &self,
-        summary: &str,
-        request: CompactionRequest,
-    ) -> CompactionResult {
+    pub fn apply_compaction(&self, summary: &str, request: CompactionRequest) -> CompactionResult {
         let (to_compact, kept_messages) = self.split_messages(request.messages);
 
         let tokens_compacted: usize = to_compact.iter().map(|m| m.token_estimate).sum();
@@ -244,9 +240,7 @@ pub struct MicroCompactConfig {
 
 impl Default for MicroCompactConfig {
     fn default() -> Self {
-        Self {
-            preserve_recent: 5,
-        }
+        Self { preserve_recent: 5 }
     }
 }
 
@@ -825,9 +819,11 @@ mod tests {
     #[test]
     fn test_micro_compact_updates_token_estimate() {
         let compactor = MicroCompactor::new(MicroCompactConfig { preserve_recent: 0 });
-        let mut messages = vec![
-            make_msg("tool", "这是一段很长很长的工具输出内容，包含大量数据", 500),
-        ];
+        let mut messages = vec![make_msg(
+            "tool",
+            "这是一段很长很长的工具输出内容，包含大量数据",
+            500,
+        )];
 
         compactor.compact(&mut messages);
 

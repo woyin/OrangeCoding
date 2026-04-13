@@ -85,8 +85,7 @@ pub fn build_brave_search_url(query: &str, max_results: usize) -> String {
 
 /// 构建 Jina AI Search 请求 URL
 pub fn build_jina_search_url(query: &str) -> String {
-    let encoded_query =
-        url::form_urlencoded::byte_serialize(query.as_bytes()).collect::<String>();
+    let encoded_query = url::form_urlencoded::byte_serialize(query.as_bytes()).collect::<String>();
     format!("{}/{}", JINA_SEARCH_BASE_URL, encoded_query)
 }
 
@@ -123,12 +122,9 @@ pub fn parse_brave_response(json: &Value) -> ToolResult<Vec<SearchResult>> {
 
 /// 解析 Jina AI Search 响应 JSON 为搜索结果列表
 pub fn parse_jina_response(json: &Value) -> ToolResult<Vec<SearchResult>> {
-    let data = json
-        .get("data")
-        .and_then(|d| d.as_array())
-        .ok_or_else(|| {
-            ToolError::ExecutionError("Jina 响应格式无效：缺少 data 字段".to_string())
-        })?;
+    let data = json.get("data").and_then(|d| d.as_array()).ok_or_else(|| {
+        ToolError::ExecutionError("Jina 响应格式无效：缺少 data 字段".to_string())
+    })?;
 
     let search_results = data
         .iter()
@@ -241,14 +237,9 @@ impl WebSearchTool {
     }
 
     /// 使用 Brave Search API 执行搜索
-    async fn search_brave(
-        &self,
-        query: &str,
-        max_results: usize,
-    ) -> ToolResult<Vec<SearchResult>> {
-        let api_key = std::env::var("BRAVE_API_KEY").map_err(|_| {
-            ToolError::ExecutionError("未设置 BRAVE_API_KEY 环境变量".to_string())
-        })?;
+    async fn search_brave(&self, query: &str, max_results: usize) -> ToolResult<Vec<SearchResult>> {
+        let api_key = std::env::var("BRAVE_API_KEY")
+            .map_err(|_| ToolError::ExecutionError("未设置 BRAVE_API_KEY 环境变量".to_string()))?;
 
         let url = build_brave_search_url(query, max_results);
         debug!("Brave 搜索请求: {}", url);
@@ -278,14 +269,9 @@ impl WebSearchTool {
     }
 
     /// 使用 Jina AI Search 执行搜索
-    async fn search_jina(
-        &self,
-        query: &str,
-        max_results: usize,
-    ) -> ToolResult<Vec<SearchResult>> {
-        let api_key = std::env::var("JINA_API_KEY").map_err(|_| {
-            ToolError::ExecutionError("未设置 JINA_API_KEY 环境变量".to_string())
-        })?;
+    async fn search_jina(&self, query: &str, max_results: usize) -> ToolResult<Vec<SearchResult>> {
+        let api_key = std::env::var("JINA_API_KEY")
+            .map_err(|_| ToolError::ExecutionError("未设置 JINA_API_KEY 环境变量".to_string()))?;
 
         let url = build_jina_search_url(query);
         debug!("Jina 搜索请求: {}", url);
@@ -374,9 +360,7 @@ impl Tool for WebSearchTool {
             .ok_or_else(|| ToolError::InvalidParams("缺少必要参数: query".to_string()))?;
 
         if query.trim().is_empty() {
-            return Err(ToolError::InvalidParams(
-                "搜索查询不能为空".to_string(),
-            ));
+            return Err(ToolError::InvalidParams("搜索查询不能为空".to_string()));
         }
 
         // 提取 provider 参数（默认 auto）
@@ -431,8 +415,7 @@ impl Tool for WebSearchTool {
         };
 
         // 截断结果到 max_results
-        let limited_results: Vec<SearchResult> =
-            results.into_iter().take(max_results).collect();
+        let limited_results: Vec<SearchResult> = results.into_iter().take(max_results).collect();
 
         Ok(format_results(query, provider_name, &limited_results))
     }
@@ -570,8 +553,10 @@ mod tests {
             "URL 应以 Brave API 端点开头"
         );
         // 验证包含查询参数
-        assert!(url.contains("q=rust+async") || url.contains("q=rust%20async"),
-            "URL 应包含编码后的查询参数");
+        assert!(
+            url.contains("q=rust+async") || url.contains("q=rust%20async"),
+            "URL 应包含编码后的查询参数"
+        );
         // 验证包含 count 参数
         assert!(url.contains("count=10"), "URL 应包含 count 参数");
     }
@@ -713,19 +698,31 @@ mod tests {
         std::env::remove_var("JINA_API_KEY");
         let tool = WebSearchTool::new();
         let resolved = tool.resolve_provider().expect("应成功解析提供商");
-        assert_eq!(resolved, SearchProvider::Brave, "有 BRAVE_API_KEY 时应选择 Brave");
+        assert_eq!(
+            resolved,
+            SearchProvider::Brave,
+            "有 BRAVE_API_KEY 时应选择 Brave"
+        );
 
         // 场景 2：只设置 JINA_API_KEY，应选择 Jina
         std::env::remove_var("BRAVE_API_KEY");
         unsafe { std::env::set_var("JINA_API_KEY", "test-jina-key") };
         let resolved = tool.resolve_provider().expect("应成功解析提供商");
-        assert_eq!(resolved, SearchProvider::Jina, "只有 JINA_API_KEY 时应选择 Jina");
+        assert_eq!(
+            resolved,
+            SearchProvider::Jina,
+            "只有 JINA_API_KEY 时应选择 Jina"
+        );
 
         // 场景 3：两者都设置，应优先选择 Brave
         unsafe { std::env::set_var("BRAVE_API_KEY", "test-brave-key") };
         unsafe { std::env::set_var("JINA_API_KEY", "test-jina-key") };
         let resolved = tool.resolve_provider().expect("应成功解析提供商");
-        assert_eq!(resolved, SearchProvider::Brave, "两者都有时应优先选择 Brave");
+        assert_eq!(
+            resolved,
+            SearchProvider::Brave,
+            "两者都有时应优先选择 Brave"
+        );
 
         // 场景 4：都未设置，应返回错误
         std::env::remove_var("BRAVE_API_KEY");

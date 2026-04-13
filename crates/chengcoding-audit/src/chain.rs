@@ -313,9 +313,18 @@ mod tests {
         );
 
         // 验证链的连接关系
-        assert_eq!(entry1.previous_hash, GENESIS_HASH, "第一个条目的前置哈希应为创世哈希");
-        assert_eq!(entry2.previous_hash, entry1.hash, "第二个条目的前置哈希应为第一个条目的哈希");
-        assert_eq!(entry3.previous_hash, entry2.hash, "第三个条目的前置哈希应为第二个条目的哈希");
+        assert_eq!(
+            entry1.previous_hash, GENESIS_HASH,
+            "第一个条目的前置哈希应为创世哈希"
+        );
+        assert_eq!(
+            entry2.previous_hash, entry1.hash,
+            "第二个条目的前置哈希应为第一个条目的哈希"
+        );
+        assert_eq!(
+            entry3.previous_hash, entry2.hash,
+            "第三个条目的前置哈希应为第二个条目的哈希"
+        );
 
         // 每个条目的哈希值应该不同
         assert_ne!(entry1.hash, entry2.hash, "不同条目的哈希值不应相同");
@@ -474,7 +483,8 @@ mod tests {
         );
 
         // 篡改第一个条目的哈希值
-        chain.entries[0].hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string();
+        chain.entries[0].hash =
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string();
 
         // 链应验证失败（第二个条目的前置哈希与第一个条目的哈希不匹配）
         assert!(!chain.verify_chain(), "哈希值被篡改后链应验证失败");

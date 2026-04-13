@@ -372,20 +372,17 @@ impl ProviderFactory {
     ///
     /// # 错误
     /// 传入不支持的提供者名称时返回 `AiError::UnsupportedProvider`
-    pub fn create_provider(
-        name: &str,
-        config: ProviderConfig,
-    ) -> AiResult<Box<dyn AiProvider>> {
+    pub fn create_provider(name: &str, config: ProviderConfig) -> AiResult<Box<dyn AiProvider>> {
         match name.to_lowercase().as_str() {
-            "openai" => Ok(Box::new(
-                crate::providers::openai::OpenAiProvider::new(config)?,
-            )),
+            "openai" => Ok(Box::new(crate::providers::openai::OpenAiProvider::new(
+                config,
+            )?)),
             "anthropic" | "claude" => Ok(Box::new(
                 crate::providers::anthropic::AnthropicProvider::new(config)?,
             )),
-            "deepseek" => Ok(Box::new(
-                crate::providers::deepseek::DeepSeekProvider::new(config)?,
-            )),
+            "deepseek" => Ok(Box::new(crate::providers::deepseek::DeepSeekProvider::new(
+                config,
+            )?)),
             "qianwen" | "tongyi" | "dashscope" => Ok(Box::new(
                 crate::providers::qianwen::QianwenProvider::new(config)?,
             )),
@@ -490,8 +487,16 @@ mod tests {
     fn test_provider_factory_valid_names() {
         // 验证所有支持的提供者名称都能成功创建实例
         let names = vec![
-            "openai", "anthropic", "claude", "deepseek", "qianwen", "tongyi", "dashscope",
-            "wenxin", "ernie", "baidu",
+            "openai",
+            "anthropic",
+            "claude",
+            "deepseek",
+            "qianwen",
+            "tongyi",
+            "dashscope",
+            "wenxin",
+            "ernie",
+            "baidu",
         ];
 
         for name in names {

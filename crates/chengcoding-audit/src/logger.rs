@@ -545,8 +545,14 @@ mod tests {
 
         // 验证敏感信息已被脱敏
         let details_str = serde_json::to_string(&entry.details).unwrap();
-        assert!(!details_str.contains("sk-abc123456789xyzABCDEF"), "API 密钥应被脱敏");
-        assert!(!details_str.contains("my_secret_password123"), "密码应被脱敏");
+        assert!(
+            !details_str.contains("sk-abc123456789xyzABCDEF"),
+            "API 密钥应被脱敏"
+        );
+        assert!(
+            !details_str.contains("my_secret_password123"),
+            "密码应被脱敏"
+        );
         assert!(details_str.contains("[REDACTED]"));
     }
 
@@ -596,7 +602,11 @@ mod tests {
             file_count += 1;
         }
         // 应该有原始文件和至少一个备份文件
-        assert!(file_count >= 2, "轮转后应至少有2个文件，实际有 {} 个", file_count);
+        assert!(
+            file_count >= 2,
+            "轮转后应至少有2个文件，实际有 {} 个",
+            file_count
+        );
     }
 
     /// 测试：批量写入触发自动刷新

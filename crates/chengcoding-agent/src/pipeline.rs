@@ -210,7 +210,10 @@ mod tests {
         assert_eq!(pipeline.current_step(&ctx), Some(&PipelineStep::PreHook));
 
         pipeline.advance(&mut ctx);
-        assert_eq!(pipeline.current_step(&ctx), Some(&PipelineStep::InjectRules));
+        assert_eq!(
+            pipeline.current_step(&ctx),
+            Some(&PipelineStep::InjectRules)
+        );
 
         pipeline.advance(&mut ctx);
         assert_eq!(pipeline.current_step(&ctx), Some(&PipelineStep::AiCall));
@@ -227,8 +230,10 @@ mod tests {
     #[test]
     fn test_pipeline_context_metadata() {
         let mut ctx = AgentPipeline::create_context("带元数据的输入");
-        ctx.metadata.insert("session_id".to_string(), "abc-123".to_string());
-        ctx.metadata.insert("user".to_string(), "test_user".to_string());
+        ctx.metadata
+            .insert("session_id".to_string(), "abc-123".to_string());
+        ctx.metadata
+            .insert("user".to_string(), "test_user".to_string());
 
         assert_eq!(ctx.metadata.get("session_id").unwrap(), "abc-123");
         assert_eq!(ctx.metadata.get("user").unwrap(), "test_user");

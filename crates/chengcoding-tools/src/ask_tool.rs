@@ -89,9 +89,7 @@ impl AskTool {
             .map_err(|e| ToolError::InvalidParams(format!("questions 参数格式错误: {}", e)))?;
 
         if questions.is_empty() {
-            return Err(ToolError::InvalidParams(
-                "questions 不能为空".to_string(),
-            ));
+            return Err(ToolError::InvalidParams("questions 不能为空".to_string()));
         }
 
         Ok(questions)
@@ -131,7 +129,11 @@ impl AskTool {
                 continue;
             }
             let q = &questions[resp.question_index];
-            output.push_str(&format!("Question {}: {}\n", resp.question_index + 1, q.text));
+            output.push_str(&format!(
+                "Question {}: {}\n",
+                resp.question_index + 1,
+                q.text
+            ));
 
             if let Some(text) = &resp.text {
                 output.push_str(&format!("Answer: {}\n", text));
@@ -232,10 +234,7 @@ impl Tool for AskTool {
 
         // 非交互模式或未收到全部回答：返回待回答问题
         let formatted = Self::format_questions(&questions);
-        Ok(format!(
-            "Questions pending user response:\n\n{}",
-            formatted
-        ))
+        Ok(format!("Questions pending user response:\n\n{}", formatted))
     }
 }
 

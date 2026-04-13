@@ -35,7 +35,8 @@ pub async fn ws_handler(
     if check_ws_auth(&query, &state.auth).is_err() {
         return StatusCode::UNAUTHORIZED.into_response();
     }
-    ws.on_upgrade(move |socket| handle_socket(socket, state.runtime)).into_response()
+    ws.on_upgrade(move |socket| handle_socket(socket, state.runtime))
+        .into_response()
 }
 
 async fn handle_socket(socket: WebSocket, runtime: Arc<WorkerRuntime>) {
@@ -110,9 +111,7 @@ fn handle_client_message(runtime: &WorkerRuntime, text: &str) {
             working_directory,
             ..
         } => {
-            let info = runtime
-                .sessions
-                .create_session(title, working_directory);
+            let info = runtime.sessions.create_session(title, working_directory);
             runtime.publish_event(ServerEvent::SessionCreated {
                 session_id: info.id.clone(),
                 title: info.title.clone(),
@@ -175,11 +174,7 @@ fn handle_client_message(runtime: &WorkerRuntime, text: &str) {
         ClientCommand::SessionRename {
             session_id, title, ..
         } => {
-            tracing::info!(
-                "Session rename requested: {} -> {}",
-                session_id,
-                title
-            );
+            tracing::info!("Session rename requested: {} -> {}", session_id, title);
         }
     }
 }
@@ -215,7 +210,9 @@ mod tests {
     fn test_ws_auth_wrong_token_rejected() {
         // 非法 token → 鉴权失败
         let auth = make_auth();
-        let query = WsQuery { token: Some("wrong-token".into()) };
+        let query = WsQuery {
+            token: Some("wrong-token".into()),
+        };
         assert!(check_ws_auth(&query, &auth).is_err(), "非法 token 应被拒绝");
     }
 
@@ -223,15 +220,22 @@ mod tests {
     fn test_ws_auth_valid_token_accepted() {
         // 合法 token → 鉴权通过
         let auth = make_auth();
-        let query = WsQuery { token: Some("test-token-123".into()) };
-        assert!(check_ws_auth(&query, &auth).is_ok(), "合法 token 应通过鉴权");
+        let query = WsQuery {
+            token: Some("test-token-123".into()),
+        };
+        assert!(
+            check_ws_auth(&query, &auth).is_ok(),
+            "合法 token 应通过鉴权"
+        );
     }
 
     #[test]
     fn test_ws_auth_empty_token_rejected() {
         // 空字符串 token → 鉴权失败
         let auth = make_auth();
-        let query = WsQuery { token: Some(String::new()) };
+        let query = WsQuery {
+            token: Some(String::new()),
+        };
         assert!(check_ws_auth(&query, &auth).is_err(), "空 token 应被拒绝");
     }
 

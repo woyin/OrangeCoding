@@ -86,10 +86,7 @@ pub fn parse_frontmatter(text: &str) -> (HashMap<String, String>, String) {
 }
 
 /// 将 Frontmatter 和内容序列化为 Markdown 文件格式
-pub fn serialize_frontmatter(
-    metadata: &HashMap<String, String>,
-    content: &str,
-) -> String {
+pub fn serialize_frontmatter(metadata: &HashMap<String, String>, content: &str) -> String {
     let mut lines = Vec::new();
     lines.push("---".to_string());
 
@@ -339,9 +336,6 @@ mod tests {
 
         let md = entry_to_markdown(&entry);
         let parsed = markdown_to_entry(&md).unwrap();
-        assert_eq!(
-            parsed.metadata.get("tags").unwrap(),
-            "rust,testing"
-        );
+        assert_eq!(parsed.metadata.get("tags").unwrap(), "rust,testing");
     }
 }

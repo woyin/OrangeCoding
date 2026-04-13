@@ -242,7 +242,9 @@ mod tests {
         assert!(!VerificationCheck::DesignCompliance.description().is_empty());
         assert!(!VerificationCheck::BreakingChanges.description().is_empty());
         assert!(!VerificationCheck::DesignDefects.description().is_empty());
-        assert!(!VerificationCheck::TestEffectiveness.description().is_empty());
+        assert!(!VerificationCheck::TestEffectiveness
+            .description()
+            .is_empty());
         assert!(!VerificationCheck::MeaninglessTests.description().is_empty());
     }
 
@@ -279,8 +281,7 @@ mod tests {
             message: "测试覆盖率偏低".into(),
             file_path: None,
         }];
-        let result =
-            VerificationResult::from_issues(issues, vec![], VerificationCheck::all());
+        let result = VerificationResult::from_issues(issues, vec![], VerificationCheck::all());
         assert!(result.passed); // Warning 不算失败
         assert_eq!(result.warning_count(), 1);
     }
@@ -300,8 +301,7 @@ mod tests {
             message: "破坏了 API".into(),
             file_path: Some("lib.rs".into()),
         }];
-        let result =
-            VerificationResult::from_issues(issues, vec!["回滚修改".into()], vec![]);
+        let result = VerificationResult::from_issues(issues, vec!["回滚修改".into()], vec![]);
         let report = result.report();
         assert!(report.contains("❌"));
         assert!(report.contains("破坏了 API"));

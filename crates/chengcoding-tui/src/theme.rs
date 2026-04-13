@@ -146,12 +146,12 @@ impl Theme {
         let colors = ThemeColors {
             // 基础颜色 — 深色背景、明亮前景
             primary: Color::Rgb(100, 149, 237),    // 矢车菊蓝
-            secondary: Color::Rgb(138, 112, 198),   // 紫色
-            accent: Color::Rgb(255, 179, 71),       // 琥珀色
-            background: Color::Rgb(22, 22, 30),     // 深蓝黑
-            foreground: Color::Rgb(220, 220, 230),  // 浅灰白
-            surface: Color::Rgb(35, 35, 48),        // 深灰蓝
-            border: Color::Rgb(68, 68, 90),         // 暗灰蓝
+            secondary: Color::Rgb(138, 112, 198),  // 紫色
+            accent: Color::Rgb(255, 179, 71),      // 琥珀色
+            background: Color::Rgb(22, 22, 30),    // 深蓝黑
+            foreground: Color::Rgb(220, 220, 230), // 浅灰白
+            surface: Color::Rgb(35, 35, 48),       // 深灰蓝
+            border: Color::Rgb(68, 68, 90),        // 暗灰蓝
 
             // 消息颜色
             user_message: Color::Rgb(100, 149, 237),
@@ -209,8 +209,8 @@ impl Theme {
             primary: Color::Rgb(30, 102, 200),
             secondary: Color::Rgb(110, 70, 170),
             accent: Color::Rgb(200, 120, 0),
-            background: Color::Rgb(250, 250, 252),  // 近白色
-            foreground: Color::Rgb(30, 30, 40),      // 深灰黑
+            background: Color::Rgb(250, 250, 252), // 近白色
+            foreground: Color::Rgb(30, 30, 40),    // 深灰黑
             surface: Color::Rgb(240, 240, 245),
             border: Color::Rgb(200, 200, 210),
 
@@ -387,10 +387,7 @@ impl Theme {
             "system_message".into(),
             Style::default().fg(c.system_message),
         );
-        m.insert(
-            "error_message".into(),
-            Style::default().fg(c.error_message),
-        );
+        m.insert("error_message".into(), Style::default().fg(c.error_message));
         m.insert(
             "warning_message".into(),
             Style::default().fg(c.warning_message),
@@ -705,10 +702,7 @@ mod tests {
         match theme.colors.background {
             Color::Rgb(r, g, b) => {
                 let avg = (r as u16 + g as u16 + b as u16) / 3;
-                assert!(
-                    avg < 80,
-                    "暗色主题背景色平均亮度应 < 80，实际为 {avg}"
-                );
+                assert!(avg < 80, "暗色主题背景色平均亮度应 < 80，实际为 {avg}");
             }
             _ => panic!("暗色主题背景色应为 RGB 颜色"),
         }
@@ -721,10 +715,7 @@ mod tests {
         match theme.colors.background {
             Color::Rgb(r, g, b) => {
                 let avg = (r as u16 + g as u16 + b as u16) / 3;
-                assert!(
-                    avg > 200,
-                    "亮色主题背景色平均亮度应 > 200，实际为 {avg}"
-                );
+                assert!(avg > 200, "亮色主题背景色平均亮度应 > 200，实际为 {avg}");
             }
             _ => panic!("亮色主题背景色应为 RGB 颜色"),
         }

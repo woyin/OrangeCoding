@@ -4,12 +4,12 @@
 
 use crate::{Tool, ToolError, ToolResult};
 use async_trait::async_trait;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use parking_lot::RwLock;
 use uuid::Uuid;
 
 // ============================================================
@@ -273,7 +273,9 @@ impl Tool for TaskCreateTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidParams("缺少 description 参数".to_string()))?;
 
-        let task = self.store.create(subject.to_string(), description.to_string());
+        let task = self
+            .store
+            .create(subject.to_string(), description.to_string());
 
         serde_json::to_string_pretty(&task)
             .map_err(|e| ToolError::ExecutionError(format!("序列化任务失败: {}", e)))

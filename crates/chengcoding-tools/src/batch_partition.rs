@@ -122,11 +122,7 @@ mod tests {
 
     #[test]
     fn test_all_readonly_single_concurrent_batch() {
-        let calls = vec![
-            safe_call("read_file"),
-            safe_call("grep"),
-            safe_call("glob"),
-        ];
+        let calls = vec![safe_call("read_file"), safe_call("grep"), safe_call("glob")];
         let batches = partition_tool_calls(calls);
         assert_eq!(batches.len(), 1);
         assert!(batches[0].concurrent);

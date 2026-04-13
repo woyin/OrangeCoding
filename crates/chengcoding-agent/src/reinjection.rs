@@ -77,10 +77,7 @@ fn truncate_to_tokens(text: &str, max_tokens: usize) -> String {
 /// 2. 取前 max_files 个文件
 /// 3. 每个文件截断到 max_tokens_per_file
 /// 4. 总量不超过 total_budget
-pub fn reinject(
-    files: &[FileContent],
-    config: &ReinjectionConfig,
-) -> Vec<ReinjectionItem> {
+pub fn reinject(files: &[FileContent], config: &ReinjectionConfig) -> Vec<ReinjectionItem> {
     if files.is_empty() {
         return Vec::new();
     }

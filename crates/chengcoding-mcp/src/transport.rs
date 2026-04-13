@@ -98,9 +98,10 @@ impl StdioTransport {
         // 逐行读取 HTTP 风格的头部
         loop {
             let mut header_line = String::new();
-            let bytes_read = reader.read_line(&mut header_line).await.map_err(|e| {
-                McpError::Transport(format!("读取头部失败: {}", e))
-            })?;
+            let bytes_read = reader
+                .read_line(&mut header_line)
+                .await
+                .map_err(|e| McpError::Transport(format!("读取头部失败: {}", e)))?;
 
             // 如果读取到 0 字节，表示输入流已关闭（EOF）
             if bytes_read == 0 {
@@ -125,27 +126,25 @@ impl StdioTransport {
         }
 
         // 验证 Content-Length 是否存在
-        let length = content_length.ok_or_else(|| {
-            McpError::Transport("缺少 Content-Length 头部".to_string())
-        })?;
+        let length = content_length
+            .ok_or_else(|| McpError::Transport("缺少 Content-Length 头部".to_string()))?;
 
         // 根据 Content-Length 读取 JSON 正文
         let mut body_buffer = vec![0u8; length];
-        reader.read_exact(&mut body_buffer).await.map_err(|e| {
-            McpError::Transport(format!("读取消息正文失败: {}", e))
-        })?;
+        reader
+            .read_exact(&mut body_buffer)
+            .await
+            .map_err(|e| McpError::Transport(format!("读取消息正文失败: {}", e)))?;
 
         // 将字节缓冲区转换为 UTF-8 字符串
-        let body_str = String::from_utf8(body_buffer).map_err(|e| {
-            McpError::Transport(format!("消息正文不是有效的 UTF-8: {}", e))
-        })?;
+        let body_str = String::from_utf8(body_buffer)
+            .map_err(|e| McpError::Transport(format!("消息正文不是有效的 UTF-8: {}", e)))?;
 
         tracing::debug!("收到消息: {}", body_str);
 
         // 反序列化 JSON 为消息对象
-        serde_json::from_str(&body_str).map_err(|e| {
-            McpError::Protocol(format!("JSON 反序列化失败: {}", e))
-        })
+        serde_json::from_str(&body_str)
+            .map_err(|e| McpError::Protocol(format!("JSON 反序列化失败: {}", e)))
     }
 
     /// 将消息写入输出流
@@ -160,9 +159,8 @@ impl StdioTransport {
         message: &JsonRpcMessage,
     ) -> Result<(), McpError> {
         // 序列化消息为 JSON
-        let json_body = serde_json::to_string(message).map_err(|e| {
-            McpError::Protocol(format!("JSON 序列化失败: {}", e))
-        })?;
+        let json_body = serde_json::to_string(message)
+            .map_err(|e| McpError::Protocol(format!("JSON 序列化失败: {}", e)))?;
 
         tracing::debug!("发送消息: {}", json_body);
 
@@ -170,19 +168,22 @@ impl StdioTransport {
 
         // 写入 Content-Length 头部
         let header = format!("Content-Length: {}\r\n\r\n", body_bytes.len());
-        writer.write_all(header.as_bytes()).await.map_err(|e| {
-            McpError::Transport(format!("写入消息头部失败: {}", e))
-        })?;
+        writer
+            .write_all(header.as_bytes())
+            .await
+            .map_err(|e| McpError::Transport(format!("写入消息头部失败: {}", e)))?;
 
         // 写入 JSON 正文
-        writer.write_all(body_bytes).await.map_err(|e| {
-            McpError::Transport(format!("写入消息正文失败: {}", e))
-        })?;
+        writer
+            .write_all(body_bytes)
+            .await
+            .map_err(|e| McpError::Transport(format!("写入消息正文失败: {}", e)))?;
 
         // 刷新缓冲区，确保消息立即发送
-        writer.flush().await.map_err(|e| {
-            McpError::Transport(format!("刷新输出缓冲区失败: {}", e))
-        })?;
+        writer
+            .flush()
+            .await
+            .map_err(|e| McpError::Transport(format!("刷新输出缓冲区失败: {}", e)))?;
 
         Ok(())
     }
@@ -283,9 +284,10 @@ impl Transport for MemoryTransport {
         }
         drop(closed);
 
-        self.sender.send(message.clone()).await.map_err(|e| {
-            McpError::Transport(format!("内存通道发送失败: {}", e))
-        })
+        self.sender
+            .send(message.clone())
+            .await
+            .map_err(|e| McpError::Transport(format!("内存通道发送失败: {}", e)))
     }
 
     async fn receive(&self) -> Result<JsonRpcMessage, McpError> {
@@ -296,9 +298,10 @@ impl Transport for MemoryTransport {
         drop(closed);
 
         let mut receiver = self.receiver.lock().await;
-        receiver.recv().await.ok_or_else(|| {
-            McpError::Transport("内存通道已关闭".to_string())
-        })
+        receiver
+            .recv()
+            .await
+            .ok_or_else(|| McpError::Transport("内存通道已关闭".to_string()))
     }
 
     async fn close(&self) -> Result<(), McpError> {
@@ -350,11 +353,8 @@ mod tests {
         let (transport_a, transport_b) = MemoryTransport::pair();
 
         // A 向 B 发送请求
-        let request = JsonRpcMessage::Request(JsonRpcRequest::new(
-            "ping",
-            None,
-            RequestId::Number(1),
-        ));
+        let request =
+            JsonRpcMessage::Request(JsonRpcRequest::new("ping", None, RequestId::Number(1)));
         transport_a.send(&request).await.expect("A 发送失败");
 
         // B 接收请求

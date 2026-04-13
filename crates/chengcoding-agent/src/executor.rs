@@ -11,8 +11,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chengcoding_core::message::{ToolCall, ToolResult};
-use chengcoding_tools::ToolRegistry;
 use chengcoding_tools::permissions::PermissionContext;
+use chengcoding_tools::ToolRegistry;
 use tracing::{debug, error, info, warn};
 
 // ---------------------------------------------------------------------------
@@ -107,18 +107,18 @@ impl ToolExecutor {
             match tool.check_permissions(params, ctx) {
                 PermissionDecision::Allow => {}
                 PermissionDecision::Deny(reason) => {
-                    warn!("工具 {} 权限被拒绝: {} (ID: {})", tool_name, reason, tool_call_id);
-                    return ToolResult::error(
-                        tool_call_id,
-                        format!("权限拒绝: {}", reason),
+                    warn!(
+                        "工具 {} 权限被拒绝: {} (ID: {})",
+                        tool_name, reason, tool_call_id
                     );
+                    return ToolResult::error(tool_call_id, format!("权限拒绝: {}", reason));
                 }
                 PermissionDecision::Ask(prompt) => {
-                    warn!("工具 {} 需要用户确认: {} (ID: {})", tool_name, prompt, tool_call_id);
-                    return ToolResult::error(
-                        tool_call_id,
-                        format!("需要用户确认: {}", prompt),
+                    warn!(
+                        "工具 {} 需要用户确认: {} (ID: {})",
+                        tool_name, prompt, tool_call_id
                     );
+                    return ToolResult::error(tool_call_id, format!("需要用户确认: {}", prompt));
                 }
             }
         }
@@ -136,7 +136,10 @@ impl ToolExecutor {
             }
             // 工具返回错误
             Ok(Err(tool_err)) => {
-                error!("工具 {} 执行失败: {} (ID: {})", tool_name, tool_err, tool_call_id);
+                error!(
+                    "工具 {} 执行失败: {} (ID: {})",
+                    tool_name, tool_err, tool_call_id
+                );
                 ToolResult::error(
                     tool_call_id,
                     format!("工具 '{}' 执行错误: {}", tool_name, tool_err),
@@ -259,11 +262,11 @@ impl ToolExecutor {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use chengcoding_tools::{Tool, ToolError};
     use chengcoding_tools::permissions;
+    use chengcoding_tools::{Tool, ToolError};
     use serde_json::{json, Value};
-    use std::time::Duration;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    use std::time::Duration;
 
     // -----------------------------------------------------------------------
     // 测试用模拟工具
@@ -463,9 +466,15 @@ mod tests {
 
     #[async_trait]
     impl Tool for DenyTool {
-        fn name(&self) -> &str { "deny_tool" }
-        fn description(&self) -> &str { "权限被拒绝的工具" }
-        fn parameters_schema(&self) -> Value { json!({"type": "object", "properties": {}}) }
+        fn name(&self) -> &str {
+            "deny_tool"
+        }
+        fn description(&self) -> &str {
+            "权限被拒绝的工具"
+        }
+        fn parameters_schema(&self) -> Value {
+            json!({"type": "object", "properties": {}})
+        }
         async fn execute(&self, _params: Value) -> chengcoding_tools::ToolResult<String> {
             self.execute_count.fetch_add(1, AtomicOrdering::SeqCst);
             Ok("不应执行".to_string())
@@ -486,7 +495,9 @@ mod tests {
     #[tokio::test]
     async fn test_execute_tool_call_respects_deny_permission() {
         let registry = ToolRegistry::new();
-        let deny_tool = DenyTool { execute_count: AtomicUsize::new(0) };
+        let deny_tool = DenyTool {
+            execute_count: AtomicUsize::new(0),
+        };
         registry.register(Arc::new(deny_tool));
 
         let executor = ToolExecutor::new(Arc::new(registry))
@@ -498,7 +509,8 @@ mod tests {
         assert!(result.is_error, "Deny 权限应导致错误结果");
         assert!(
             result.content.contains("拒绝") || result.content.contains("deny"),
-            "错误信息应包含拒绝原因，实际: {}", result.content
+            "错误信息应包含拒绝原因，实际: {}",
+            result.content
         );
     }
 
@@ -508,9 +520,15 @@ mod tests {
 
     #[async_trait]
     impl Tool for AllowTool {
-        fn name(&self) -> &str { "allow_tool" }
-        fn description(&self) -> &str { "权限允许的工具" }
-        fn parameters_schema(&self) -> Value { json!({"type": "object", "properties": {}}) }
+        fn name(&self) -> &str {
+            "allow_tool"
+        }
+        fn description(&self) -> &str {
+            "权限允许的工具"
+        }
+        fn parameters_schema(&self) -> Value {
+            json!({"type": "object", "properties": {}})
+        }
         async fn execute(&self, _params: Value) -> chengcoding_tools::ToolResult<String> {
             Ok("允许执行".to_string())
         }
@@ -548,9 +566,15 @@ mod tests {
 
     #[async_trait]
     impl Tool for SafeCountTool {
-        fn name(&self) -> &str { "safe_count" }
-        fn description(&self) -> &str { "并发安全的只读工具" }
-        fn parameters_schema(&self) -> Value { json!({"type": "object", "properties": {}}) }
+        fn name(&self) -> &str {
+            "safe_count"
+        }
+        fn description(&self) -> &str {
+            "并发安全的只读工具"
+        }
+        fn parameters_schema(&self) -> Value {
+            json!({"type": "object", "properties": {}})
+        }
         fn metadata(&self) -> chengcoding_tools::ToolMetadata {
             chengcoding_tools::ToolMetadata::read_only()
         }
@@ -568,9 +592,15 @@ mod tests {
 
     #[async_trait]
     impl Tool for UnsafeCountTool {
-        fn name(&self) -> &str { "unsafe_count" }
-        fn description(&self) -> &str { "非并发安全的写入工具" }
-        fn parameters_schema(&self) -> Value { json!({"type": "object", "properties": {}}) }
+        fn name(&self) -> &str {
+            "unsafe_count"
+        }
+        fn description(&self) -> &str {
+            "非并发安全的写入工具"
+        }
+        fn parameters_schema(&self) -> Value {
+            json!({"type": "object", "properties": {}})
+        }
         fn metadata(&self) -> chengcoding_tools::ToolMetadata {
             chengcoding_tools::ToolMetadata::default()
         }
@@ -586,9 +616,15 @@ mod tests {
     /// 修复后：unsafe 工具应串行执行，但结果顺序与输入一致。
     #[tokio::test]
     async fn test_execute_batch_mixed_safe_unsafe_order_preserved() {
-        let safe = Arc::new(SafeCountTool { count: AtomicUsize::new(0) });
-        let unsafe1 = Arc::new(UnsafeCountTool { count: AtomicUsize::new(0) });
-        let unsafe2 = Arc::new(UnsafeCountTool { count: AtomicUsize::new(0) });
+        let safe = Arc::new(SafeCountTool {
+            count: AtomicUsize::new(0),
+        });
+        let unsafe1 = Arc::new(UnsafeCountTool {
+            count: AtomicUsize::new(0),
+        });
+        let unsafe2 = Arc::new(UnsafeCountTool {
+            count: AtomicUsize::new(0),
+        });
 
         let registry = ToolRegistry::new();
         registry.register(safe.clone());
@@ -629,9 +665,15 @@ mod tests {
 
         #[async_trait]
         impl Tool for SlowUnsafeTool {
-            fn name(&self) -> &str { "slow_unsafe" }
-            fn description(&self) -> &str { "慢速非安全工具" }
-            fn parameters_schema(&self) -> Value { json!({"type": "object", "properties": {}}) }
+            fn name(&self) -> &str {
+                "slow_unsafe"
+            }
+            fn description(&self) -> &str {
+                "慢速非安全工具"
+            }
+            fn parameters_schema(&self) -> Value {
+                json!({"type": "object", "properties": {}})
+            }
             fn metadata(&self) -> chengcoding_tools::ToolMetadata {
                 chengcoding_tools::ToolMetadata::default()
             }

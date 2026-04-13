@@ -56,37 +56,15 @@ impl Mulberry32 {
 ///
 /// 选用友好、中性、易记的名称
 const BUDDY_NAMES: &[&str] = &[
-    "Atlas",
-    "Beacon",
-    "Circuit",
-    "Dash",
-    "Echo",
-    "Flux",
-    "Glyph",
-    "Helix",
-    "Ion",
-    "Jade",
-    "Kite",
-    "Link",
-    "Mesh",
-    "Nova",
-    "Orbit",
-    "Pixel",
-    "Quartz",
-    "Relay",
-    "Spark",
-    "Trace",
-    "Unity",
-    "Vox",
-    "Wave",
-    "Xenon",
-    "Zenith",
+    "Atlas", "Beacon", "Circuit", "Dash", "Echo", "Flux", "Glyph", "Helix", "Ion", "Jade", "Kite",
+    "Link", "Mesh", "Nova", "Orbit", "Pixel", "Quartz", "Relay", "Spark", "Trace", "Unity", "Vox",
+    "Wave", "Xenon", "Zenith",
 ];
 
 /// 伙伴表情列表
 const BUDDY_EMOJIS: &[&str] = &[
-    "🦊", "🐙", "🦉", "🐬", "🦋", "🐢", "🦈", "🐝", "🦜", "🐺", "🦁", "🐧", "🦄", "🐸",
-    "🦅", "🐨", "🦎", "🐳", "🦇", "🦀",
+    "🦊", "🐙", "🦉", "🐬", "🦋", "🐢", "🦈", "🐝", "🦜", "🐺", "🦁", "🐧", "🦄", "🐸", "🦅", "🐨",
+    "🦎", "🐳", "🦇", "🦀",
 ];
 
 // ---------------------------------------------------------------------------

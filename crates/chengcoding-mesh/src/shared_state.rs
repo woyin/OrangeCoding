@@ -128,9 +128,7 @@ impl SharedState {
     /// 返回被移除的值，如果键不存在则返回 `None`。
     pub fn remove(&self, key: &str) -> Option<Value> {
         debug!(key = %key, "移除共享状态条目");
-        self.store
-            .remove(key)
-            .map(|(_, entry)| entry.value)
+        self.store.remove(key).map(|(_, entry)| entry.value)
     }
 
     /// 检查是否包含指定的键

@@ -10,14 +10,7 @@ use serde_json::{json, Value};
 use tracing::debug;
 
 /// 危险模块/函数关键词列表
-const DANGEROUS_IMPORTS: &[&str] = &[
-    "os",
-    "subprocess",
-    "shutil",
-    "sys.exit",
-    "ctypes",
-    "signal",
-];
+const DANGEROUS_IMPORTS: &[&str] = &["os", "subprocess", "shutil", "sys.exit", "ctypes", "signal"];
 
 // ============================================================
 // 数据类型定义
@@ -86,11 +79,7 @@ impl PythonTool {
     pub fn build_command(&self, code: &str, mode: &PythonMode) -> Vec<String> {
         match mode {
             PythonMode::Script => {
-                vec![
-                    self.python_path.clone(),
-                    "-c".to_string(),
-                    code.to_string(),
-                ]
+                vec![self.python_path.clone(), "-c".to_string(), code.to_string()]
             }
             PythonMode::Repl => {
                 vec![
@@ -337,9 +326,7 @@ impl Tool for PythonTool {
             .ok_or_else(|| ToolError::InvalidParams("缺少必要参数: code".to_string()))?;
 
         if code.trim().is_empty() {
-            return Err(ToolError::InvalidParams(
-                "code 参数不能为空".to_string(),
-            ));
+            return Err(ToolError::InvalidParams("code 参数不能为空".to_string()));
         }
 
         // 语法检查

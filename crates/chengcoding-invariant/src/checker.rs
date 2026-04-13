@@ -233,11 +233,7 @@ mod tests {
     fn custom_check_override_works() {
         let checker = InvariantChecker::with_system_rules();
         let mut ctx = healthy_context();
-        ctx.custom_checks = vec![(
-            "INV-SESSION-01".into(),
-            false,
-            "自定义检查失败".into(),
-        )];
+        ctx.custom_checks = vec![("INV-SESSION-01".into(), false, "自定义检查失败".into())];
 
         let report = checker.check(&ctx);
         assert!(!report.is_clean());

@@ -138,7 +138,10 @@ max_entries = 1000
 
     /// 检查项目是否已初始化
     pub fn is_initialized(project_dir: &Path) -> bool {
-        project_dir.join(".chengcoding").join("config.toml").exists()
+        project_dir
+            .join(".chengcoding")
+            .join("config.toml")
+            .exists()
     }
 }
 

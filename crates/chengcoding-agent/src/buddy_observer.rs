@@ -83,8 +83,8 @@ impl Default for ObserverConfig {
     fn default() -> Self {
         Self {
             recent_messages: 5,
-            system_prompt_template:
-                "你是 {buddy_name}，简短评论你观察到的内容，一句话即可。".to_string(),
+            system_prompt_template: "你是 {buddy_name}，简短评论你观察到的内容，一句话即可。"
+                .to_string(),
         }
     }
 }
@@ -221,9 +221,7 @@ mod tests {
 
     #[test]
     fn test_observer_input_empty() {
-        let input = ObserverInput {
-            messages: vec![],
-        };
+        let input = ObserverInput { messages: vec![] };
         assert!(input.is_empty());
     }
 

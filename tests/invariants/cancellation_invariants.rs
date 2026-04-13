@@ -49,10 +49,7 @@ fn inv_cancel_01_child_cancel_does_not_propagate_up() {
     child.cancel();
 
     assert!(child.is_cancelled());
-    assert!(
-        !parent.is_cancelled(),
-        "子取消不得向上传播到父令牌"
-    );
+    assert!(!parent.is_cancelled(), "子取消不得向上传播到父令牌");
 }
 
 #[test]
@@ -98,10 +95,7 @@ fn inv_cancel_02_reset_after_cancel_creates_fresh_token() {
     assert!(sv.reset_cancel_token(&session.id), "reset 应返回 true");
 
     let new_token = sv.get_cancel_token(&session.id).unwrap();
-    assert!(
-        !new_token.is_cancelled(),
-        "重置后新 token 不得为 cancelled"
-    );
+    assert!(!new_token.is_cancelled(), "重置后新 token 不得为 cancelled");
 }
 
 #[test]

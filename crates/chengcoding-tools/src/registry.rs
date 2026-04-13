@@ -200,19 +200,52 @@ pub fn create_default_registry(policy: SecurityPolicy) -> ToolRegistry {
     // 注册文件操作工具（带安全守卫）
     // 所有接受路径参数的工具都必须包装 FileOperationGuard，
     // 否则模型可以通过选择未守卫的工具绕过沙箱限制。
-    registry.register(Arc::new(FileOperationGuard::new(Arc::new(ReadFileTool), validator.clone())));
-    registry.register(Arc::new(FileOperationGuard::new(Arc::new(WriteFileTool), validator.clone())));
-    registry.register(Arc::new(FileOperationGuard::new(Arc::new(EditFileTool), validator.clone())));
-    registry.register(Arc::new(FileOperationGuard::new(Arc::new(EditTool), validator.clone())));
-    registry.register(Arc::new(FileOperationGuard::new(Arc::new(ListDirectoryTool), validator.clone())));
-    registry.register(Arc::new(FileOperationGuard::new(Arc::new(SearchFilesTool), validator.clone())));
-    registry.register(Arc::new(FileOperationGuard::new(Arc::new(DeleteFileTool), validator.clone())));
+    registry.register(Arc::new(FileOperationGuard::new(
+        Arc::new(ReadFileTool),
+        validator.clone(),
+    )));
+    registry.register(Arc::new(FileOperationGuard::new(
+        Arc::new(WriteFileTool),
+        validator.clone(),
+    )));
+    registry.register(Arc::new(FileOperationGuard::new(
+        Arc::new(EditFileTool),
+        validator.clone(),
+    )));
+    registry.register(Arc::new(FileOperationGuard::new(
+        Arc::new(EditTool),
+        validator.clone(),
+    )));
+    registry.register(Arc::new(FileOperationGuard::new(
+        Arc::new(ListDirectoryTool),
+        validator.clone(),
+    )));
+    registry.register(Arc::new(FileOperationGuard::new(
+        Arc::new(SearchFilesTool),
+        validator.clone(),
+    )));
+    registry.register(Arc::new(FileOperationGuard::new(
+        Arc::new(DeleteFileTool),
+        validator.clone(),
+    )));
 
     // Grep/Find/Notebook/AST 都接受路径参数，必须加安全守卫
-    registry.register(Arc::new(FileOperationGuard::new(Arc::new(GrepTool::new()), validator.clone())));
-    registry.register(Arc::new(FileOperationGuard::new(Arc::new(FindTool::new()), validator.clone())));
-    registry.register(Arc::new(FileOperationGuard::new(Arc::new(NotebookTool), validator.clone())));
-    registry.register(Arc::new(FileOperationGuard::new(Arc::new(AstTool), validator.clone())));
+    registry.register(Arc::new(FileOperationGuard::new(
+        Arc::new(GrepTool::new()),
+        validator.clone(),
+    )));
+    registry.register(Arc::new(FileOperationGuard::new(
+        Arc::new(FindTool::new()),
+        validator.clone(),
+    )));
+    registry.register(Arc::new(FileOperationGuard::new(
+        Arc::new(NotebookTool),
+        validator.clone(),
+    )));
+    registry.register(Arc::new(FileOperationGuard::new(
+        Arc::new(AstTool),
+        validator.clone(),
+    )));
 
     // 非路径类工具（无需安全守卫）
     registry.register(Arc::new(BashTool::new()));
@@ -470,16 +503,28 @@ mod tests {
 
         // 所有接受路径参数的工具在尝试访问沙箱外路径时应返回安全错误
         let path_tools = vec![
-            "read_file", "write_file", "edit_file", "edit",
-            "list_directory", "search_files", "delete_file",
-            "grep", "find", "notebook", "ast_grep",
+            "read_file",
+            "write_file",
+            "edit_file",
+            "edit",
+            "list_directory",
+            "search_files",
+            "delete_file",
+            "grep",
+            "find",
+            "notebook",
+            "ast_grep",
         ];
 
         for tool_name in path_tools {
-            let tool = registry.get(tool_name).expect(&format!("工具 {} 应存在", tool_name));
-            let result = tool.execute(json!({
-                "path": "/etc/shadow",
-            })).await;
+            let tool = registry
+                .get(tool_name)
+                .expect(&format!("工具 {} 应存在", tool_name));
+            let result = tool
+                .execute(json!({
+                    "path": "/etc/shadow",
+                }))
+                .await;
 
             // 应该被安全策略拦截（SecurityViolation 或类似错误）
             assert!(

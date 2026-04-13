@@ -195,8 +195,11 @@ impl MemoryStore {
 
         // 超过最大条目数时淘汰最不重要的
         if self.entries.len() > self.config.max_entries {
-            self.entries
-                .sort_by(|a, b| b.importance.partial_cmp(&a.importance).unwrap_or(std::cmp::Ordering::Equal));
+            self.entries.sort_by(|a, b| {
+                b.importance
+                    .partial_cmp(&a.importance)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             self.entries.truncate(self.config.max_entries);
         }
 
@@ -276,7 +279,11 @@ impl MemoryStore {
             return Vec::new();
         }
         let mut sorted: Vec<&MemoryEntry> = self.entries.iter().collect();
-        sorted.sort_by(|a, b| b.importance.partial_cmp(&a.importance).unwrap_or(std::cmp::Ordering::Equal));
+        sorted.sort_by(|a, b| {
+            b.importance
+                .partial_cmp(&a.importance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         sorted.into_iter().take(limit).collect()
     }
 
@@ -300,8 +307,11 @@ impl MemoryStore {
         }
         // 超出限制时淘汰低重要性条目
         if self.entries.len() > self.config.max_entries {
-            self.entries
-                .sort_by(|a, b| b.importance.partial_cmp(&a.importance).unwrap_or(std::cmp::Ordering::Equal));
+            self.entries.sort_by(|a, b| {
+                b.importance
+                    .partial_cmp(&a.importance)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             self.entries.truncate(self.config.max_entries);
         }
     }
@@ -396,7 +406,12 @@ mod tests {
     #[test]
     fn test_search_by_tag() {
         let mut store = MemoryStore::new(enabled_config());
-        store.add("条目1", MemoryType::Guideline, vec!["重要".into(), "工作".into()], 0.5);
+        store.add(
+            "条目1",
+            MemoryType::Guideline,
+            vec!["重要".into(), "工作".into()],
+            0.5,
+        );
         store.add("条目2", MemoryType::Bugfix, vec!["个人".into()], 0.3);
         store.add("条目3", MemoryType::Guideline, vec!["重要".into()], 0.8);
 
@@ -555,7 +570,12 @@ mod tests {
         cfg.storage_path = path.clone();
 
         let mut store = MemoryStore::new(cfg.clone());
-        store.add("持久化测试", MemoryType::Preference, vec!["测试".into()], 0.8);
+        store.add(
+            "持久化测试",
+            MemoryType::Preference,
+            vec!["测试".into()],
+            0.8,
+        );
         store.add("第二条", MemoryType::Knowledge, vec![], 0.3);
         store.save().unwrap();
 

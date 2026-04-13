@@ -146,8 +146,7 @@ impl TipsEngine {
 
         // 规则 1: 高错误率提示
         if ctx.total_errors > 3 && ctx.total_tool_calls > 0 {
-            let error_rate =
-                ctx.total_errors as f64 / ctx.total_tool_calls as f64;
+            let error_rate = ctx.total_errors as f64 / ctx.total_tool_calls as f64;
             if error_rate > 0.3 {
                 tips.push(Tip {
                     id: "high_error_rate",
@@ -169,10 +168,7 @@ impl TipsEngine {
                 tips.push(Tip {
                     id: "repetitive_tool_use",
                     category: TipCategory::Efficiency,
-                    message: format!(
-                        "连续 5 次使用 '{}'，考虑是否有更高效的方法。",
-                        last_5[0]
-                    ),
+                    message: format!("连续 5 次使用 '{}'，考虑是否有更高效的方法。", last_5[0]),
                     priority: 20,
                 });
             }

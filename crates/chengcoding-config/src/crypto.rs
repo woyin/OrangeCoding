@@ -100,9 +100,8 @@ impl CryptoStore {
     ///
     /// 存储文件位于 ~/.config/chenagent/secrets.json
     pub fn default_store() -> chengcoding_core::Result<Self> {
-        let config_dir = dirs::config_dir().ok_or_else(|| {
-            CeairError::config("无法确定系统配置目录")
-        })?;
+        let config_dir =
+            dirs::config_dir().ok_or_else(|| CeairError::config("无法确定系统配置目录"))?;
         let store_path = config_dir.join("chenagent").join("secrets.json");
         Ok(Self::new(store_path))
     }
@@ -125,20 +124,24 @@ impl CryptoStore {
     /// 加密给定的明文值
     ///
     /// 返回包含盐值、Nonce 和密文的加密数据包。
-    pub fn encrypt_value(&self, plaintext: &str, passphrase: &str) -> chengcoding_core::Result<Vec<u8>> {
+    pub fn encrypt_value(
+        &self,
+        plaintext: &str,
+        passphrase: &str,
+    ) -> chengcoding_core::Result<Vec<u8>> {
         debug!("开始加密数据");
 
         // 生成随机盐值
         let mut salt = [0u8; SALT_LEN];
-        self.rng.fill(&mut salt).map_err(|_| {
-            CeairError::internal("生成随机盐值失败")
-        })?;
+        self.rng
+            .fill(&mut salt)
+            .map_err(|_| CeairError::internal("生成随机盐值失败"))?;
 
         // 生成随机 Nonce
         let mut nonce_bytes = [0u8; NONCE_LEN];
-        self.rng.fill(&mut nonce_bytes).map_err(|_| {
-            CeairError::internal("生成随机 Nonce 失败")
-        })?;
+        self.rng
+            .fill(&mut nonce_bytes)
+            .map_err(|_| CeairError::internal("生成随机 Nonce 失败"))?;
 
         // 从口令派生密钥
         let key_bytes = self.derive_key(passphrase, &salt);
@@ -169,7 +172,11 @@ impl CryptoStore {
     /// 解密加密后的数据
     ///
     /// 使用相同的口令和存储的盐值重新派生密钥进行解密。
-    pub fn decrypt_value(&self, encrypted_bytes: &[u8], passphrase: &str) -> chengcoding_core::Result<String> {
+    pub fn decrypt_value(
+        &self,
+        encrypted_bytes: &[u8],
+        passphrase: &str,
+    ) -> chengcoding_core::Result<String> {
         debug!("开始解密数据");
 
         // 反序列化加密数据包
@@ -230,32 +237,41 @@ impl CryptoStore {
     }
 
     /// 从文件中检索并解密密钥
-    pub fn retrieve_secret(&self, name: &str, passphrase: &str) -> chengcoding_core::Result<String> {
+    pub fn retrieve_secret(
+        &self,
+        name: &str,
+        passphrase: &str,
+    ) -> chengcoding_core::Result<String> {
         debug!("检索密钥: {}", name);
 
         let store = self.load_store()?;
 
-        let encrypted = store.secrets.get(name).ok_or_else(|| {
-            CeairError::config(format!("密钥 '{}' 不存在", name))
-        })?;
+        let encrypted = store
+            .secrets
+            .get(name)
+            .ok_or_else(|| CeairError::config(format!("密钥 '{}' 不存在", name)))?;
 
         // 解密
         self.decrypt_from_data(encrypted, passphrase)
     }
 
     /// 加密值并返回加密数据结构（内部使用）
-    fn encrypt_to_data(&self, plaintext: &str, passphrase: &str) -> chengcoding_core::Result<EncryptedData> {
+    fn encrypt_to_data(
+        &self,
+        plaintext: &str,
+        passphrase: &str,
+    ) -> chengcoding_core::Result<EncryptedData> {
         // 生成随机盐值
         let mut salt = [0u8; SALT_LEN];
-        self.rng.fill(&mut salt).map_err(|_| {
-            CeairError::internal("生成随机盐值失败")
-        })?;
+        self.rng
+            .fill(&mut salt)
+            .map_err(|_| CeairError::internal("生成随机盐值失败"))?;
 
         // 生成随机 Nonce
         let mut nonce_bytes = [0u8; NONCE_LEN];
-        self.rng.fill(&mut nonce_bytes).map_err(|_| {
-            CeairError::internal("生成随机 Nonce 失败")
-        })?;
+        self.rng
+            .fill(&mut nonce_bytes)
+            .map_err(|_| CeairError::internal("生成随机 Nonce 失败"))?;
 
         // 从口令派生密钥
         let key_bytes = self.derive_key(passphrase, &salt);
@@ -309,11 +325,10 @@ impl CryptoStore {
     /// 从文件加载密钥存储
     fn load_store(&self) -> chengcoding_core::Result<SecretStore> {
         if self.store_path.exists() {
-            let content = std::fs::read_to_string(&self.store_path)
-                .map_err(|e| CeairError::from(e))?;
-            serde_json::from_str(&content).map_err(|e| {
-                CeairError::serialization(format!("密钥存储文件解析失败: {e}"))
-            })
+            let content =
+                std::fs::read_to_string(&self.store_path).map_err(|e| CeairError::from(e))?;
+            serde_json::from_str(&content)
+                .map_err(|e| CeairError::serialization(format!("密钥存储文件解析失败: {e}")))
         } else {
             // 文件不存在时返回空存储
             Ok(SecretStore::default())
@@ -325,9 +340,8 @@ impl CryptoStore {
         // 确保父目录存在
         if let Some(parent) = self.store_path.parent() {
             if !parent.exists() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    CeairError::io(format!("创建密钥存储目录失败: {e}"))
-                })?;
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| CeairError::io(format!("创建密钥存储目录失败: {e}")))?;
             }
         }
 
@@ -448,18 +462,9 @@ mod tests {
             .expect("存储密钥3失败");
 
         // 验证每个密钥都能正确检索
-        assert_eq!(
-            store.retrieve_secret("key1", passphrase).unwrap(),
-            "value1"
-        );
-        assert_eq!(
-            store.retrieve_secret("key2", passphrase).unwrap(),
-            "value2"
-        );
-        assert_eq!(
-            store.retrieve_secret("key3", passphrase).unwrap(),
-            "value3"
-        );
+        assert_eq!(store.retrieve_secret("key1", passphrase).unwrap(), "value1");
+        assert_eq!(store.retrieve_secret("key2", passphrase).unwrap(), "value2");
+        assert_eq!(store.retrieve_secret("key3", passphrase).unwrap(), "value3");
     }
 
     /// 测试覆盖已存在的密钥

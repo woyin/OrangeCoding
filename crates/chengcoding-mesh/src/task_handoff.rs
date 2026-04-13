@@ -97,10 +97,7 @@ impl HandoffRequest {
 
 impl fmt::Display for HandoffRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let target = self
-            .to_agent
-            .as_deref()
-            .unwrap_or("自动选择");
+        let target = self.to_agent.as_deref().unwrap_or("自动选择");
         write!(
             f,
             "交接请求[{}] {} -> {} (原因: {})",
@@ -216,8 +213,7 @@ impl HandoffManager {
                 let result = HandoffResult::Success {
                     new_agent: agent_id.to_string(),
                 };
-                self.completed
-                    .push((task_id.to_string(), result.clone()));
+                self.completed.push((task_id.to_string(), result.clone()));
                 result
             }
             None => {
@@ -242,8 +238,7 @@ impl HandoffManager {
                 let result = HandoffResult::Failed {
                     reason: format!("Agent {} 拒绝: {}", agent_id, reason),
                 };
-                self.completed
-                    .push((task_id.to_string(), result.clone()));
+                self.completed.push((task_id.to_string(), result.clone()));
                 result
             }
             None => {
@@ -302,7 +297,10 @@ mod tests {
     #[test]
     fn 测试交接原因显示() {
         assert_eq!(format!("{}", HandoffReason::Overloaded), "负载过高");
-        assert_eq!(format!("{}", HandoffReason::CapabilityMismatch), "能力不匹配");
+        assert_eq!(
+            format!("{}", HandoffReason::CapabilityMismatch),
+            "能力不匹配"
+        );
         assert_eq!(format!("{}", HandoffReason::Timeout), "处理超时");
         assert_eq!(format!("{}", HandoffReason::Voluntary), "主动放弃");
 
@@ -336,22 +334,14 @@ mod tests {
         .with_partial_results("已完成数据收集");
 
         assert_eq!(req.to_agent, Some("agent-b".to_string()));
-        assert_eq!(
-            req.partial_results,
-            Some("已完成数据收集".to_string())
-        );
+        assert_eq!(req.partial_results, Some("已完成数据收集".to_string()));
     }
 
     #[test]
     fn 测试发起交接() {
         let mut manager = HandoffManager::new();
-        let req = HandoffRequest::new(
-            "agent-a",
-            "task-001",
-            HandoffReason::Timeout,
-            "任务超时了",
-        )
-        .with_target("agent-b");
+        let req = HandoffRequest::new("agent-a", "task-001", HandoffReason::Timeout, "任务超时了")
+            .with_target("agent-b");
 
         let result = manager.initiate_handoff(req);
         assert_eq!(result, HandoffResult::Pending);
@@ -389,12 +379,7 @@ mod tests {
     #[test]
     fn 测试接受交接() {
         let mut manager = HandoffManager::new();
-        let req = HandoffRequest::new(
-            "agent-a",
-            "task-001",
-            HandoffReason::Overloaded,
-            "需要转交",
-        );
+        let req = HandoffRequest::new("agent-a", "task-001", HandoffReason::Overloaded, "需要转交");
 
         manager.initiate_handoff(req);
         let result = manager.accept_handoff("agent-b", "task-001");
@@ -485,12 +470,7 @@ mod tests {
 
     #[test]
     fn 测试交接请求显示() {
-        let req = HandoffRequest::new(
-            "agent-a",
-            "task-001",
-            HandoffReason::Overloaded,
-            "上下文",
-        );
+        let req = HandoffRequest::new("agent-a", "task-001", HandoffReason::Overloaded, "上下文");
         let display = format!("{req}");
         assert!(display.contains("task-001"));
         assert!(display.contains("agent-a"));

@@ -95,11 +95,7 @@ impl Tool for MockDestructiveTool {
         Ok(())
     }
 
-    fn check_permissions(
-        &self,
-        _params: &Value,
-        _ctx: &PermissionContext,
-    ) -> PermissionDecision {
+    fn check_permissions(&self, _params: &Value, _ctx: &PermissionContext) -> PermissionDecision {
         self.permissions_called.store(true, Ordering::SeqCst);
         self.call_order.lock().unwrap().push("check_permissions");
         self.force_permission
@@ -136,9 +132,7 @@ async fn run_tool_pipeline(
             }
             PermissionDecision::Ask(_) => {
                 // In real code this would pause for user approval
-                return Err(ToolError::SecurityViolation(
-                    "approval required".into(),
-                ));
+                return Err(ToolError::SecurityViolation("approval required".into()));
             }
         }
     }
@@ -211,25 +205,18 @@ async fn inv_tool_02_deny_prevents_execution() {
         other => panic!("应返回 SecurityViolation，实际为: {:?}", other),
     }
 
-    assert!(
-        !tool.was_execute_called(),
-        "Deny 后 execute 不得被调用"
-    );
+    assert!(!tool.was_execute_called(), "Deny 后 execute 不得被调用");
 }
 
 #[tokio::test]
 async fn inv_tool_02_allow_permits_execution() {
-    let tool =
-        MockDestructiveTool::new().with_permission(PermissionDecision::Allow);
+    let tool = MockDestructiveTool::new().with_permission(PermissionDecision::Allow);
     let ctx = PermissionContext::default();
     let params = json!({"target": "safe"});
 
     let result = run_tool_pipeline(&tool, params, &ctx).await;
     assert!(result.is_ok(), "Allow 决策应允许执行");
-    assert!(
-        tool.was_execute_called(),
-        "Allow 后 execute 应被调用"
-    );
+    assert!(tool.was_execute_called(), "Allow 后 execute 应被调用");
 }
 
 // =========================================================================

@@ -123,9 +123,7 @@ impl Tool for BashTool {
 
         // 空命令检查
         if command.trim().is_empty() {
-            return Err(ToolError::InvalidParams(
-                "command 参数不能为空".to_string(),
-            ));
+            return Err(ToolError::InvalidParams("command 参数不能为空".to_string()));
         }
 
         // 危险命令检查
@@ -207,10 +205,7 @@ impl Tool for BashTool {
                 );
                 Ok(result)
             }
-            Ok(Err(e)) => Err(ToolError::ExecutionError(format!(
-                "启动进程失败: {}",
-                e
-            ))),
+            Ok(Err(e)) => Err(ToolError::ExecutionError(format!("启动进程失败: {}", e))),
             Err(_) => Err(ToolError::ExecutionError(format!(
                 "命令执行超时（{}秒）: {}",
                 timeout_secs, command

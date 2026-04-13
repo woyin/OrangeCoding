@@ -63,7 +63,7 @@ pub async fn execute(args: StatusArgs, config: CeairConfig) -> Result<()> {
 /// 输出版本信息段
 fn print_version_section() {
     println!("📋 ChengCoding 系统状态");
-    println!("{}",  "─".repeat(50));
+    println!("{}", "─".repeat(50));
     println!("  版本:   {}", env!("CARGO_PKG_VERSION"));
     println!();
 }
@@ -177,19 +177,17 @@ fn print_config_section(config: &CeairConfig) {
     println!("    超时时间:       {} 秒", config.agent.timeout_secs);
     println!(
         "    自动批准工具:   {}",
-        if config.agent.auto_approve_tools { "是" } else { "否" },
+        if config.agent.auto_approve_tools {
+            "是"
+        } else {
+            "否"
+        },
     );
 
     // 工具安全配置
     println!("  工具安全策略:");
-    println!(
-        "    允许路径数:     {}",
-        config.tools.allowed_paths.len(),
-    );
-    println!(
-        "    禁止路径数:     {}",
-        config.tools.blocked_paths.len(),
-    );
+    println!("    允许路径数:     {}", config.tools.allowed_paths.len(),);
+    println!("    禁止路径数:     {}", config.tools.blocked_paths.len(),);
     println!(
         "    最大文件大小:   {} MB",
         config.tools.max_file_size / (1024 * 1024),
@@ -200,11 +198,19 @@ fn print_config_section(config: &CeairConfig) {
     println!("    主题:           {}", config.tui.theme);
     println!(
         "    显示令牌用量:   {}",
-        if config.tui.show_token_usage { "是" } else { "否" },
+        if config.tui.show_token_usage {
+            "是"
+        } else {
+            "否"
+        },
     );
     println!(
         "    显示时间戳:     {}",
-        if config.tui.show_timestamps { "是" } else { "否" },
+        if config.tui.show_timestamps {
+            "是"
+        } else {
+            "否"
+        },
     );
 
     // 日志配置
@@ -212,7 +218,11 @@ fn print_config_section(config: &CeairConfig) {
     println!("    日志级别:       {}", config.logging.level);
     println!(
         "    JSON 格式:      {}",
-        if config.logging.json_format { "是" } else { "否" },
+        if config.logging.json_format {
+            "是"
+        } else {
+            "否"
+        },
     );
 
     // 配置文件位置提示

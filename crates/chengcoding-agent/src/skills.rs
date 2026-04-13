@@ -360,11 +360,7 @@ impl SkillLoader {
                         }
                     }
                 }
-            } else if path.is_file()
-                && path
-                    .file_name()
-                    .map_or(false, |f| f == "SKILL.md")
-            {
+            } else if path.is_file() && path.file_name().map_or(false, |f| f == "SKILL.md") {
                 // 直接指向 SKILL.md 文件
                 if let Ok(content) = std::fs::read_to_string(path) {
                     if let Some(skill) = Self::parse_skill_file(&content, path) {
@@ -732,8 +728,7 @@ tools: [tool1]
     #[test]
     fn test_skill_loader_nonexistent_path() {
         // 不存在的路径应返回空列表
-        let result =
-            SkillLoader::load_from_paths(&[PathBuf::from("/nonexistent/path/to/skills")]);
+        let result = SkillLoader::load_from_paths(&[PathBuf::from("/nonexistent/path/to/skills")]);
         assert!(result.is_empty());
     }
 

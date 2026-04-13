@@ -282,8 +282,7 @@ impl Default for CeairConfig {
 impl CeairConfig {
     /// 从 TOML 字符串解析配置
     pub fn from_toml(content: &str) -> chengcoding_core::Result<Self> {
-        toml::from_str(content)
-            .map_err(|e| CeairError::config(format!("TOML 解析失败: {e}")))
+        toml::from_str(content).map_err(|e| CeairError::config(format!("TOML 解析失败: {e}")))
     }
 
     /// 将配置序列化为 TOML 字符串
@@ -350,9 +349,7 @@ impl ConfigManager {
     /// 优先使用 `dirs::config_dir()`（通常为 ~/.config），
     /// 然后拼接 "chenagent" 子目录。
     fn resolve_config_dir() -> chengcoding_core::Result<PathBuf> {
-        let base = dirs::config_dir().ok_or_else(|| {
-            CeairError::config("无法确定系统配置目录")
-        })?;
+        let base = dirs::config_dir().ok_or_else(|| CeairError::config("无法确定系统配置目录"))?;
         Ok(base.join("chenagent"))
     }
 

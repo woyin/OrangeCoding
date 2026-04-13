@@ -244,7 +244,11 @@ impl SelfHealer {
 
     /// 将任务标记为修复中
     pub fn start_healing(&mut self, task_id: &str) -> bool {
-        self.transition(task_id, |s| s == &HealingStatus::Suggested, HealingStatus::InProgress)
+        self.transition(
+            task_id,
+            |s| s == &HealingStatus::Suggested,
+            HealingStatus::InProgress,
+        )
     }
 
     /// 将任务标记为待验证
@@ -269,7 +273,10 @@ impl SelfHealer {
     pub fn mark_failed(&mut self, task_id: &str, reason: &str) -> bool {
         if let Some(task) = self.tasks.iter_mut().find(|t| t.id == task_id) {
             // Prevent transition from terminal states
-            if matches!(task.status, HealingStatus::Healed | HealingStatus::Failed(_)) {
+            if matches!(
+                task.status,
+                HealingStatus::Healed | HealingStatus::Failed(_)
+            ) {
                 return false;
             }
             task.status = HealingStatus::Failed(reason.to_string());
@@ -290,9 +297,7 @@ impl SelfHealer {
         let mut pending: Vec<&HealingTask> = self
             .tasks
             .iter()
-            .filter(|t| {
-                matches!(t.status, HealingStatus::Detected | HealingStatus::Suggested)
-            })
+            .filter(|t| matches!(t.status, HealingStatus::Detected | HealingStatus::Suggested))
             .collect();
 
         pending.sort_by(|a, b| {
@@ -335,7 +340,10 @@ impl SelfHealer {
                 for (i, step) in suggestion.steps.iter().enumerate() {
                     md.push_str(&format!("  {}. {}\n", i + 1, step));
                 }
-                md.push_str(&format!("- **预期效果**: {}\n", suggestion.expected_outcome));
+                md.push_str(&format!(
+                    "- **预期效果**: {}\n",
+                    suggestion.expected_outcome
+                ));
             }
 
             md.push('\n');
@@ -515,28 +523,48 @@ mod tests {
         // Detected → Suggested
         healer.generate_suggestion(task_id);
         assert_eq!(
-            healer.tasks().iter().find(|t| t.id == task_id).unwrap().status,
+            healer
+                .tasks()
+                .iter()
+                .find(|t| t.id == task_id)
+                .unwrap()
+                .status,
             HealingStatus::Suggested
         );
 
         // Suggested → InProgress
         assert!(healer.start_healing(task_id));
         assert_eq!(
-            healer.tasks().iter().find(|t| t.id == task_id).unwrap().status,
+            healer
+                .tasks()
+                .iter()
+                .find(|t| t.id == task_id)
+                .unwrap()
+                .status,
             HealingStatus::InProgress
         );
 
         // InProgress → PendingVerification
         assert!(healer.mark_pending_verification(task_id));
         assert_eq!(
-            healer.tasks().iter().find(|t| t.id == task_id).unwrap().status,
+            healer
+                .tasks()
+                .iter()
+                .find(|t| t.id == task_id)
+                .unwrap()
+                .status,
             HealingStatus::PendingVerification
         );
 
         // PendingVerification → Healed
         assert!(healer.mark_healed(task_id));
         assert_eq!(
-            healer.tasks().iter().find(|t| t.id == task_id).unwrap().status,
+            healer
+                .tasks()
+                .iter()
+                .find(|t| t.id == task_id)
+                .unwrap()
+                .status,
             HealingStatus::Healed
         );
     }
@@ -549,7 +577,12 @@ mod tests {
         let task_id = "heal-inv-auth-01";
         assert!(healer.mark_failed(task_id, "无法自动修复"));
         assert_eq!(
-            healer.tasks().iter().find(|t| t.id == task_id).unwrap().status,
+            healer
+                .tasks()
+                .iter()
+                .find(|t| t.id == task_id)
+                .unwrap()
+                .status,
             HealingStatus::Failed("无法自动修复".into())
         );
     }

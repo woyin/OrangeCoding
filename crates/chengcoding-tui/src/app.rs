@@ -1177,8 +1177,10 @@ mod tests {
     fn 测试ctrl_c退出() {
         let mut app = App::new("gpt-4");
 
-        let action =
-            app.handle_key_event(key_press_with_mod(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        let action = app.handle_key_event(key_press_with_mod(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL,
+        ));
         assert_eq!(action, AppAction::Quit);
         assert!(!app.is_running);
     }
@@ -1189,20 +1191,29 @@ mod tests {
         assert_eq!(app.thinking_depth, ThinkingDepth::Medium);
 
         // 按 Ctrl+L 切换到 Deep
-        let action =
-            app.handle_key_event(key_press_with_mod(KeyCode::Char('l'), KeyModifiers::CONTROL));
+        let action = app.handle_key_event(key_press_with_mod(
+            KeyCode::Char('l'),
+            KeyModifiers::CONTROL,
+        ));
         assert_eq!(action, AppAction::SwitchThinkingDepth(ThinkingDepth::Deep));
         assert_eq!(app.thinking_depth, ThinkingDepth::Deep);
 
         // 再按切换到 Maximum
-        let action =
-            app.handle_key_event(key_press_with_mod(KeyCode::Char('l'), KeyModifiers::CONTROL));
-        assert_eq!(action, AppAction::SwitchThinkingDepth(ThinkingDepth::Maximum));
+        let action = app.handle_key_event(key_press_with_mod(
+            KeyCode::Char('l'),
+            KeyModifiers::CONTROL,
+        ));
+        assert_eq!(
+            action,
+            AppAction::SwitchThinkingDepth(ThinkingDepth::Maximum)
+        );
         assert_eq!(app.thinking_depth, ThinkingDepth::Maximum);
 
         // 再按循环回 Off
-        let action =
-            app.handle_key_event(key_press_with_mod(KeyCode::Char('l'), KeyModifiers::CONTROL));
+        let action = app.handle_key_event(key_press_with_mod(
+            KeyCode::Char('l'),
+            KeyModifiers::CONTROL,
+        ));
         assert_eq!(action, AppAction::SwitchThinkingDepth(ThinkingDepth::Off));
         assert_eq!(app.thinking_depth, ThinkingDepth::Off);
     }
@@ -1336,10 +1347,8 @@ mod tests {
         assert_eq!(app.interaction_mode, InteractionMode::Normal);
 
         // Shift+Tab 切换到 Plan
-        let action = app.handle_key_event(key_press_with_mod(
-            KeyCode::BackTab,
-            KeyModifiers::SHIFT,
-        ));
+        let action =
+            app.handle_key_event(key_press_with_mod(KeyCode::BackTab, KeyModifiers::SHIFT));
         assert_eq!(
             action,
             AppAction::SwitchInteractionMode(InteractionMode::Plan)
@@ -1347,24 +1356,15 @@ mod tests {
         assert_eq!(app.interaction_mode, InteractionMode::Plan);
 
         // 再次切换到 Autopilot
-        app.handle_key_event(key_press_with_mod(
-            KeyCode::BackTab,
-            KeyModifiers::SHIFT,
-        ));
+        app.handle_key_event(key_press_with_mod(KeyCode::BackTab, KeyModifiers::SHIFT));
         assert_eq!(app.interaction_mode, InteractionMode::Autopilot);
 
         // 再次切换到 UltraWork
-        app.handle_key_event(key_press_with_mod(
-            KeyCode::BackTab,
-            KeyModifiers::SHIFT,
-        ));
+        app.handle_key_event(key_press_with_mod(KeyCode::BackTab, KeyModifiers::SHIFT));
         assert_eq!(app.interaction_mode, InteractionMode::UltraWork);
 
         // 循环回 Normal
-        app.handle_key_event(key_press_with_mod(
-            KeyCode::BackTab,
-            KeyModifiers::SHIFT,
-        ));
+        app.handle_key_event(key_press_with_mod(KeyCode::BackTab, KeyModifiers::SHIFT));
         assert_eq!(app.interaction_mode, InteractionMode::Normal);
     }
 
@@ -1374,10 +1374,7 @@ mod tests {
         for start_mode in [AppMode::Normal, AppMode::Input, AppMode::Command] {
             let mut app = App::new("gpt-4");
             app.mode = start_mode;
-            app.handle_key_event(key_press_with_mod(
-                KeyCode::BackTab,
-                KeyModifiers::SHIFT,
-            ));
+            app.handle_key_event(key_press_with_mod(KeyCode::BackTab, KeyModifiers::SHIFT));
             assert_eq!(app.interaction_mode, InteractionMode::Plan);
         }
     }
@@ -1404,12 +1401,30 @@ mod tests {
 
     #[test]
     fn 测试思考深度字符串解析() {
-        assert_eq!(ThinkingDepth::from_str_name("off"), Some(ThinkingDepth::Off));
-        assert_eq!(ThinkingDepth::from_str_name("light"), Some(ThinkingDepth::Light));
-        assert_eq!(ThinkingDepth::from_str_name("medium"), Some(ThinkingDepth::Medium));
-        assert_eq!(ThinkingDepth::from_str_name("deep"), Some(ThinkingDepth::Deep));
-        assert_eq!(ThinkingDepth::from_str_name("maximum"), Some(ThinkingDepth::Maximum));
-        assert_eq!(ThinkingDepth::from_str_name("max"), Some(ThinkingDepth::Maximum));
+        assert_eq!(
+            ThinkingDepth::from_str_name("off"),
+            Some(ThinkingDepth::Off)
+        );
+        assert_eq!(
+            ThinkingDepth::from_str_name("light"),
+            Some(ThinkingDepth::Light)
+        );
+        assert_eq!(
+            ThinkingDepth::from_str_name("medium"),
+            Some(ThinkingDepth::Medium)
+        );
+        assert_eq!(
+            ThinkingDepth::from_str_name("deep"),
+            Some(ThinkingDepth::Deep)
+        );
+        assert_eq!(
+            ThinkingDepth::from_str_name("maximum"),
+            Some(ThinkingDepth::Maximum)
+        );
+        assert_eq!(
+            ThinkingDepth::from_str_name("max"),
+            Some(ThinkingDepth::Maximum)
+        );
         assert_eq!(ThinkingDepth::from_str_name("invalid"), None);
     }
 
@@ -1465,12 +1480,17 @@ mod tests {
         let mut app = App::new("gpt-4");
         assert!(app.sidebar.visible);
 
-        let action =
-            app.handle_key_event(key_press_with_mod(KeyCode::Char('b'), KeyModifiers::CONTROL));
+        let action = app.handle_key_event(key_press_with_mod(
+            KeyCode::Char('b'),
+            KeyModifiers::CONTROL,
+        ));
         assert_eq!(action, AppAction::ToggleSidebar);
         assert!(!app.sidebar.visible);
 
-        app.handle_key_event(key_press_with_mod(KeyCode::Char('b'), KeyModifiers::CONTROL));
+        app.handle_key_event(key_press_with_mod(
+            KeyCode::Char('b'),
+            KeyModifiers::CONTROL,
+        ));
         assert!(app.sidebar.visible);
     }
 
@@ -1504,12 +1524,30 @@ mod tests {
 
     #[test]
     fn 测试交互模式字符串解析() {
-        assert_eq!(InteractionMode::from_str_name("normal"), Some(InteractionMode::Normal));
-        assert_eq!(InteractionMode::from_str_name("plan"), Some(InteractionMode::Plan));
-        assert_eq!(InteractionMode::from_str_name("autopilot"), Some(InteractionMode::Autopilot));
-        assert_eq!(InteractionMode::from_str_name("auto"), Some(InteractionMode::Autopilot));
-        assert_eq!(InteractionMode::from_str_name("ultrawork"), Some(InteractionMode::UltraWork));
-        assert_eq!(InteractionMode::from_str_name("ultra"), Some(InteractionMode::UltraWork));
+        assert_eq!(
+            InteractionMode::from_str_name("normal"),
+            Some(InteractionMode::Normal)
+        );
+        assert_eq!(
+            InteractionMode::from_str_name("plan"),
+            Some(InteractionMode::Plan)
+        );
+        assert_eq!(
+            InteractionMode::from_str_name("autopilot"),
+            Some(InteractionMode::Autopilot)
+        );
+        assert_eq!(
+            InteractionMode::from_str_name("auto"),
+            Some(InteractionMode::Autopilot)
+        );
+        assert_eq!(
+            InteractionMode::from_str_name("ultrawork"),
+            Some(InteractionMode::UltraWork)
+        );
+        assert_eq!(
+            InteractionMode::from_str_name("ultra"),
+            Some(InteractionMode::UltraWork)
+        );
         assert_eq!(InteractionMode::from_str_name("invalid"), None);
     }
 

@@ -166,7 +166,10 @@ impl SseParser {
 
         // 尝试解析为 JSON
         let value: serde_json::Value = serde_json::from_str(trimmed).map_err(|e| {
-            AiError::Parse(format!("SSE 数据 JSON 解析失败: {} (原始数据: {})", e, trimmed))
+            AiError::Parse(format!(
+                "SSE 数据 JSON 解析失败: {} (原始数据: {})",
+                e, trimmed
+            ))
         })?;
 
         Ok(Some(value))
@@ -183,9 +186,7 @@ impl SseParser {
         };
 
         // 提取 choices 数组
-        let choices = json
-            .get("choices")
-            .and_then(|c| c.as_array());
+        let choices = json.get("choices").and_then(|c| c.as_array());
 
         if let Some(choices) = choices {
             if let Some(choice) = choices.first() {
@@ -198,15 +199,18 @@ impl SseParser {
                                 prompt_tokens: usage
                                     .get("prompt_tokens")
                                     .and_then(|v| v.as_u64())
-                                    .unwrap_or(0) as u32,
+                                    .unwrap_or(0)
+                                    as u32,
                                 completion_tokens: usage
                                     .get("completion_tokens")
                                     .and_then(|v| v.as_u64())
-                                    .unwrap_or(0) as u32,
+                                    .unwrap_or(0)
+                                    as u32,
                                 total_tokens: usage
                                     .get("total_tokens")
                                     .and_then(|v| v.as_u64())
-                                    .unwrap_or(0) as u32,
+                                    .unwrap_or(0)
+                                    as u32,
                             };
                             return Ok(StreamEvent::Usage(token_usage));
                         }
@@ -355,12 +359,13 @@ impl StreamAggregator {
                 arguments,
             } => {
                 // 聚合工具调用增量
-                let builder = self.tool_calls.entry(id.clone()).or_insert_with(|| {
-                    ToolCallBuilder {
-                        id: id.clone(),
-                        ..Default::default()
-                    }
-                });
+                let builder =
+                    self.tool_calls
+                        .entry(id.clone())
+                        .or_insert_with(|| ToolCallBuilder {
+                            id: id.clone(),
+                            ..Default::default()
+                        });
                 // 如果有新的函数名称，更新之
                 if !name.is_empty() {
                     builder.name = name.clone();

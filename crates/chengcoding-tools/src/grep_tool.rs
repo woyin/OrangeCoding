@@ -31,7 +31,16 @@ impl GrepTool {
     fn matches_glob(path: &str, pattern: &str) -> bool {
         let glob_pattern = glob::Pattern::new(pattern);
         match glob_pattern {
-            Ok(p) => p.matches(path) || p.matches(Path::new(path).file_name().unwrap_or_default().to_str().unwrap_or("")),
+            Ok(p) => {
+                p.matches(path)
+                    || p.matches(
+                        Path::new(path)
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_str()
+                            .unwrap_or(""),
+                    )
+            }
             Err(_) => false,
         }
     }
@@ -104,14 +113,9 @@ impl Tool for GrepTool {
         }
 
         // 解析参数
-        let search_path = params
-            .get("path")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".");
+        let search_path = params.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
-        let include_pattern = params
-            .get("include")
-            .and_then(|v| v.as_str());
+        let include_pattern = params.get("include").and_then(|v| v.as_str());
 
         let case_insensitive = params
             .get("case_insensitive")
@@ -135,9 +139,8 @@ impl Tool for GrepTool {
             pattern_str.to_string()
         };
 
-        let regex = Regex::new(&regex_pattern).map_err(|e| {
-            ToolError::InvalidParams(format!("无效的正则表达式: {}", e))
-        })?;
+        let regex = Regex::new(&regex_pattern)
+            .map_err(|e| ToolError::InvalidParams(format!("无效的正则表达式: {}", e)))?;
 
         let path = Path::new(search_path);
         if !path.exists() {
@@ -257,14 +260,30 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
 
         // 创建测试文件
-        fs::write(dir.path().join("hello.rs"), "fn main() {\n    println!(\"Hello, world!\");\n}\n").unwrap();
-        fs::write(dir.path().join("lib.rs"), "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n").unwrap();
-        fs::write(dir.path().join("readme.txt"), "This is a README file.\nIt contains some text.\n").unwrap();
+        fs::write(
+            dir.path().join("hello.rs"),
+            "fn main() {\n    println!(\"Hello, world!\");\n}\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("lib.rs"),
+            "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("readme.txt"),
+            "This is a README file.\nIt contains some text.\n",
+        )
+        .unwrap();
 
         // 创建子目录和文件
         let sub = dir.path().join("sub");
         fs::create_dir(&sub).unwrap();
-        fs::write(sub.join("nested.rs"), "fn nested() {\n    // nested function\n}\n").unwrap();
+        fs::write(
+            sub.join("nested.rs"),
+            "fn nested() {\n    // nested function\n}\n",
+        )
+        .unwrap();
 
         dir
     }

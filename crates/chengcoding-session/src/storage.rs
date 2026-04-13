@@ -96,9 +96,9 @@ impl SessionStorage {
 
         // 创建会话目录
         let cwd_dir = dir.join(encode_cwd(cwd));
-        tokio::fs::create_dir_all(&cwd_dir).await.map_err(|e| {
-            SessionError::Io(format!("无法创建会话目录 {:?}: {}", cwd_dir, e))
-        })?;
+        tokio::fs::create_dir_all(&cwd_dir)
+            .await
+            .map_err(|e| SessionError::Io(format!("无法创建会话目录 {:?}: {}", cwd_dir, e)))?;
 
         // 创建会话文件
         let file_path = cwd_dir.join(format!("{}.jsonl", session_id));
@@ -121,9 +121,9 @@ impl SessionStorage {
         header: SessionHeader,
     ) -> Result<Self, SessionError> {
         let cwd_dir = dir.join(encode_cwd(&header.cwd));
-        tokio::fs::create_dir_all(&cwd_dir).await.map_err(|e| {
-            SessionError::Io(format!("无法创建会话目录 {:?}: {}", cwd_dir, e))
-        })?;
+        tokio::fs::create_dir_all(&cwd_dir)
+            .await
+            .map_err(|e| SessionError::Io(format!("无法创建会话目录 {:?}: {}", cwd_dir, e)))?;
 
         let file_path = cwd_dir.join(format!("{}.jsonl", header.id));
         let header_json = serde_json::to_string(&header)
@@ -375,7 +375,10 @@ mod tests {
         file.flush().await.unwrap();
 
         // 再追加一个正常条目
-        storage.append_entry(&make_user_msg("也正常")).await.unwrap();
+        storage
+            .append_entry(&make_user_msg("也正常"))
+            .await
+            .unwrap();
 
         // 读取时应跳过损坏行，只返回两个正常条目
         let entries = storage.read_entries().await.unwrap();
@@ -426,7 +429,10 @@ mod tests {
 
     #[test]
     fn 测试工作目录编码() {
-        assert_eq!(encode_cwd(Path::new("/home/user/project")), "home--user--project");
+        assert_eq!(
+            encode_cwd(Path::new("/home/user/project")),
+            "home--user--project"
+        );
         assert_eq!(encode_cwd(Path::new("/tmp")), "tmp");
         assert_eq!(encode_cwd(Path::new("/")), "root");
     }

@@ -354,10 +354,7 @@ impl Tool for AstTool {
                     ))),
                 }
             }
-            other => Err(ToolError::InvalidParams(format!(
-                "未知操作: {}",
-                other
-            ))),
+            other => Err(ToolError::InvalidParams(format!("未知操作: {}", other))),
         }
     }
 }

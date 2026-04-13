@@ -62,10 +62,7 @@ impl AgentDefinition for PrometheusAgent {
     }
 
     fn fallback_models(&self) -> Vec<String> {
-        vec![
-            "gpt-5.4".to_string(),
-            "claude-sonnet-4-6".to_string(),
-        ]
+        vec!["gpt-5.4".to_string(), "claude-sonnet-4-6".to_string()]
     }
 
     fn system_prompt(&self) -> &str {

@@ -16,8 +16,8 @@
 //! | unspecified-high | claude-opus-4-6 (max) | 高难度通用 |
 //! | writing | gemini-3-flash | 文档编写 |
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 // ============================================================
 // CategoryConfig — 类别配置
@@ -104,7 +104,9 @@ impl CategoryConfig {
 
     /// 返回生效的变体
     pub fn effective_variant(&self, default: Option<&str>) -> Option<String> {
-        self.variant.clone().or_else(|| default.map(|s| s.to_string()))
+        self.variant
+            .clone()
+            .or_else(|| default.map(|s| s.to_string()))
     }
 
     /// 返回生效的温度参数
@@ -445,11 +447,7 @@ mod tests {
             "writing",
         ];
         for name in expected {
-            assert!(
-                registry.get(name).is_some(),
-                "内置类别 '{}' 应存在",
-                name
-            );
+            assert!(registry.get(name).is_some(), "内置类别 '{}' 应存在", name);
         }
     }
 

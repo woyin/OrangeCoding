@@ -54,12 +54,7 @@ impl BusMessage {
     }
 
     /// 创建一个定向消息（发送给指定代理）
-    pub fn directed(
-        from: AgentId,
-        to: AgentId,
-        topic: impl Into<String>,
-        payload: Value,
-    ) -> Self {
+    pub fn directed(from: AgentId, to: AgentId, topic: impl Into<String>, payload: Value) -> Self {
         Self {
             from,
             to: Some(to),
@@ -88,7 +83,11 @@ impl BusMessage {
 impl fmt::Display for BusMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.to {
-            Some(to) => write!(f, "[{}] {} -> {}: {}", self.topic, self.from, to, self.payload),
+            Some(to) => write!(
+                f,
+                "[{}] {} -> {}: {}",
+                self.topic, self.from, to, self.payload
+            ),
             None => write!(f, "[{}] {} -> *: {}", self.topic, self.from, self.payload),
         }
     }
@@ -272,8 +271,7 @@ mod tests {
         assert!(broadcast_msg.is_for(&other));
 
         // 定向消息只对目标可见
-        let direct_msg =
-            BusMessage::directed(sender.clone(), target.clone(), "topic", json!(null));
+        let direct_msg = BusMessage::directed(sender.clone(), target.clone(), "topic", json!(null));
         assert!(direct_msg.is_for(&target));
         assert!(!direct_msg.is_for(&other));
     }
@@ -309,11 +307,7 @@ mod tests {
         let mut rx2 = bus.subscribe();
 
         let sender = AgentId::new();
-        bus.publish(BusMessage::broadcast(
-            sender,
-            "multi",
-            json!("多播"),
-        ));
+        bus.publish(BusMessage::broadcast(sender, "multi", json!("多播")));
 
         // 两个订阅者都应该收到消息
         let msg1 = rx1.recv().await.unwrap();
@@ -368,11 +362,8 @@ mod tests {
         ));
 
         // 等待过滤后的消息
-        let received = tokio::time::timeout(
-            std::time::Duration::from_millis(100),
-            filtered_rx.recv(),
-        )
-        .await;
+        let received =
+            tokio::time::timeout(std::time::Duration::from_millis(100), filtered_rx.recv()).await;
 
         assert!(received.is_ok());
         let msg = received.unwrap().unwrap();

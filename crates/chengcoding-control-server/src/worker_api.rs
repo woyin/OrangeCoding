@@ -13,9 +13,7 @@ use crate::worker_registry::{WorkerRegistry, WorkerStatus};
 pub type WorkerApiState = Arc<WorkerRegistry>;
 
 /// GET /api/v1/workers — 列出所有 Worker
-pub async fn list_workers(
-    State(registry): State<WorkerApiState>,
-) -> impl IntoResponse {
+pub async fn list_workers(State(registry): State<WorkerApiState>) -> impl IntoResponse {
     let workers = registry.list_all();
     Json(serde_json::json!({ "workers": workers }))
 }

@@ -285,14 +285,8 @@ impl QianwenProvider {
         response
             .get("usage")
             .map(|u| {
-                let input = u
-                    .get("input_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32;
-                let output = u
-                    .get("output_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32;
+                let input = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                let output = u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                 let total = u
                     .get("total_tokens")
                     .and_then(|v| v.as_u64())
@@ -349,8 +343,7 @@ impl QianwenProvider {
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("")
                                     .to_string();
-                                let func =
-                                    tc.get("function").cloned().unwrap_or_default();
+                                let func = tc.get("function").cloned().unwrap_or_default();
                                 let name = func
                                     .get("name")
                                     .and_then(|v| v.as_str())
@@ -373,9 +366,7 @@ impl QianwenProvider {
 
                     // 检查结束原因
                     if let Some(finish_reason) = choice.get("finish_reason") {
-                        if !finish_reason.is_null()
-                            && finish_reason.as_str() != Some("null")
-                        {
+                        if !finish_reason.is_null() && finish_reason.as_str() != Some("null") {
                             // 在结束时返回用量信息
                             let usage = Self::extract_usage(&json);
                             if usage.total_tokens > 0 {
@@ -801,10 +792,7 @@ mod tests {
     #[test]
     fn test_handle_error_auth() {
         // 验证认证错误
-        let err = QianwenProvider::handle_error_response(
-            401,
-            r#"{"message": "Invalid API-key"}"#,
-        );
+        let err = QianwenProvider::handle_error_response(401, r#"{"message": "Invalid API-key"}"#);
         assert!(matches!(err, AiError::Auth(_)));
     }
 

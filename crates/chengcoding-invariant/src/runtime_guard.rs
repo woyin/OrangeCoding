@@ -316,10 +316,7 @@ mod tests {
             child_count: 5,
             propagated_count: 5,
         };
-        assert_eq!(
-            guard.check_cancel_propagation(&ctx),
-            GuardAction::Allow
-        );
+        assert_eq!(guard.check_cancel_propagation(&ctx), GuardAction::Allow);
     }
 
     #[test]

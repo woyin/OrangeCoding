@@ -70,9 +70,7 @@ impl LspRequest {
                 let file = params
                     .get("file")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        ToolError::InvalidParams("缺少必要参数: file".to_string())
-                    })?
+                    .ok_or_else(|| ToolError::InvalidParams("缺少必要参数: file".to_string()))?
                     .to_string();
                 Ok(LspRequest::Diagnostics { file })
             }
@@ -80,9 +78,7 @@ impl LspRequest {
                 let query = params
                     .get("query")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        ToolError::InvalidParams("缺少必要参数: query".to_string())
-                    })?
+                    .ok_or_else(|| ToolError::InvalidParams("缺少必要参数: query".to_string()))?
                     .to_string();
                 Ok(LspRequest::WorkspaceSymbol { query })
             }
@@ -160,7 +156,11 @@ impl LspResponse {
             return format!("[{}] 未找到结果", self.request_type);
         }
 
-        let mut output = format!("[{}] 找到 {} 个结果:\n", self.request_type, self.results.len());
+        let mut output = format!(
+            "[{}] 找到 {} 个结果:\n",
+            self.request_type,
+            self.results.len()
+        );
 
         for (i, item) in self.results.iter().enumerate() {
             let location = match (&item.file, item.line, item.column) {
@@ -377,15 +377,13 @@ mod tests {
     fn test_lsp_response_formatting() {
         let response = LspResponse {
             request_type: "goto_definition".to_string(),
-            results: vec![
-                LspResultItem {
-                    file: Some("src/lib.rs".to_string()),
-                    line: Some(42),
-                    column: Some(5),
-                    content: "pub struct MyStruct".to_string(),
-                    kind: Some("struct".to_string()),
-                },
-            ],
+            results: vec![LspResultItem {
+                file: Some("src/lib.rs".to_string()),
+                line: Some(42),
+                column: Some(5),
+                content: "pub struct MyStruct".to_string(),
+                kind: Some("struct".to_string()),
+            }],
         };
 
         let formatted = response.format();

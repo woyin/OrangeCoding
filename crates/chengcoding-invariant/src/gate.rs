@@ -74,8 +74,7 @@ impl PreCheckGate {
         }
 
         let affected_rules = self.find_affected_rules(&all_categories);
-        let affected_rule_ids: Vec<String> =
-            affected_rules.iter().map(|r| r.id.clone()).collect();
+        let affected_rule_ids: Vec<String> = affected_rules.iter().map(|r| r.id.clone()).collect();
 
         // 确定最高严重性
         let max_severity = affected_rules
@@ -95,10 +94,9 @@ impl PreCheckGate {
                 "变更影响 Critical 级别不变量: {}",
                 affected_rule_ids.join(", ")
             ),
-            GateDecision::Warn => format!(
-                "变更影响 High 级别不变量: {}",
-                affected_rule_ids.join(", ")
-            ),
+            GateDecision::Warn => {
+                format!("变更影响 High 级别不变量: {}", affected_rule_ids.join(", "))
+            }
             GateDecision::Allow => "变更未影响高风险不变量".to_string(),
         };
 
@@ -289,8 +287,7 @@ diff --git a/crates/chengcoding-control-server/src/auth.rs b/crates/chengcoding-
             report.impacts[0].file_path,
             "crates/chengcoding-control-server/src/auth.rs"
         );
-        assert!(report
-            .impacts[0]
+        assert!(report.impacts[0]
             .affected_categories
             .contains(&InvariantCategory::Auth));
         assert_eq!(report.impacts[0].lines_changed, 2);
@@ -312,8 +309,7 @@ diff --git a/src/session.rs b/src/session.rs
 
         // Session 规则最高是 High → Warn
         assert_eq!(report.decision, GateDecision::Warn);
-        assert!(report
-            .impacts[0]
+        assert!(report.impacts[0]
             .affected_categories
             .contains(&InvariantCategory::Session));
         assert_eq!(report.impacts[0].lines_changed, 2);
@@ -362,7 +358,10 @@ diff --git a/src/auth.rs b/src/auth.rs
         assert_eq!(report.impacts.len(), 2);
         assert_eq!(report.max_severity, Some(Severity::Critical));
         // 确认两类规则都被检出
-        assert!(report.affected_rules.iter().any(|id| id.starts_with("INV-AUTH")));
+        assert!(report
+            .affected_rules
+            .iter()
+            .any(|id| id.starts_with("INV-AUTH")));
         assert!(report
             .affected_rules
             .iter()

@@ -214,7 +214,12 @@ impl AgentLoop {
 
             // 调用 AI 提供者获取响应（带超时保护和取消检测）
             let ai_response = self
-                .call_ai_provider(&chat_messages, &tool_definitions, chat_options, &cancel_token)
+                .call_ai_provider(
+                    &chat_messages,
+                    &tool_definitions,
+                    chat_options,
+                    &cancel_token,
+                )
                 .await?;
 
             // 累计令牌使用量
@@ -254,22 +259,19 @@ impl AgentLoop {
             let core_tool_calls = self.convert_ai_tool_calls(&ai_response.tool_calls);
             let num_calls = core_tool_calls.len() as u32;
 
-            info!(
-                "代理 {} 请求 {} 个工具调用",
-                self.id, num_calls
-            );
+            info!("代理 {} 请求 {} 个工具调用", self.id, num_calls);
 
             // 将带工具调用的助手消息添加到对话
-            self.context.get_conversation_mut().add_message(
-                Message::assistant_with_tool_calls(
+            self.context
+                .get_conversation_mut()
+                .add_message(Message::assistant_with_tool_calls(
                     if ai_response.content.is_empty() {
                         None
                     } else {
                         Some(ai_response.content.clone())
                     },
                     core_tool_calls.clone(),
-                ),
-            );
+                ));
 
             // 发送工具调用请求事件
             for tc in &core_tool_calls {
@@ -737,13 +739,7 @@ mod tests {
             auto_approve_tools: true,
         };
 
-        let mut agent_loop = AgentLoop::new(
-            AgentId::new(),
-            provider,
-            executor,
-            context,
-            config,
-        );
+        let mut agent_loop = AgentLoop::new(AgentId::new(), provider, executor, context, config);
 
         let cancel_token = CancellationToken::new();
         let (tx, mut rx) = mpsc::channel(100);
@@ -781,13 +777,7 @@ mod tests {
             auto_approve_tools: true,
         };
 
-        let mut agent_loop = AgentLoop::new(
-            AgentId::new(),
-            provider,
-            executor,
-            context,
-            config,
-        );
+        let mut agent_loop = AgentLoop::new(AgentId::new(), provider, executor, context, config);
 
         let cancel_token = CancellationToken::new();
         let (tx, _rx) = mpsc::channel(100);
@@ -799,7 +789,7 @@ mod tests {
         assert_eq!(result.tool_calls_made, 1);
         // 令牌用量应是两次调用的累计
         assert_eq!(result.tokens_used.total_tokens, 60); // 30 + 35 的 prompt+completion
-        // 验证耗时已被记录（Duration 非零或至少能正常返回）
+                                                         // 验证耗时已被记录（Duration 非零或至少能正常返回）
         let _ = result.duration;
     }
 
@@ -812,13 +802,7 @@ mod tests {
         context.add_user_message("你好");
 
         let config = AgentLoopConfig::default();
-        let mut agent_loop = AgentLoop::new(
-            AgentId::new(),
-            provider,
-            executor,
-            context,
-            config,
-        );
+        let mut agent_loop = AgentLoop::new(AgentId::new(), provider, executor, context, config);
 
         let cancel_token = CancellationToken::new();
         // 在运行前就发送取消信号

@@ -200,12 +200,7 @@ impl AgentCommBus {
     /// 向指定Agent发送消息
     ///
     /// 消息会通过广播通道发送，接收方需自行过滤。
-    pub fn send(
-        &self,
-        from: impl Into<String>,
-        to: impl Into<String>,
-        message: AgentMessage,
-    ) {
+    pub fn send(&self, from: impl Into<String>, to: impl Into<String>, message: AgentMessage) {
         let envelope = Envelope::directed(from, to, message);
         debug!(from = %envelope.from, to = ?envelope.to, "发送定向消息");
         match self.sender.send(envelope) {

@@ -117,10 +117,7 @@ impl ZellijIntegration {
 
     /// 构建创建新面板的命令字符串
     pub fn build_new_pane_command(&self, cmd: &str, name: &str) -> String {
-        format!(
-            "zellij action new-pane --name \"{}\" -- {}",
-            name, cmd
-        )
+        format!("zellij action new-pane --name \"{}\" -- {}", name, cmd)
     }
 
     /// 构建向面板写入内容的命令字符串

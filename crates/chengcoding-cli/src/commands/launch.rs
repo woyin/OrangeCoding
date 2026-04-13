@@ -8,10 +8,10 @@ use clap::Args;
 use std::collections::HashMap;
 use tracing::{info, warn};
 
+use chengcoding_ai::provider::{FunctionDefinition, ToolParameter};
 use chengcoding_ai::{
     AiProvider, ChatMessage, ChatOptions, ProviderConfig, ProviderFactory, ToolDefinition,
 };
-use chengcoding_ai::provider::{FunctionDefinition, ToolParameter};
 use chengcoding_config::CeairConfig;
 use chengcoding_core::message::Role;
 use chengcoding_tools::{create_default_registry, SecurityPolicy, ToolRegistry};
@@ -96,8 +96,7 @@ pub async fn execute(args: LaunchArgs, config: CeairConfig) -> Result<()> {
     info!("正在启动 AI 智能体...");
 
     // 创建 AI 提供商实例
-    let provider = setup_provider(&args, &config)
-        .context("AI 提供商初始化失败")?;
+    let provider = setup_provider(&args, &config).context("AI 提供商初始化失败")?;
 
     info!("AI 提供商已就绪: {}", provider.name());
 
@@ -107,15 +106,12 @@ pub async fn execute(args: LaunchArgs, config: CeairConfig) -> Result<()> {
     info!("工具注册表已就绪，共 {} 个工具", tool_count);
 
     // 确定使用的模型名称
-    let model_name = args.model
-        .as_deref()
-        .unwrap_or(&config.ai.model);
+    let model_name = args.model.as_deref().unwrap_or(&config.ai.model);
 
     // 根据运行模式分发
     if let Some(ref prompt) = args.prompt {
         // 单次任务模式：发送 prompt 并获取结果
-        run_single_shot(provider.as_ref(), &registry, prompt, model_name, &config)
-            .await
+        run_single_shot(provider.as_ref(), &registry, prompt, model_name, &config).await
     } else if args.no_tui {
         // 用户明确禁用 TUI，使用纯文本交互模式
         run_interactive_mode(provider, registry, model_name, &config).await
@@ -136,20 +132,16 @@ pub async fn execute(args: LaunchArgs, config: CeairConfig) -> Result<()> {
 /// # 参数
 /// - `args`: 命令行参数（可能指定了 provider）
 /// - `config`: 配置文件中的设置
-fn setup_provider(
-    args: &LaunchArgs,
-    config: &CeairConfig,
-) -> Result<Box<dyn AiProvider>> {
+fn setup_provider(args: &LaunchArgs, config: &CeairConfig) -> Result<Box<dyn AiProvider>> {
     // 确定提供商名称（命令行优先）
-    let provider_name = args.provider
-        .as_deref()
-        .unwrap_or(&config.ai.provider);
+    let provider_name = args.provider.as_deref().unwrap_or(&config.ai.provider);
 
     // 获取 API 密钥（配置文件 > 环境变量）
     let api_key = config.ai.api_key.clone().or_else(|| {
         // 尝试从环境变量获取（格式：ChengCoding_API_KEY 或 <PROVIDER>_API_KEY）
         let env_key = format!("{}_API_KEY", provider_name.to_uppercase());
-        std::env::var(&env_key).ok()
+        std::env::var(&env_key)
+            .ok()
             .or_else(|| std::env::var("ChengCoding_API_KEY").ok())
     });
 
@@ -168,7 +160,9 @@ fn setup_provider(
         }),
         base_url: config.ai.base_url.clone(),
         default_model: Some(
-            args.model.clone().unwrap_or_else(|| config.ai.model.clone()),
+            args.model
+                .clone()
+                .unwrap_or_else(|| config.ai.model.clone()),
         ),
         timeout_secs: config.agent.timeout_secs,
         extra: HashMap::new(),
@@ -206,10 +200,7 @@ fn setup_tool_registry(config: &CeairConfig) -> ToolRegistry {
 
     policy.allow_path_traversal = false;
     let registry = create_default_registry(policy);
-    info!(
-        "已注册工具: {:?}",
-        registry.list_tools()
-    );
+    info!("已注册工具: {:?}", registry.list_tools());
     registry
 }
 
@@ -307,10 +298,7 @@ async fn run_single_shot(
 
         // 如果 AI 返回了工具调用请求
         if !response.tool_calls.is_empty() {
-            info!(
-                "AI 请求调用 {} 个工具",
-                response.tool_calls.len()
-            );
+            info!("AI 请求调用 {} 个工具", response.tool_calls.len());
 
             // 将 AI 的响应（包含工具调用请求）添加到消息历史
             messages.push(ChatMessage {
@@ -331,9 +319,8 @@ async fn run_single_shot(
                 println!("🔧 调用工具: {}", tool_name);
 
                 // 解析工具参数
-                let params: serde_json::Value =
-                    serde_json::from_str(&tool_call.function.arguments)
-                        .unwrap_or(serde_json::Value::Object(Default::default()));
+                let params: serde_json::Value = serde_json::from_str(&tool_call.function.arguments)
+                    .unwrap_or(serde_json::Value::Object(Default::default()));
 
                 // 执行工具
                 let tool_result = match registry.execute(tool_name, params).await {
@@ -389,6 +376,8 @@ async fn run_tui_mode(
     model_name: &str,
     config: &CeairConfig,
 ) -> Result<()> {
+    use chengcoding_tui::components::MainLayout;
+    use chengcoding_tui::AppAction;
     use crossterm::{
         event::{self, Event},
         execute,
@@ -397,8 +386,6 @@ async fn run_tui_mode(
     use ratatui::{backend::CrosstermBackend, Terminal};
     use std::io;
     use std::time::Duration;
-    use chengcoding_tui::components::MainLayout;
-    use chengcoding_tui::AppAction;
 
     info!("正在启动 TUI 交互模式...");
 
@@ -466,10 +453,7 @@ async fn run_tui_mode(
                         messages.push(ChatMessage::user(&text));
 
                         // 发送请求并处理响应
-                        match provider
-                            .chat_completion(&messages, &tools, &options)
-                            .await
-                        {
+                        match provider.chat_completion(&messages, &tools, &options).await {
                             Ok(response) => {
                                 let content = response.content.clone();
                                 app.add_message(Role::Assistant, &content);
@@ -537,14 +521,14 @@ fn handle_slash_command(app: &mut App, name: &str, args: &str) {
             if args.is_empty() {
                 app.add_message(
                     Role::System,
-                    format!("当前模型: {}。用法: /model <模型名称>", app.status.model_name),
+                    format!(
+                        "当前模型: {}。用法: /model <模型名称>",
+                        app.status.model_name
+                    ),
                 );
             } else {
                 app.status.model_name = args.to_string();
-                app.add_message(
-                    Role::System,
-                    format!("模型已切换为: {}", args),
-                );
+                app.add_message(Role::System, format!("模型已切换为: {}", args));
             }
         }
         "mode" => {
@@ -565,7 +549,10 @@ fn handle_slash_command(app: &mut App, name: &str, args: &str) {
             } else {
                 app.add_message(
                     Role::System,
-                    format!("未知模式: {}。可选: normal, plan, autopilot, ultrawork", args),
+                    format!(
+                        "未知模式: {}。可选: normal, plan, autopilot, ultrawork",
+                        args
+                    ),
                 );
             }
         }
@@ -588,7 +575,10 @@ fn handle_slash_command(app: &mut App, name: &str, args: &str) {
             } else {
                 app.add_message(
                     Role::System,
-                    format!("未知深度: {}。可选: off, light, medium, deep, maximum", args),
+                    format!(
+                        "未知深度: {}。可选: off, light, medium, deep, maximum",
+                        args
+                    ),
                 );
             }
         }
@@ -651,8 +641,15 @@ async fn run_interactive_mode(
         .temperature(config.ai.temperature)
         .max_tokens(config.ai.max_tokens);
 
-    run_text_loop(&mut app, provider.as_ref(), &registry, &tools, &options, config)
-        .await
+    run_text_loop(
+        &mut app,
+        provider.as_ref(),
+        &registry,
+        &tools,
+        &options,
+        config,
+    )
+    .await
 }
 
 /// 文本交互循环的核心实现
@@ -682,8 +679,7 @@ async fn run_text_loop(
 
         // 读取用户输入
         let mut input = String::new();
-        stdin.read_line(&mut input)
-            .context("读取用户输入失败")?;
+        stdin.read_line(&mut input).context("读取用户输入失败")?;
 
         let input = input.trim();
 
@@ -713,7 +709,11 @@ async fn run_text_loop(
 
             // 处理工具调用
             if !response.tool_calls.is_empty() {
-                info!("迭代 #{}: AI 请求调用 {} 个工具", iteration + 1, response.tool_calls.len());
+                info!(
+                    "迭代 #{}: AI 请求调用 {} 个工具",
+                    iteration + 1,
+                    response.tool_calls.len()
+                );
 
                 // 记录 AI 的工具调用响应
                 messages.push(ChatMessage {

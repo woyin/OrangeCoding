@@ -14,7 +14,12 @@ use chengcoding_worker::WorkerRuntime;
 use chrono::Utc;
 use tower::ServiceExt;
 
-fn setup() -> (axum::Router, LocalAuth, Arc<WorkerRuntime>, Arc<WorkerRegistry>) {
+fn setup() -> (
+    axum::Router,
+    LocalAuth,
+    Arc<WorkerRuntime>,
+    Arc<WorkerRegistry>,
+) {
     let runtime = Arc::new(WorkerRuntime::new());
     let auth = LocalAuth::generate();
     let registry = Arc::new(WorkerRegistry::new());
@@ -109,7 +114,9 @@ async fn list_sessions_empty() {
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(resp.into_body(), 1_000_000).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1_000_000)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["sessions"].as_array().unwrap().len(), 0);
 }
@@ -119,27 +126,34 @@ async fn create_and_get_session() {
     let (_app, auth, runtime, registry) = setup();
 
     // Create a session directly via runtime (avoids oneshot issues)
-    let info = runtime.sessions.create_session(Some("test session".into()), None);
+    let info = runtime
+        .sessions
+        .create_session(Some("test session".into()), None);
     let session_id = info.id.clone();
 
     // Rebuild router for GET (oneshot consumes the service)
     let app = build_router(runtime.clone(), auth.clone(), registry);
-    let get_req = authed_get(
-        &format!("/api/v1/sessions/{}", session_id),
-        auth.token(),
-    );
+    let get_req = authed_get(&format!("/api/v1/sessions/{}", session_id), auth.token());
     let resp = app.oneshot(get_req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(resp.into_body(), 1_000_000).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1_000_000)
+        .await
+        .unwrap();
     let session: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(session["title"].as_str().unwrap(), "test session");
 
     // List sessions should have 1
-    let app = build_router(runtime.clone(), auth.clone(), Arc::new(WorkerRegistry::new()));
+    let app = build_router(
+        runtime.clone(),
+        auth.clone(),
+        Arc::new(WorkerRegistry::new()),
+    );
     let list_req = authed_get("/api/v1/sessions", auth.token());
     let resp = app.oneshot(list_req).await.unwrap();
-    let body = axum::body::to_bytes(resp.into_body(), 1_000_000).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1_000_000)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["sessions"].as_array().unwrap().len(), 1);
 }
@@ -156,7 +170,9 @@ async fn create_session_via_api() {
     let resp = app.oneshot(create_req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::CREATED);
 
-    let body = axum::body::to_bytes(resp.into_body(), 1_000_000).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1_000_000)
+        .await
+        .unwrap();
     let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(created["id"].as_str().is_some());
     assert_eq!(created["title"].as_str().unwrap(), "api created");
@@ -179,7 +195,9 @@ async fn cancel_session() {
     let (_app, auth, runtime, registry) = setup();
 
     // Create a session directly
-    let info = runtime.sessions.create_session(Some("cancel me".into()), None);
+    let info = runtime
+        .sessions
+        .create_session(Some("cancel me".into()), None);
     let session_id = info.id.clone();
 
     // Cancel it via API
@@ -198,15 +216,14 @@ async fn close_session() {
     let (_app, auth, runtime, registry) = setup();
 
     // Create a session directly
-    let info = runtime.sessions.create_session(Some("close me".into()), None);
+    let info = runtime
+        .sessions
+        .create_session(Some("close me".into()), None);
     let session_id = info.id.clone();
 
     // Close it via API
     let app = build_router(runtime.clone(), auth.clone(), registry);
-    let delete_req = authed_delete(
-        &format!("/api/v1/sessions/{}", session_id),
-        auth.token(),
-    );
+    let delete_req = authed_delete(&format!("/api/v1/sessions/{}", session_id), auth.token());
     let resp = app.oneshot(delete_req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
@@ -224,7 +241,9 @@ async fn list_workers_empty() {
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(resp.into_body(), 1_000_000).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1_000_000)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["workers"].as_array().unwrap().len(), 0);
 }
@@ -240,7 +259,9 @@ async fn list_workers_with_entries() {
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(resp.into_body(), 1_000_000).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1_000_000)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["workers"].as_array().unwrap().len(), 2);
 }
@@ -255,7 +276,9 @@ async fn get_worker_found() {
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(resp.into_body(), 1_000_000).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 1_000_000)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["worker_id"].as_str().unwrap(), "w-1");
 }

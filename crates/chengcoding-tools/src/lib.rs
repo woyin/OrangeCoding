@@ -9,6 +9,7 @@
 pub mod ask_tool;
 pub mod ast_tool;
 pub mod bash_tool;
+pub mod batch_partition;
 pub mod browser_tool;
 pub mod calc_tool;
 pub mod edit_tool;
@@ -22,14 +23,13 @@ pub mod permissions;
 pub mod python_tool;
 pub mod registry;
 pub mod security;
+pub mod session_tools;
 pub mod ssh_tool;
+pub mod task_management;
 pub mod task_tool;
 pub mod todo_tool;
-pub mod web_search_tool;
-pub mod session_tools;
-pub mod task_management;
 pub mod tool_hooks;
-pub mod batch_partition;
+pub mod web_search_tool;
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -249,19 +249,16 @@ pub trait Tool: Send + Sync + fmt::Debug {
 /// - 保持验证逻辑可读可调试
 fn validate_params_against_schema(params: &Value, schema: &Value) -> ToolResult<()> {
     // 1. 参数必须是对象
-    let params_obj = params.as_object().ok_or_else(|| {
-        ToolError::InvalidParams("参数必须是 JSON 对象".to_string())
-    })?;
+    let params_obj = params
+        .as_object()
+        .ok_or_else(|| ToolError::InvalidParams("参数必须是 JSON 对象".to_string()))?;
 
     // 2. 检查 required 字段
     if let Some(required) = schema.get("required").and_then(|r| r.as_array()) {
         for field in required {
             if let Some(name) = field.as_str() {
                 if !params_obj.contains_key(name) {
-                    return Err(ToolError::InvalidParams(format!(
-                        "缺少必需参数: {}",
-                        name
-                    )));
+                    return Err(ToolError::InvalidParams(format!("缺少必需参数: {}", name)));
                 }
             }
         }

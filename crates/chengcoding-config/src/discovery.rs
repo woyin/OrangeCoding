@@ -231,10 +231,7 @@ impl ConfigDiscovery {
                     if entry_path.is_dir() {
                         let skill_file = entry_path.join("SKILL.md");
                         if skill_file.is_file() {
-                            let name = entry
-                                .file_name()
-                                .to_string_lossy()
-                                .to_string();
+                            let name = entry.file_name().to_string_lossy().to_string();
                             if seen_names.contains(&name) {
                                 continue;
                             }
@@ -244,7 +241,8 @@ impl ConfigDiscovery {
                                 name,
                                 path: skill_file,
                                 provider: provider.clone(),
-                                enabled: !self.is_extension_disabled(&entry.file_name().to_string_lossy()),
+                                enabled: !self
+                                    .is_extension_disabled(&entry.file_name().to_string_lossy()),
                             });
                         }
                     }
@@ -315,7 +313,11 @@ impl ConfigDiscovery {
         for (provider, dir) in self.get_config_dirs() {
             let full_path = dir.join(subpath);
             if full_path.is_file() {
-                debug!("找到配置文件: {} (来源: {:?})", full_path.display(), provider);
+                debug!(
+                    "找到配置文件: {} (来源: {:?})",
+                    full_path.display(),
+                    provider
+                );
                 return Some((provider, full_path));
             }
         }
@@ -427,10 +429,10 @@ mod tests {
         let dirs = discovery.get_config_dirs();
 
         // Native 优先级最高，项目级优先于用户级
-        assert_eq!(dirs[0].0, ConfigProvider::Native);  // 项目级 .chengcoding
-        assert_eq!(dirs[1].0, ConfigProvider::Native);  // 用户级 .chengcoding
-        assert_eq!(dirs[2].0, ConfigProvider::Claude);   // 项目级 .claude
-        assert_eq!(dirs[3].0, ConfigProvider::Gemini);   // 用户级 .gemini
+        assert_eq!(dirs[0].0, ConfigProvider::Native); // 项目级 .chengcoding
+        assert_eq!(dirs[1].0, ConfigProvider::Native); // 用户级 .chengcoding
+        assert_eq!(dirs[2].0, ConfigProvider::Claude); // 项目级 .claude
+        assert_eq!(dirs[3].0, ConfigProvider::Gemini); // 用户级 .gemini
         assert_eq!(dirs.len(), 4);
     }
 
@@ -492,8 +494,16 @@ mod tests {
         fs::create_dir_all(&home).unwrap();
 
         // 创建技能包目录结构
-        create_file(&project, ".chengcoding/skills/code-review/SKILL.md", "# 代码审查技能");
-        create_file(&project, ".chengcoding/skills/testing/SKILL.md", "# 测试技能");
+        create_file(
+            &project,
+            ".chengcoding/skills/code-review/SKILL.md",
+            "# 代码审查技能",
+        );
+        create_file(
+            &project,
+            ".chengcoding/skills/testing/SKILL.md",
+            "# 测试技能",
+        );
 
         let discovery = ConfigDiscovery::new(project, home);
         let skills = discovery.discover_skills();
@@ -525,7 +535,9 @@ mod tests {
         let commands = discovery.discover_commands();
 
         assert_eq!(commands.len(), 2);
-        assert!(commands.iter().all(|c| c.item_type == DiscoveryType::Command));
+        assert!(commands
+            .iter()
+            .all(|c| c.item_type == DiscoveryType::Command));
 
         let names: Vec<&str> = commands.iter().map(|c| c.name.as_str()).collect();
         assert!(names.contains(&"deploy"));
@@ -693,7 +705,11 @@ mod tests {
         // 创建多种类型的配置
         create_file(&project, ".chengcoding/AGENTS.md", "# 规则");
         create_file(&project, ".chengcoding/mcp.json", "{}");
-        create_file(&project, ".chengcoding/skills/test-skill/SKILL.md", "# 技能");
+        create_file(
+            &project,
+            ".chengcoding/skills/test-skill/SKILL.md",
+            "# 技能",
+        );
         create_file(&project, ".chengcoding/commands/build.md", "# 构建");
 
         let discovery = ConfigDiscovery::new(project, home);

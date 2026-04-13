@@ -202,12 +202,10 @@ fn collapse_whitespace(text: &str) -> String {
 /// 从 HTML 中提取 `<title>` 标签的内容
 pub fn extract_title(html: &str) -> Option<String> {
     let re = Regex::new(r"(?is)<title[^>]*>(.*?)</title>").ok()?;
-    re.captures(html)
-        .and_then(|caps| caps.get(1))
-        .map(|m| {
-            let title = m.as_str().trim().to_string();
-            decode_html_entities(&strip_tags(&title))
-        })
+    re.captures(html).and_then(|caps| caps.get(1)).map(|m| {
+        let title = m.as_str().trim().to_string();
+        decode_html_entities(&strip_tags(&title))
+    })
 }
 
 // ============================================================
@@ -242,7 +240,10 @@ pub fn format_output(
     let total_length = content.len();
 
     // 构建头部信息
-    let mut output = format!("URL: {}\nContent-Type: {}\n", metadata.url, metadata.content_type);
+    let mut output = format!(
+        "URL: {}\nContent-Type: {}\n",
+        metadata.url, metadata.content_type
+    );
 
     // 仅当存在标题时添加 Title 行
     if let Some(ref title) = metadata.title {
@@ -406,12 +407,12 @@ impl Tool for FetchTool {
             .map(|v| v as usize)
             .unwrap_or(0);
 
-        let raw = params
-            .get("raw")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let raw = params.get("raw").and_then(|v| v.as_bool()).unwrap_or(false);
 
-        debug!("抓取 URL: {} (max_length={}, start_index={}, raw={})", url_str, max_length, start_index, raw);
+        debug!(
+            "抓取 URL: {} (max_length={}, start_index={}, raw={})",
+            url_str, max_length, start_index, raw
+        );
 
         // 发送 HTTP 请求
         let response = self
@@ -673,10 +674,7 @@ mod tests {
             output.contains("Length: 200 characters"),
             "应包含总长度信息"
         );
-        assert!(
-            output.contains("showing 0-50"),
-            "应显示当前范围"
-        );
+        assert!(output.contains("showing 0-50"), "应显示当前范围");
     }
 
     // --------------------------------------------------------
@@ -702,10 +700,7 @@ mod tests {
         );
 
         // 验证范围信息
-        assert!(
-            output.contains("showing 5-15"),
-            "应显示正确的范围 5-15"
-        );
+        assert!(output.contains("showing 5-15"), "应显示正确的范围 5-15");
 
         // 验证截断提示（还有剩余内容）
         assert!(
@@ -754,16 +749,10 @@ mod tests {
         let output = format_output(plain_text, &metadata, 0, 10000);
 
         // 验证纯文本直接透传
-        assert!(
-            output.contains(plain_text),
-            "纯文本应原样透传"
-        );
+        assert!(output.contains(plain_text), "纯文本应原样透传");
 
         // 验证没有 Title 行（纯文本无标题）
-        assert!(
-            !output.contains("Title:"),
-            "纯文本不应有 Title 行"
-        );
+        assert!(!output.contains("Title:"), "纯文本不应有 Title 行");
 
         // 验证 Content-Type 正确
         assert!(
@@ -791,7 +780,11 @@ mod tests {
     fn test_html_entities_decoded() {
         let html = "<p>A &amp; B &lt; C &gt; D</p>";
         let text = html_to_text(html);
-        assert!(text.contains("A & B < C > D"), "HTML 实体应被正确解码，实际: {}", text);
+        assert!(
+            text.contains("A & B < C > D"),
+            "HTML 实体应被正确解码，实际: {}",
+            text
+        );
     }
 
     #[test]

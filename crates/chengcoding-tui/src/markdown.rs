@@ -97,10 +97,8 @@ impl MarkdownRenderer {
                             .code_border_char
                             .to_string()
                             .repeat(self.code_border_width);
-                        let mut spans = vec![Span::styled(
-                            border,
-                            Style::default().fg(Color::DarkGray),
-                        )];
+                        let mut spans =
+                            vec![Span::styled(border, Style::default().fg(Color::DarkGray))];
 
                         // 如果有语言标识，显示在边框后
                         if !lang.is_empty() {
@@ -152,8 +150,12 @@ impl MarkdownRenderer {
 
             // 解析水平分割线
             let trimmed = raw_line.trim();
-            if (trimmed.starts_with("---") || trimmed.starts_with("***") || trimmed.starts_with("___"))
-                && trimmed.chars().all(|c| c == '-' || c == '*' || c == '_' || c == ' ')
+            if (trimmed.starts_with("---")
+                || trimmed.starts_with("***")
+                || trimmed.starts_with("___"))
+                && trimmed
+                    .chars()
+                    .all(|c| c == '-' || c == '*' || c == '_' || c == ' ')
                 && trimmed.chars().filter(|c| !c.is_whitespace()).count() >= 3
             {
                 let divider = "─".repeat(self.code_border_width);
@@ -221,12 +223,12 @@ impl MarkdownRenderer {
 
         // 根据标题级别选择样式
         let (color, bold) = match level {
-            1 => (Color::Magenta, true),   // H1: 品红色加粗
-            2 => (Color::Cyan, true),      // H2: 青色加粗
-            3 => (Color::Blue, true),      // H3: 蓝色加粗
-            4 => (Color::Yellow, false),   // H4: 黄色
-            5 => (Color::Green, false),    // H5: 绿色
-            _ => (Color::White, false),    // H6: 白色
+            1 => (Color::Magenta, true), // H1: 品红色加粗
+            2 => (Color::Cyan, true),    // H2: 青色加粗
+            3 => (Color::Blue, true),    // H3: 蓝色加粗
+            4 => (Color::Yellow, false), // H4: 黄色
+            5 => (Color::Green, false),  // H5: 绿色
+            _ => (Color::White, false),  // H6: 白色
         };
 
         let mut style = Style::default().fg(color);
@@ -564,7 +566,10 @@ mod tests {
         assert_eq!(lines.len(), 1);
 
         // 查找链接 Span
-        let link_span = lines[0].spans.iter().find(|s| s.content.as_ref() == "GitHub");
+        let link_span = lines[0]
+            .spans
+            .iter()
+            .find(|s| s.content.as_ref() == "GitHub");
         assert!(link_span.is_some());
 
         // 验证链接样式（蓝色、下划线）

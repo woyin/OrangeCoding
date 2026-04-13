@@ -57,7 +57,7 @@ impl SidebarView {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(3), // 标签页头部
-                Constraint::Min(0),   // 内容区域
+                Constraint::Min(0),    // 内容区域
             ])
             .split(area);
 
@@ -70,12 +70,7 @@ impl SidebarView {
                 Self::render_file_tree(frame, chunks[1], sidebar);
             }
             SidebarPanel::AgentStatus => {
-                Self::render_agent_status(
-                    frame,
-                    chunks[1],
-                    interaction_mode,
-                    thinking_depth,
-                );
+                Self::render_agent_status(frame, chunks[1], interaction_mode, thinking_depth);
             }
             SidebarPanel::SessionList => {
                 Self::render_session_list(frame, chunks[1], sidebar);
@@ -209,9 +204,7 @@ impl SidebarView {
                 Span::styled("  交互模式: ", Style::default().fg(Color::Gray)),
                 Span::styled(
                     interaction_mode.label(),
-                    Style::default()
-                        .fg(mode_color)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(mode_color).add_modifier(Modifier::BOLD),
                 ),
             ]),
             Line::from(Span::styled(
@@ -307,10 +300,7 @@ impl SidebarView {
                 let time_str = entry.updated_at.format("%m/%d %H:%M").to_string();
 
                 ListItem::new(vec![
-                    Line::from(Span::styled(
-                        format!("{prefix}{}", entry.title),
-                        style,
-                    )),
+                    Line::from(Span::styled(format!("{prefix}{}", entry.title), style)),
                     Line::from(Span::styled(
                         format!("    {time_str}"),
                         Style::default().fg(Color::DarkGray),

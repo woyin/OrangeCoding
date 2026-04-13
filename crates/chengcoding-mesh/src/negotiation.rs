@@ -162,11 +162,7 @@ pub struct AgentCapability {
 
 impl AgentCapability {
     /// 创建一个新的Agent能力描述
-    pub fn new(
-        agent_id: impl Into<String>,
-        skills: Vec<String>,
-        max_concurrent: u8,
-    ) -> Self {
+    pub fn new(agent_id: impl Into<String>, skills: Vec<String>, max_concurrent: u8) -> Self {
         Self {
             agent_id: agent_id.into(),
             skills,
@@ -190,10 +186,7 @@ impl AgentCapability {
         if requirements.is_empty() {
             return 1.0;
         }
-        let matched = requirements
-            .iter()
-            .filter(|r| self.has_skill(r))
-            .count();
+        let matched = requirements.iter().filter(|r| self.has_skill(r)).count();
         matched as f32 / requirements.len() as f32
     }
 }
@@ -347,11 +340,8 @@ mod tests {
 
     /// 创建测试用的Agent能力
     fn 创建测试能力(id: &str, skills: Vec<&str>, load: f32) -> AgentCapability {
-        let mut cap = AgentCapability::new(
-            id,
-            skills.into_iter().map(|s| s.to_string()).collect(),
-            3,
-        );
+        let mut cap =
+            AgentCapability::new(id, skills.into_iter().map(|s| s.to_string()).collect(), 3);
         cap.current_load = load;
         cap
     }
@@ -371,8 +361,7 @@ mod tests {
 
     #[test]
     fn 测试任务请求带截止时间() {
-        let req = TaskRequest::new("task-002", vec![], 3)
-            .with_deadline("1小时内");
+        let req = TaskRequest::new("task-002", vec![], 3).with_deadline("1小时内");
         assert_eq!(req.deadline_hint, Some("1小时内".to_string()));
     }
 
@@ -469,10 +458,7 @@ mod tests {
         let mut protocol = NegotiationProtocol::new();
 
         // 满载的Agent
-        protocol.register_agent(
-            "agent-busy",
-            创建测试能力("agent-busy", vec!["Rust"], 1.0),
-        );
+        protocol.register_agent("agent-busy", 创建测试能力("agent-busy", vec!["Rust"], 1.0));
 
         let req = TaskRequest::new("task-x", vec!["Rust".to_string()], 1);
         let outcome = protocol.request_task(&req);
@@ -534,11 +520,7 @@ mod tests {
 
     #[test]
     fn 测试任务请求显示() {
-        let req = TaskRequest::new(
-            "task-display",
-            vec!["Rust".to_string()],
-            10,
-        );
+        let req = TaskRequest::new("task-display", vec!["Rust".to_string()], 10);
         let display = format!("{req}");
         assert!(display.contains("task-display"));
         assert!(display.contains("10"));

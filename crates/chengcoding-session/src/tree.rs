@@ -169,9 +169,7 @@ impl SessionTree {
 
     /// 按 ID 获取条目
     pub fn get_entry(&self, entry_id: &EntryId) -> Option<&SessionEntry> {
-        self.index
-            .get(entry_id)
-            .map(|&idx| &self.entries[idx])
+        self.index.get(entry_id).map(|&idx| &self.entries[idx])
     }
 
     /// 获取所有根条目
@@ -197,9 +195,7 @@ impl Default for SessionTree {
 #[allow(non_snake_case)]
 mod tests {
     use super::*;
-    use crate::entry::{
-        CompactionEntry, EntryId, MessageEntry,
-    };
+    use crate::entry::{CompactionEntry, EntryId, MessageEntry};
     use chengcoding_core::message::Role;
 
     /// 创建测试用消息条目（无父条目）

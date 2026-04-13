@@ -181,10 +181,7 @@ mod tests {
             handler: ToolHandlerType::Executable(PathBuf::from("/usr/bin/test")),
             source: PathBuf::from("test"),
         };
-        assert!(matches!(
-            &exec_tool.handler,
-            ToolHandlerType::Executable(_)
-        ));
+        assert!(matches!(&exec_tool.handler, ToolHandlerType::Executable(_)));
 
         // MCP 类型
         let mcp_tool = CustomToolDef {

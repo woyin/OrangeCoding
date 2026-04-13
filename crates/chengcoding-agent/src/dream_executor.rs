@@ -160,8 +160,7 @@ impl DreamExecutor {
 
     /// 标记失败并触发回滚
     pub fn fail(&mut self, reason: String) {
-        self.log
-            .push(format!("执行失败: {}", reason));
+        self.log.push(format!("执行失败: {}", reason));
         self.phase = DreamPhase::Failed(reason);
     }
 
@@ -196,10 +195,7 @@ impl DreamExecutor {
 
     /// 是否已完成（成功或失败）
     pub fn is_finished(&self) -> bool {
-        matches!(
-            self.phase,
-            DreamPhase::Completed | DreamPhase::Failed(_)
-        )
+        matches!(self.phase, DreamPhase::Completed | DreamPhase::Failed(_))
     }
 }
 

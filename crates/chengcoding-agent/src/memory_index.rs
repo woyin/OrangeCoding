@@ -101,8 +101,7 @@ pub fn build_index(entries: &[MemdirEntry]) -> String {
 
 /// 计算索引统计
 pub fn index_stats(entries: &[MemdirEntry]) -> IndexStats {
-    let mut types: std::collections::HashMap<String, usize> =
-        std::collections::HashMap::new();
+    let mut types: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for entry in entries {
         *types.entry(entry.entry_type.clone()).or_default() += 1;
     }

@@ -22,7 +22,11 @@ impl SessionSupervisor {
         }
     }
 
-    pub fn create_session(&self, title: Option<String>, _working_directory: Option<String>) -> SessionInfo {
+    pub fn create_session(
+        &self,
+        title: Option<String>,
+        _working_directory: Option<String>,
+    ) -> SessionInfo {
         let now = Utc::now();
         let id = Uuid::new_v4().to_string();
 

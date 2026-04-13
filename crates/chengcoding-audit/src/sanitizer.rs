@@ -113,10 +113,7 @@ impl Sanitizer {
                 r"(?i)(?:sk|ak|key|api[_-]?key)[_-]?[a-zA-Z0-9]{16,}",
             ),
             // 密码模式（匹配 password=xxx 或 password: xxx 格式）
-            (
-                "password",
-                r#"(?i)(?:password|passwd|pwd)\s*[=:]\s*\S+"#,
-            ),
+            ("password", r#"(?i)(?:password|passwd|pwd)\s*[=:]\s*\S+"#),
             // Bearer 令牌模式
             ("bearer_token", r"(?i)Bearer\s+[a-zA-Z0-9\-._~+/]+=*"),
             // 通用令牌/密钥模式（匹配 token=xxx 或 secret=xxx 格式）
@@ -125,20 +122,14 @@ impl Sanitizer {
                 r#"(?i)(?:token|secret|credential)\s*[=:]\s*\S+"#,
             ),
             // 电子邮件地址
-            (
-                "email",
-                r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}",
-            ),
+            ("email", r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"),
             // IPv4 地址
             (
                 "ipv4",
                 r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b",
             ),
             // 信用卡号（匹配常见的信用卡号格式：16位数字，可能有空格或横线分隔）
-            (
-                "credit_card",
-                r"\b(?:\d{4}[- ]?){3}\d{4}\b",
-            ),
+            ("credit_card", r"\b(?:\d{4}[- ]?){3}\d{4}\b"),
         ];
 
         // 逐个编译并注册内置模式
@@ -186,7 +177,10 @@ mod tests {
         // 常见的 API 密钥格式
         let text = "使用密钥 sk-abc123456789xyzABCDEF 访问服务";
         let result = sanitizer.sanitize_text(text);
-        assert!(!result.contains("sk-abc123456789xyzABCDEF"), "API 密钥应被脱敏");
+        assert!(
+            !result.contains("sk-abc123456789xyzABCDEF"),
+            "API 密钥应被脱敏"
+        );
         assert!(result.contains("[REDACTED]"));
     }
 
@@ -281,9 +275,7 @@ mod tests {
         let initial_count = sanitizer.pattern_count();
 
         // 添加自定义的手机号匹配模式
-        sanitizer
-            .add_pattern("phone_cn", r"1[3-9]\d{9}")
-            .unwrap();
+        sanitizer.add_pattern("phone_cn", r"1[3-9]\d{9}").unwrap();
         assert_eq!(sanitizer.pattern_count(), initial_count + 1);
 
         // 验证自定义模式生效
@@ -300,7 +292,10 @@ mod tests {
         let initial_count = sanitizer.pattern_count();
 
         // 移除 email 模式
-        assert!(sanitizer.remove_pattern("email"), "移除已存在的模式应返回 true");
+        assert!(
+            sanitizer.remove_pattern("email"),
+            "移除已存在的模式应返回 true"
+        );
         assert_eq!(sanitizer.pattern_count(), initial_count - 1);
 
         // 移除不存在的模式应返回 false
@@ -338,7 +333,10 @@ mod tests {
 
         // 所有敏感信息都应被脱敏
         assert!(!result.contains("user@test.com"), "邮箱应被脱敏");
-        assert!(!result.contains("sk-testkey1234567890ab"), "API 密钥应被脱敏");
+        assert!(
+            !result.contains("sk-testkey1234567890ab"),
+            "API 密钥应被脱敏"
+        );
         assert!(!result.contains("192.168.0.1"), "IP 地址应被脱敏");
     }
 }

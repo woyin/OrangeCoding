@@ -115,10 +115,7 @@ impl Message {
     /// 创建一个包含工具调用的助手消息
     ///
     /// AI 模型通过此消息请求执行一个或多个工具。
-    pub fn assistant_with_tool_calls(
-        content: Option<String>,
-        tool_calls: Vec<ToolCall>,
-    ) -> Self {
+    pub fn assistant_with_tool_calls(content: Option<String>, tool_calls: Vec<ToolCall>) -> Self {
         Self {
             role: Role::Assistant,
             content,
@@ -202,11 +199,7 @@ impl ToolCall {
 
 impl fmt::Display for ToolCall {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "ToolCall[{}]({})",
-            self.id, self.function_name
-        )
+        write!(f, "ToolCall[{}]({})", self.id, self.function_name)
     }
 }
 
@@ -361,8 +354,7 @@ impl Conversation {
                     .iter()
                     .map(|tc| {
                         let name_tokens = tc.function_name.len() / CHARS_PER_TOKEN;
-                        let args_tokens =
-                            tc.arguments.to_string().len() / CHARS_PER_TOKEN;
+                        let args_tokens = tc.arguments.to_string().len() / CHARS_PER_TOKEN;
                         name_tokens + args_tokens + MESSAGE_OVERHEAD
                     })
                     .sum();
@@ -482,8 +474,7 @@ mod tests {
             "file_read",
             serde_json::json!({"path": "src/main.rs"}),
         );
-        let msg =
-            Message::assistant_with_tool_calls(None, vec![tool_call]);
+        let msg = Message::assistant_with_tool_calls(None, vec![tool_call]);
 
         assert_eq!(msg.role, Role::Assistant);
         assert!(msg.content.is_none());

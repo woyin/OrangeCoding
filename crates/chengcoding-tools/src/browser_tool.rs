@@ -27,10 +27,7 @@ pub enum BrowserAction {
         selector: Option<String>,
     },
     /// 点击元素
-    Click {
-        url: String,
-        selector: String,
-    },
+    Click { url: String, selector: String },
     /// 输入文本
     Type {
         url: String,
@@ -38,10 +35,7 @@ pub enum BrowserAction {
         text: String,
     },
     /// 执行 JavaScript
-    Evaluate {
-        url: String,
-        script: String,
-    },
+    Evaluate { url: String, script: String },
     /// 等待元素
     WaitFor {
         url: String,
@@ -132,7 +126,11 @@ impl BrowserTool {
                 args.push(url.clone());
                 args.push(selector.clone());
             }
-            BrowserAction::Type { url, selector, text } => {
+            BrowserAction::Type {
+                url,
+                selector,
+                text,
+            } => {
                 args.push("fill".to_string());
                 if self.headless {
                     args.push("--headless".to_string());
@@ -277,139 +275,122 @@ impl Tool for BrowserTool {
         debug!("浏览器操作: {}", action_str);
 
         // 构建浏览器动作
-        let browser_action = match action_str {
-            "navigate" => {
-                let url = params
-                    .get("url")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| ToolError::InvalidParams("navigate 需要 url 参数".to_string()))?;
-                BrowserAction::Navigate {
-                    url: url.to_string(),
+        let browser_action =
+            match action_str {
+                "navigate" => {
+                    let url = params.get("url").and_then(|v| v.as_str()).ok_or_else(|| {
+                        ToolError::InvalidParams("navigate 需要 url 参数".to_string())
+                    })?;
+                    BrowserAction::Navigate {
+                        url: url.to_string(),
+                    }
                 }
-            }
-            "screenshot" => {
-                let url = params
-                    .get("url")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
+                "screenshot" => {
+                    let url = params.get("url").and_then(|v| v.as_str()).ok_or_else(|| {
                         ToolError::InvalidParams("screenshot 需要 url 参数".to_string())
                     })?;
-                let full_page = params
-                    .get("full_page")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                BrowserAction::Screenshot {
-                    url: url.to_string(),
-                    full_page,
+                    let full_page = params
+                        .get("full_page")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    BrowserAction::Screenshot {
+                        url: url.to_string(),
+                        full_page,
+                    }
                 }
-            }
-            "get_text" => {
-                let url = params
-                    .get("url")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
+                "get_text" => {
+                    let url = params.get("url").and_then(|v| v.as_str()).ok_or_else(|| {
                         ToolError::InvalidParams("get_text 需要 url 参数".to_string())
                     })?;
-                let selector = params
-                    .get("selector")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                BrowserAction::GetText {
-                    url: url.to_string(),
-                    selector,
+                    let selector = params
+                        .get("selector")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    BrowserAction::GetText {
+                        url: url.to_string(),
+                        selector,
+                    }
                 }
-            }
-            "click" => {
-                let url = params
-                    .get("url")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
+                "click" => {
+                    let url = params.get("url").and_then(|v| v.as_str()).ok_or_else(|| {
                         ToolError::InvalidParams("click 需要 url 参数".to_string())
                     })?;
-                let selector = params
-                    .get("selector")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        ToolError::InvalidParams("click 需要 selector 参数".to_string())
-                    })?;
-                BrowserAction::Click {
-                    url: url.to_string(),
-                    selector: selector.to_string(),
+                    let selector =
+                        params
+                            .get("selector")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                ToolError::InvalidParams("click 需要 selector 参数".to_string())
+                            })?;
+                    BrowserAction::Click {
+                        url: url.to_string(),
+                        selector: selector.to_string(),
+                    }
                 }
-            }
-            "type" => {
-                let url = params
-                    .get("url")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
+                "type" => {
+                    let url = params.get("url").and_then(|v| v.as_str()).ok_or_else(|| {
                         ToolError::InvalidParams("type 需要 url 参数".to_string())
                     })?;
-                let selector = params
-                    .get("selector")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        ToolError::InvalidParams("type 需要 selector 参数".to_string())
-                    })?;
-                let text = params
-                    .get("text")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
+                    let selector =
+                        params
+                            .get("selector")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                ToolError::InvalidParams("type 需要 selector 参数".to_string())
+                            })?;
+                    let text = params.get("text").and_then(|v| v.as_str()).ok_or_else(|| {
                         ToolError::InvalidParams("type 需要 text 参数".to_string())
                     })?;
-                BrowserAction::Type {
-                    url: url.to_string(),
-                    selector: selector.to_string(),
-                    text: text.to_string(),
+                    BrowserAction::Type {
+                        url: url.to_string(),
+                        selector: selector.to_string(),
+                        text: text.to_string(),
+                    }
                 }
-            }
-            "evaluate" => {
-                let url = params
-                    .get("url")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
+                "evaluate" => {
+                    let url = params.get("url").and_then(|v| v.as_str()).ok_or_else(|| {
                         ToolError::InvalidParams("evaluate 需要 url 参数".to_string())
                     })?;
-                let script = params
-                    .get("script")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        ToolError::InvalidParams("evaluate 需要 script 参数".to_string())
-                    })?;
-                BrowserAction::Evaluate {
-                    url: url.to_string(),
-                    script: script.to_string(),
+                    let script =
+                        params
+                            .get("script")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                ToolError::InvalidParams("evaluate 需要 script 参数".to_string())
+                            })?;
+                    BrowserAction::Evaluate {
+                        url: url.to_string(),
+                        script: script.to_string(),
+                    }
                 }
-            }
-            "wait_for" => {
-                let url = params
-                    .get("url")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
+                "wait_for" => {
+                    let url = params.get("url").and_then(|v| v.as_str()).ok_or_else(|| {
                         ToolError::InvalidParams("wait_for 需要 url 参数".to_string())
                     })?;
-                let selector = params
-                    .get("selector")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        ToolError::InvalidParams("wait_for 需要 selector 参数".to_string())
-                    })?;
-                let timeout_ms = params
-                    .get("timeout")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(5000);
-                BrowserAction::WaitFor {
-                    url: url.to_string(),
-                    selector: selector.to_string(),
-                    timeout_ms,
+                    let selector =
+                        params
+                            .get("selector")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                ToolError::InvalidParams("wait_for 需要 selector 参数".to_string())
+                            })?;
+                    let timeout_ms = params
+                        .get("timeout")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(5000);
+                    BrowserAction::WaitFor {
+                        url: url.to_string(),
+                        selector: selector.to_string(),
+                        timeout_ms,
+                    }
                 }
-            }
-            other => {
-                return Err(ToolError::InvalidParams(format!(
-                    "未知的浏览器动作: {}",
-                    other
-                )))
-            }
-        };
+                other => {
+                    return Err(ToolError::InvalidParams(format!(
+                        "未知的浏览器动作: {}",
+                        other
+                    )))
+                }
+            };
 
         // 构建命令
         let args = self.build_command(&browser_action);

@@ -80,21 +80,13 @@ impl Tool for FindTool {
             .ok_or_else(|| ToolError::InvalidParams("缺少必要参数: pattern".to_string()))?;
 
         if pattern_str.is_empty() {
-            return Err(ToolError::InvalidParams(
-                "pattern 参数不能为空".to_string(),
-            ));
+            return Err(ToolError::InvalidParams("pattern 参数不能为空".to_string()));
         }
 
         // 解析参数
-        let search_path = params
-            .get("path")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".");
+        let search_path = params.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
-        let type_filter = params
-            .get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("any");
+        let type_filter = params.get("type").and_then(|v| v.as_str()).unwrap_or("any");
 
         let max_depth = params
             .get("max_depth")
@@ -116,9 +108,8 @@ impl Tool for FindTool {
         }
 
         // 编译 glob 模式
-        let glob_pattern = glob::Pattern::new(pattern_str).map_err(|e| {
-            ToolError::InvalidParams(format!("无效的 glob 模式: {}", e))
-        })?;
+        let glob_pattern = glob::Pattern::new(pattern_str)
+            .map_err(|e| ToolError::InvalidParams(format!("无效的 glob 模式: {}", e)))?;
 
         // 判断模式是否搜索隐藏文件
         let search_hidden = pattern_str.starts_with('.');
@@ -175,8 +166,7 @@ impl Tool for FindTool {
                 .to_str()
                 .unwrap_or("");
 
-            let matched = glob_pattern.matches(file_name)
-                || glob_pattern.matches(relative_path);
+            let matched = glob_pattern.matches(file_name) || glob_pattern.matches(relative_path);
 
             if matched {
                 matches.push(relative_path.to_string());

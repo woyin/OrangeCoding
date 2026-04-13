@@ -64,10 +64,7 @@ impl AgentDefinition for JuniorAgent {
     }
 
     fn fallback_models(&self) -> Vec<String> {
-        vec![
-            "gpt-5.4".to_string(),
-            "claude-opus-4-6".to_string(),
-        ]
+        vec!["gpt-5.4".to_string(), "claude-opus-4-6".to_string()]
     }
 
     /// 阻止委派相关工具 — Junior 必须亲自执行任务

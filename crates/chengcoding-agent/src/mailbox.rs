@@ -161,13 +161,7 @@ impl MailboxSystem {
     /// 发送消息到指定 Agent
     ///
     /// 如果目标 Agent 没有邮箱，自动创建
-    pub fn send(
-        &mut self,
-        to: &str,
-        from: &str,
-        text: impl Into<String>,
-        kind: MessageKind,
-    ) {
+    pub fn send(&mut self, to: &str, from: &str, text: impl Into<String>, kind: MessageKind) {
         let message = MailboxMessage {
             from: from.to_string(),
             text: text.into(),

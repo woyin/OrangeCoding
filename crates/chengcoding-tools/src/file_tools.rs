@@ -74,18 +74,12 @@ impl Tool for ReadFileTool {
         // 检查文件是否存在
         let file_path = Path::new(path);
         if !file_path.exists() {
-            return Err(ToolError::ExecutionError(format!(
-                "文件不存在: {}",
-                path
-            )));
+            return Err(ToolError::ExecutionError(format!("文件不存在: {}", path)));
         }
 
         // 检查目标是否为文件（而非目录）
         if !file_path.is_file() {
-            return Err(ToolError::ExecutionError(format!(
-                "路径不是文件: {}",
-                path
-            )));
+            return Err(ToolError::ExecutionError(format!("路径不是文件: {}", path)));
         }
 
         // 异步读取文件全部内容
@@ -121,10 +115,8 @@ impl Tool for ReadFileTool {
                 // 转换为 0 基索引并截取指定范围
                 let start_idx = start - 1;
                 let end_idx = end.min(lines.len());
-                let selected: Vec<&str> = lines
-                    .get(start_idx..end_idx)
-                    .unwrap_or_default()
-                    .to_vec();
+                let selected: Vec<&str> =
+                    lines.get(start_idx..end_idx).unwrap_or_default().to_vec();
                 Ok(selected.join("\n"))
             }
             (Some(start), None) => {
@@ -135,19 +127,13 @@ impl Tool for ReadFileTool {
                     ));
                 }
                 let start_idx = start - 1;
-                let selected: Vec<&str> = lines
-                    .get(start_idx..)
-                    .unwrap_or_default()
-                    .to_vec();
+                let selected: Vec<&str> = lines.get(start_idx..).unwrap_or_default().to_vec();
                 Ok(selected.join("\n"))
             }
             (None, Some(end)) => {
                 // 只有结束行，从文件开头读取到指定行
                 let end_idx = end.min(lines.len());
-                let selected: Vec<&str> = lines
-                    .get(..end_idx)
-                    .unwrap_or_default()
-                    .to_vec();
+                let selected: Vec<&str> = lines.get(..end_idx).unwrap_or_default().to_vec();
                 Ok(selected.join("\n"))
             }
             (None, None) => {
@@ -227,7 +213,11 @@ impl Tool for WriteFileTool {
         // 异步写入文件内容
         fs::write(path, content).await?;
 
-        Ok(format!("已成功写入文件: {}（{} 字节）", path, content.len()))
+        Ok(format!(
+            "已成功写入文件: {}（{} 字节）",
+            path,
+            content.len()
+        ))
     }
 }
 
@@ -298,10 +288,7 @@ impl Tool for EditFileTool {
 
         // 检查文件是否存在
         if !Path::new(path).exists() {
-            return Err(ToolError::ExecutionError(format!(
-                "文件不存在: {}",
-                path
-            )));
+            return Err(ToolError::ExecutionError(format!("文件不存在: {}", path)));
         }
 
         // 读取文件当前内容
@@ -359,44 +346,50 @@ fn list_dir_recursive<'a>(
     entries: &'a mut Vec<String>,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ToolResult<()>> + Send + 'a>> {
     Box::pin(async move {
-    // 达到最大深度时停止递归
-    if current_depth > max_depth {
-        return Ok(());
-    }
-
-    // 读取目录内容
-    let mut read_dir = fs::read_dir(dir_path).await?;
-
-    // 收集并排序目录条目（使文件列表有确定性的顺序）
-    let mut items: Vec<(String, bool)> = Vec::new();
-    while let Some(entry) = read_dir.next_entry().await? {
-        let name = entry.file_name().to_string_lossy().to_string();
-        // 跳过隐藏文件和目录（以 . 开头的条目）
-        if name.starts_with('.') {
-            continue;
+        // 达到最大深度时停止递归
+        if current_depth > max_depth {
+            return Ok(());
         }
-        let is_dir = entry.file_type().await?.is_dir();
-        items.push((name, is_dir));
-    }
-    items.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // 遍历排序后的条目
-    for (name, is_dir) in &items {
-        if *is_dir {
-            // 目录条目以 / 结尾标识
-            entries.push(format!("{}{}/", prefix, name));
-            // 递归遍历子目录
-            let sub_path = dir_path.join(name);
-            let sub_prefix = format!("{}  ", prefix);
-            list_dir_recursive(&sub_path, &sub_prefix, current_depth + 1, max_depth, entries)
+        // 读取目录内容
+        let mut read_dir = fs::read_dir(dir_path).await?;
+
+        // 收集并排序目录条目（使文件列表有确定性的顺序）
+        let mut items: Vec<(String, bool)> = Vec::new();
+        while let Some(entry) = read_dir.next_entry().await? {
+            let name = entry.file_name().to_string_lossy().to_string();
+            // 跳过隐藏文件和目录（以 . 开头的条目）
+            if name.starts_with('.') {
+                continue;
+            }
+            let is_dir = entry.file_type().await?.is_dir();
+            items.push((name, is_dir));
+        }
+        items.sort_by(|a, b| a.0.cmp(&b.0));
+
+        // 遍历排序后的条目
+        for (name, is_dir) in &items {
+            if *is_dir {
+                // 目录条目以 / 结尾标识
+                entries.push(format!("{}{}/", prefix, name));
+                // 递归遍历子目录
+                let sub_path = dir_path.join(name);
+                let sub_prefix = format!("{}  ", prefix);
+                list_dir_recursive(
+                    &sub_path,
+                    &sub_prefix,
+                    current_depth + 1,
+                    max_depth,
+                    entries,
+                )
                 .await?;
-        } else {
-            // 文件条目
-            entries.push(format!("{}{}", prefix, name));
+            } else {
+                // 文件条目
+                entries.push(format!("{}{}", prefix, name));
+            }
         }
-    }
 
-    Ok(())
+        Ok(())
     })
 }
 
@@ -449,18 +442,12 @@ impl Tool for ListDirectoryTool {
         // 检查目录是否存在
         let dir_path = Path::new(path);
         if !dir_path.exists() {
-            return Err(ToolError::ExecutionError(format!(
-                "目录不存在: {}",
-                path
-            )));
+            return Err(ToolError::ExecutionError(format!("目录不存在: {}", path)));
         }
 
         // 检查目标是否为目录
         if !dir_path.is_dir() {
-            return Err(ToolError::ExecutionError(format!(
-                "路径不是目录: {}",
-                path
-            )));
+            return Err(ToolError::ExecutionError(format!("路径不是目录: {}", path)));
         }
 
         // 递归遍历目录并收集结果
@@ -559,51 +546,51 @@ fn search_files_recursive<'a>(
     max_results: usize,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ToolResult<()>> + Send + 'a>> {
     Box::pin(async move {
-    // 达到最大结果数量时停止搜索
-    if results.len() >= max_results {
-        return Ok(());
-    }
-
-    // 尝试读取目录，忽略权限不足的目录
-    let mut read_dir = match fs::read_dir(dir_path).await {
-        Ok(rd) => rd,
-        Err(e) => {
-            warn!("无法读取目录 {}: {}", dir_path.display(), e);
+        // 达到最大结果数量时停止搜索
+        if results.len() >= max_results {
             return Ok(());
         }
-    };
 
-    while let Some(entry) = read_dir.next_entry().await? {
-        // 达到上限时提前退出
-        if results.len() >= max_results {
-            break;
+        // 尝试读取目录，忽略权限不足的目录
+        let mut read_dir = match fs::read_dir(dir_path).await {
+            Ok(rd) => rd,
+            Err(e) => {
+                warn!("无法读取目录 {}: {}", dir_path.display(), e);
+                return Ok(());
+            }
+        };
+
+        while let Some(entry) = read_dir.next_entry().await? {
+            // 达到上限时提前退出
+            if results.len() >= max_results {
+                break;
+            }
+
+            let entry_path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+
+            // 跳过隐藏文件和目录
+            if name.starts_with('.') {
+                continue;
+            }
+
+            // 计算相对路径用于模式匹配
+            let relative_path = entry_path
+                .strip_prefix(base_path)
+                .unwrap_or(&entry_path)
+                .to_string_lossy()
+                .to_string();
+
+            if entry_path.is_dir() {
+                // 递归搜索子目录
+                search_files_recursive(&entry_path, regex, base_path, results, max_results).await?;
+            } else if regex.is_match(&relative_path) {
+                // 文件路径匹配 glob 模式，添加到结果集
+                results.push(relative_path);
+            }
         }
 
-        let entry_path = entry.path();
-        let name = entry.file_name().to_string_lossy().to_string();
-
-        // 跳过隐藏文件和目录
-        if name.starts_with('.') {
-            continue;
-        }
-
-        // 计算相对路径用于模式匹配
-        let relative_path = entry_path
-            .strip_prefix(base_path)
-            .unwrap_or(&entry_path)
-            .to_string_lossy()
-            .to_string();
-
-        if entry_path.is_dir() {
-            // 递归搜索子目录
-            search_files_recursive(&entry_path, regex, base_path, results, max_results).await?;
-        } else if regex.is_match(&relative_path) {
-            // 文件路径匹配 glob 模式，添加到结果集
-            results.push(relative_path);
-        }
-    }
-
-    Ok(())
+        Ok(())
     })
 }
 
@@ -646,10 +633,7 @@ impl Tool for SearchFilesTool {
             .ok_or_else(|| ToolError::InvalidParams("缺少必要参数: pattern".to_string()))?;
 
         // 搜索根目录（默认为当前目录）
-        let search_path = params
-            .get("path")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".");
+        let search_path = params.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
         debug!("搜索文件: 模式={}, 路径={}", pattern, search_path);
 
@@ -677,10 +661,7 @@ impl Tool for SearchFilesTool {
         results.sort();
 
         if results.is_empty() {
-            Ok(format!(
-                "未找到匹配模式 '{}' 的文件",
-                pattern
-            ))
+            Ok(format!("未找到匹配模式 '{}' 的文件", pattern))
         } else {
             let count = results.len();
             let suffix = if count >= max_results {
@@ -750,10 +731,7 @@ impl Tool for DeleteFileTool {
 
         // 检查文件是否存在
         if !file_path.exists() {
-            return Err(ToolError::ExecutionError(format!(
-                "文件不存在: {}",
-                path
-            )));
+            return Err(ToolError::ExecutionError(format!("文件不存在: {}", path)));
         }
 
         // 安全检查：不允许删除目录
@@ -846,9 +824,7 @@ mod tests {
     #[tokio::test]
     async fn test_read_file_not_found() {
         let tool = ReadFileTool;
-        let result = tool
-            .execute(json!({"path": "/nonexistent/file.txt"}))
-            .await;
+        let result = tool.execute(json!({"path": "/nonexistent/file.txt"})).await;
         assert!(result.is_err());
         match result.unwrap_err() {
             ToolError::ExecutionError(msg) => assert!(msg.contains("不存在")),
@@ -1122,9 +1098,7 @@ mod tests {
     #[tokio::test]
     async fn test_delete_file_not_found() {
         let tool = DeleteFileTool;
-        let result = tool
-            .execute(json!({"path": "/nonexistent/file.txt"}))
-            .await;
+        let result = tool.execute(json!({"path": "/nonexistent/file.txt"})).await;
         assert!(result.is_err());
     }
 

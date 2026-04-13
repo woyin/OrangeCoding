@@ -400,24 +400,15 @@ mod tests {
         assert_eq!(CeairError::io("x").error_kind(), ErrorKind::Io);
         assert_eq!(CeairError::network("x").error_kind(), ErrorKind::Network);
         assert_eq!(CeairError::ai("x").error_kind(), ErrorKind::Ai);
-        assert_eq!(
-            CeairError::agent("a", "x").error_kind(),
-            ErrorKind::Agent
-        );
+        assert_eq!(CeairError::agent("a", "x").error_kind(), ErrorKind::Agent);
         assert_eq!(CeairError::tool("t", "x").error_kind(), ErrorKind::Tool);
-        assert_eq!(
-            CeairError::protocol("x").error_kind(),
-            ErrorKind::Protocol
-        );
+        assert_eq!(CeairError::protocol("x").error_kind(), ErrorKind::Protocol);
         assert_eq!(
             CeairError::serialization("x").error_kind(),
             ErrorKind::Serialization
         );
         assert_eq!(CeairError::auth("x").error_kind(), ErrorKind::Auth);
-        assert_eq!(
-            CeairError::internal("x").error_kind(),
-            ErrorKind::Internal
-        );
+        assert_eq!(CeairError::internal("x").error_kind(), ErrorKind::Internal);
     }
 
     #[test]

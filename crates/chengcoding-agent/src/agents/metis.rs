@@ -63,10 +63,7 @@ impl AgentDefinition for MetisAgent {
     }
 
     fn fallback_models(&self) -> Vec<String> {
-        vec![
-            "gpt-5.4".to_string(),
-            "claude-sonnet-4-6".to_string(),
-        ]
+        vec!["gpt-5.4".to_string(), "claude-sonnet-4-6".to_string()]
     }
 
     /// 阻止写入和编辑工具 — Metis 只做分析不做修改

@@ -139,8 +139,7 @@ impl AnthropicProvider {
                         }
                         for tc in tool_calls {
                             let input: serde_json::Value =
-                                serde_json::from_str(&tc.function.arguments)
-                                    .unwrap_or(json!({}));
+                                serde_json::from_str(&tc.function.arguments).unwrap_or(json!({}));
                             content_blocks.push(json!({
                                 "type": "tool_use",
                                 "id": tc.id,
@@ -290,14 +289,8 @@ impl AnthropicProvider {
         let usage = response_json
             .get("usage")
             .map(|u| {
-                let input = u
-                    .get("input_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32;
-                let output = u
-                    .get("output_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32;
+                let input = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                let output = u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                 TokenUsage {
                     prompt_tokens: input,
                     completion_tokens: output,
@@ -334,7 +327,10 @@ impl AnthropicProvider {
         let trimmed = data.trim();
 
         let json: serde_json::Value = serde_json::from_str(trimmed).map_err(|e| {
-            AiError::Parse(format!("Anthropic SSE 数据解析失败: {} (原始: {})", e, trimmed))
+            AiError::Parse(format!(
+                "Anthropic SSE 数据解析失败: {} (原始: {})",
+                e, trimmed
+            ))
         })?;
 
         let event_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("");
@@ -560,9 +556,7 @@ impl AiProvider for AnthropicProvider {
 
                         events
                             .into_iter()
-                            .map(|sse_event| {
-                                Self::parse_anthropic_stream_event(&sse_event.data)
-                            })
+                            .map(|sse_event| Self::parse_anthropic_stream_event(&sse_event.data))
                             .collect()
                     }
                     Err(e) => {
@@ -822,7 +816,13 @@ mod tests {
             529,
             r#"{"error": {"message": "API is overloaded"}}"#,
         );
-        assert!(matches!(err, AiError::Api { status_code: 529, .. }));
+        assert!(matches!(
+            err,
+            AiError::Api {
+                status_code: 529,
+                ..
+            }
+        ));
         assert!(err.to_string().contains("过载"));
     }
 

@@ -441,7 +441,10 @@ mod tests {
         let json = serde_json::to_string(&entry).unwrap();
         let deserialized: LabelEntry = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.name, "重要节点");
-        assert_eq!(deserialized.description.as_deref(), Some("这里完成了核心功能"));
+        assert_eq!(
+            deserialized.description.as_deref(),
+            Some("这里完成了核心功能")
+        );
     }
 
     #[test]
@@ -493,7 +496,10 @@ mod tests {
         );
         let json = serde_json::to_string(&entry).unwrap();
         let deserialized: SessionEntry = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.parent_id.as_ref().unwrap().as_str(), "parent_001");
+        assert_eq!(
+            deserialized.parent_id.as_ref().unwrap().as_str(),
+            "parent_001"
+        );
     }
 
     #[test]

@@ -136,10 +136,7 @@ impl VerificationAgent {
     }
 
     /// 检查不变量合规性 — 运行内置 InvariantChecker
-    fn check_invariant_compliance(
-        &self,
-        ctx: &crate::checker::CheckContext,
-    ) -> VerificationItem {
+    fn check_invariant_compliance(&self, ctx: &crate::checker::CheckContext) -> VerificationItem {
         let report = self.checker.check(ctx);
         if report.is_clean() {
             VerificationItem {
@@ -156,16 +153,17 @@ impl VerificationAgent {
                 .map(|v| format!("{}: {}", v.rule_id, v.message))
                 .collect();
             // 取最高严重性
-            let max_severity = report
-                .violations
-                .iter()
-                .map(|v| v.severity)
-                .max_by_key(|s| match s {
-                    Severity::Critical => 4,
-                    Severity::High => 3,
-                    Severity::Medium => 2,
-                    Severity::Low => 1,
-                });
+            let max_severity =
+                report
+                    .violations
+                    .iter()
+                    .map(|v| v.severity)
+                    .max_by_key(|s| match s {
+                        Severity::Critical => 4,
+                        Severity::High => 3,
+                        Severity::Medium => 2,
+                        Severity::Low => 1,
+                    });
             VerificationItem {
                 check: VerificationCheck::InvariantCompliance,
                 passed: false,
@@ -334,10 +332,7 @@ impl VerificationAgent {
             VerificationItem {
                 check: VerificationCheck::DesignConformance,
                 passed: false,
-                details: format!(
-                    "以下 pub fn 缺少注释: {}",
-                    uncommented_fns.join(", ")
-                ),
+                details: format!("以下 pub fn 缺少注释: {}", uncommented_fns.join(", ")),
                 severity: Some(Severity::Low),
             }
         }
@@ -510,13 +505,7 @@ mod tests {
         let ctx = healthy_context();
         let diff_with_secret = "let password = \"hunter2\";";
 
-        let report = agent.verify(
-            "TODO-005",
-            "配置管理",
-            &ctx,
-            true,
-            Some(diff_with_secret),
-        );
+        let report = agent.verify("TODO-005", "配置管理", &ctx, true, Some(diff_with_secret));
 
         // 硬编码密码 → Critical → Rejected
         assert_eq!(report.verdict, VerificationVerdict::Rejected);
@@ -549,13 +538,7 @@ mod tests {
         // pub fn 前一行不是注释
         let diff_no_comment = "+ \n+ pub fn handle_request() {}";
 
-        let report = agent.verify(
-            "TODO-007",
-            "新增 API",
-            &ctx,
-            true,
-            Some(diff_no_comment),
-        );
+        let report = agent.verify("TODO-007", "新增 API", &ctx, true, Some(diff_no_comment));
 
         // 缺少注释 → Low 级别 → NeedsWork
         assert_eq!(report.verdict, VerificationVerdict::NeedsWork);

@@ -110,11 +110,7 @@ impl McpClient {
     /// - `name`: 客户端名称（在 initialize 请求中发送给服务器）
     /// - `version`: 客户端版本号
     /// - `config`: 客户端配置
-    pub fn new(
-        name: impl Into<String>,
-        version: impl Into<String>,
-        config: ClientConfig,
-    ) -> Self {
+    pub fn new(name: impl Into<String>, version: impl Into<String>, config: ClientConfig) -> Self {
         Self {
             name: name.into(),
             version: version.into(),
@@ -277,18 +273,17 @@ impl McpClient {
             )));
         }
 
-        let result = response.result.ok_or_else(|| {
-            McpError::Protocol("tools/list 响应缺少 result 字段".to_string())
-        })?;
+        let result = response
+            .result
+            .ok_or_else(|| McpError::Protocol("tools/list 响应缺少 result 字段".to_string()))?;
 
         // 从 result 中解析工具列表
-        let tools_value = result.get("tools").ok_or_else(|| {
-            McpError::Protocol("tools/list 响应缺少 tools 字段".to_string())
-        })?;
+        let tools_value = result
+            .get("tools")
+            .ok_or_else(|| McpError::Protocol("tools/list 响应缺少 tools 字段".to_string()))?;
 
-        let tools: Vec<ToolDefinition> = serde_json::from_value(tools_value.clone()).map_err(|e| {
-            McpError::Protocol(format!("解析工具列表失败: {}", e))
-        })?;
+        let tools: Vec<ToolDefinition> = serde_json::from_value(tools_value.clone())
+            .map_err(|e| McpError::Protocol(format!("解析工具列表失败: {}", e)))?;
 
         tracing::info!("获取到 {} 个可用工具", tools.len());
         Ok(tools)
@@ -328,9 +323,9 @@ impl McpClient {
             )));
         }
 
-        response.result.ok_or_else(|| {
-            McpError::Protocol("tools/call 响应缺少 result 字段".to_string())
-        })
+        response
+            .result
+            .ok_or_else(|| McpError::Protocol("tools/call 响应缺少 result 字段".to_string()))
     }
 
     /// 获取服务器信息
@@ -377,9 +372,9 @@ impl McpClient {
         params: Option<serde_json::Value>,
     ) -> Result<JsonRpcResponse, McpError> {
         let transport_guard = self.transport.read().await;
-        let transport = transport_guard.as_ref().ok_or_else(|| {
-            McpError::Transport("传输层未初始化".to_string())
-        })?;
+        let transport = transport_guard
+            .as_ref()
+            .ok_or_else(|| McpError::Transport("传输层未初始化".to_string()))?;
 
         let request_id = self.next_id();
         let request = JsonRpcRequest::new(method, params, request_id.clone());
@@ -387,9 +382,7 @@ impl McpClient {
         tracing::debug!("发送请求: method={}, id={}", method, request_id);
 
         // 发送请求
-        transport
-            .send(&JsonRpcMessage::Request(request))
-            .await?;
+        transport.send(&JsonRpcMessage::Request(request)).await?;
 
         // 释放传输层的读锁，避免在等待响应时持有
         drop(transport_guard);
@@ -399,9 +392,9 @@ impl McpClient {
             // 获取消息接收锁，确保同一时间只有一个协程在读取
             let _receive_guard = self.receive_lock.lock().await;
             let transport_guard = self.transport.read().await;
-            let transport = transport_guard.as_ref().ok_or_else(|| {
-                McpError::Transport("传输层已断开".to_string())
-            })?;
+            let transport = transport_guard
+                .as_ref()
+                .ok_or_else(|| McpError::Transport("传输层已断开".to_string()))?;
 
             // 持续读取消息，直到收到匹配 ID 的响应
             loop {
@@ -442,9 +435,9 @@ impl McpClient {
         params: Option<serde_json::Value>,
     ) -> Result<(), McpError> {
         let transport_guard = self.transport.read().await;
-        let transport = transport_guard.as_ref().ok_or_else(|| {
-            McpError::Transport("传输层未初始化".to_string())
-        })?;
+        let transport = transport_guard
+            .as_ref()
+            .ok_or_else(|| McpError::Transport("传输层未初始化".to_string()))?;
 
         let notification = JsonRpcNotification::new(method, params);
 
@@ -478,7 +471,11 @@ impl McpClient {
                 )));
             }
 
-            tracing::info!("重连尝试 {}/{}", attempt, self.config.max_reconnect_attempts);
+            tracing::info!(
+                "重连尝试 {}/{}",
+                attempt,
+                self.config.max_reconnect_attempts
+            );
 
             // 尝试连接
             match self.connect(Arc::clone(&transport)).await {
@@ -640,7 +637,10 @@ mod tests {
                         "serverInfo": {"name": "mock", "version": "1.0"}
                     }),
                 );
-                server_t.send(&JsonRpcMessage::Response(resp)).await.unwrap();
+                server_t
+                    .send(&JsonRpcMessage::Response(resp))
+                    .await
+                    .unwrap();
             }
 
             // 处理 initialized 通知

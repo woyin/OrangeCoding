@@ -61,7 +61,8 @@ impl TtsrEngine {
             fired: false,
         });
         // 按优先级降序排列，保证高优先级规则先处理
-        self.rules.sort_by(|a, b| b.rule.priority.cmp(&a.rule.priority));
+        self.rules
+            .sort_by(|a, b| b.rule.priority.cmp(&a.rule.priority));
         Ok(())
     }
 
@@ -138,7 +139,13 @@ mod tests {
     use super::*;
 
     /// 辅助方法：创建测试规则
-    fn make_rule(name: &str, trigger: &str, injection: &str, once: bool, priority: i32) -> TtsrRule {
+    fn make_rule(
+        name: &str,
+        trigger: &str,
+        injection: &str,
+        once: bool,
+        priority: i32,
+    ) -> TtsrRule {
         TtsrRule {
             name: name.to_string(),
             trigger: trigger.to_string(),

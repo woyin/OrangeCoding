@@ -22,8 +22,7 @@ use crate::stream::SseParser;
 use crate::{AiError, AiResult};
 
 /// 文心一言默认 API 基础地址
-const DEFAULT_BASE_URL: &str =
-    "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/";
+const DEFAULT_BASE_URL: &str = "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/";
 
 /// 百度 OAuth 令牌获取地址
 const TOKEN_URL: &str = "https://aip.baidubce.com/oauth/2.0/token";
@@ -426,18 +425,12 @@ impl WenxinProvider {
         response
             .get("usage")
             .map(|u| TokenUsage {
-                prompt_tokens: u
-                    .get("prompt_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32,
+                prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                 completion_tokens: u
                     .get("completion_tokens")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0) as u32,
-                total_tokens: u
-                    .get("total_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32,
+                total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
             })
             .unwrap_or_default()
     }
@@ -883,10 +876,7 @@ mod tests {
             WenxinProvider::normalize_finish_reason("function_call"),
             "tool_calls"
         );
-        assert_eq!(
-            WenxinProvider::normalize_finish_reason("length"),
-            "length"
-        );
+        assert_eq!(WenxinProvider::normalize_finish_reason("length"), "length");
     }
 
     #[test]

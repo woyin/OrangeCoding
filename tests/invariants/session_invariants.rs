@@ -84,10 +84,7 @@ fn inv_session_02_closed_session_cancel_returns_false() {
     let id = session.id.clone();
 
     sv.close_session(&id);
-    assert!(
-        !sv.cancel_task(&id),
-        "关闭后 cancel_task 必须返回 false"
-    );
+    assert!(!sv.cancel_task(&id), "关闭后 cancel_task 必须返回 false");
 }
 
 #[test]
@@ -155,13 +152,12 @@ fn inv_session_03_ids_are_valid_uuid_format() {
     for _ in 0..10 {
         let session = sv.create_session(None, None);
         // UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
-        assert_eq!(
-            session.id.len(),
-            36,
-            "session ID 长度应为 36 (UUID 格式)"
-        );
+        assert_eq!(session.id.len(), 36, "session ID 长度应为 36 (UUID 格式)");
         assert!(
-            session.id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'),
+            session
+                .id
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() || c == '-'),
             "session ID 应只含十六进制字符和连字符: {}",
             session.id
         );

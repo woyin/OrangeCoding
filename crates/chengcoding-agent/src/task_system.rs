@@ -90,7 +90,10 @@ impl TaskId {
         // 验证前缀是已知类型
         TaskKind::from_prefix(prefix)?;
         // 验证后 8 位是十六进制字符
-        if s[1..].chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()) {
+        if s[1..]
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        {
             Some(Self(s.to_string()))
         } else {
             None
@@ -281,7 +284,10 @@ impl TaskRegistry {
 
     /// 列出所有任务
     pub fn list_all(&self) -> Vec<TaskState> {
-        self.tasks.iter().map(|entry| entry.value().clone()).collect()
+        self.tasks
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
     }
 
     /// 列出指定状态的任务
@@ -464,7 +470,11 @@ mod tests {
     /// 测试终态不可逆转
     #[test]
     fn test_terminal_no_transition() {
-        let terminals = [TaskStatus::Completed, TaskStatus::Failed, TaskStatus::Killed];
+        let terminals = [
+            TaskStatus::Completed,
+            TaskStatus::Failed,
+            TaskStatus::Killed,
+        ];
         let all = [
             TaskStatus::Pending,
             TaskStatus::Running,
@@ -603,10 +613,7 @@ mod tests {
         registry.register(state);
 
         assert!(registry.transition(&id_str, TaskStatus::Running).is_ok());
-        assert_eq!(
-            registry.get(&id_str).unwrap().status,
-            TaskStatus::Running
-        );
+        assert_eq!(registry.get(&id_str).unwrap().status, TaskStatus::Running);
     }
 
     /// 测试对不存在的任务进行转换

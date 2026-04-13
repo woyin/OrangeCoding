@@ -73,9 +73,7 @@ impl RoutingCondition {
     fn matches(&self, context: &RoutingContext) -> bool {
         match self {
             RoutingCondition::TaskTypeMatch(task_type) => &context.task_type == task_type,
-            RoutingCondition::ComplexityThreshold(threshold) => {
-                context.complexity >= *threshold
-            }
+            RoutingCondition::ComplexityThreshold(threshold) => context.complexity >= *threshold,
             RoutingCondition::Tag(tag) => context.tags.contains(tag),
             RoutingCondition::Any => true,
         }
@@ -591,13 +589,7 @@ mod tests {
 
     #[test]
     fn 测试路由规则的显示() {
-        let rule = RoutingRule::new(
-            "test-rule",
-            RoutingCondition::Any,
-            "openai",
-            "gpt-4",
-            100,
-        );
+        let rule = RoutingRule::new("test-rule", RoutingCondition::Any, "openai", "gpt-4", 100);
         let display = format!("{rule}");
         assert!(display.contains("test-rule"));
         assert!(display.contains("openai"));

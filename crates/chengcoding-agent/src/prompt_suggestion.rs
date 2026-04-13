@@ -91,7 +91,10 @@ pub fn check_suggestion(text: &str) -> Option<RejectReason> {
     // 中文文本没有空格分隔词，用字符数估算
     let word_count = if trimmed.chars().any(|c| c > '\u{4E00}' && c < '\u{9FFF}') {
         // CJK 文本：大致每 2 个字符算 1 个词
-        let cjk_count = trimmed.chars().filter(|c| *c > '\u{4E00}' && *c < '\u{9FFF}').count();
+        let cjk_count = trimmed
+            .chars()
+            .filter(|c| *c > '\u{4E00}' && *c < '\u{9FFF}')
+            .count();
         cjk_count / 2 + trimmed.split_whitespace().count()
     } else {
         trimmed.split_whitespace().count()
@@ -116,8 +119,17 @@ pub fn check_suggestion(text: &str) -> Option<RejectReason> {
 
     // 过滤器 6: 包含评价性语言
     let eval_words = [
-        "great", "awesome", "perfect", "excellent", "terrible", "bad",
-        "good job", "well done", "很好", "太棒了", "不错",
+        "great",
+        "awesome",
+        "perfect",
+        "excellent",
+        "terrible",
+        "bad",
+        "good job",
+        "well done",
+        "很好",
+        "太棒了",
+        "不错",
     ];
     let lower = trimmed.to_lowercase();
     for word in &eval_words {
@@ -171,8 +183,10 @@ pub fn check_suggestion(text: &str) -> Option<RejectReason> {
     }
 
     // 过滤器 11: 全部大写（仅 ASCII 字母）
-    let alpha_chars: Vec<char> =
-        trimmed.chars().filter(|c| c.is_ascii_alphabetic()).collect();
+    let alpha_chars: Vec<char> = trimmed
+        .chars()
+        .filter(|c| c.is_ascii_alphabetic())
+        .collect();
     if !alpha_chars.is_empty() && alpha_chars.iter().all(|c| c.is_uppercase()) {
         return Some(RejectReason::AllUppercase);
     }
@@ -372,10 +386,7 @@ mod tests {
 
     #[test]
     fn test_reject_pure_numbers() {
-        assert_eq!(
-            check_suggestion("123 456"),
-            Some(RejectReason::PureNumbers)
-        );
+        assert_eq!(check_suggestion("123 456"), Some(RejectReason::PureNumbers));
     }
 
     #[test]

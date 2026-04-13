@@ -108,7 +108,10 @@ impl WorkerRegistry {
 
     /// 列出所有 Worker（不论状态）
     pub fn list_all(&self) -> Vec<WorkerInfo> {
-        self.workers.iter().map(|entry| entry.value().clone()).collect()
+        self.workers
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
     }
 
     /// 增加 Worker 的 session 计数

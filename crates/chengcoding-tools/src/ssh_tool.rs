@@ -190,10 +190,7 @@ impl Tool for SshTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidParams("缺少必要参数: command".to_string()))?;
 
-        let timeout = params
-            .get("timeout")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(30);
+        let timeout = params.get("timeout").and_then(|v| v.as_u64()).unwrap_or(30);
 
         debug!("SSH 连接: {}，执行命令: {}", host, command);
 

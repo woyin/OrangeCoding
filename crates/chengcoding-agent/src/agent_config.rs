@@ -149,23 +149,19 @@ impl Default for AgentConfig {
 impl AgentConfig {
     /// 从 TOML 文件加载配置
     pub fn load_from_file(path: &std::path::Path) -> Result<Self, String> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("读取配置文件失败: {}", e))?;
-        toml::from_str(&content)
-            .map_err(|e| format!("解析 TOML 配置失败: {}", e))
+        let content =
+            std::fs::read_to_string(path).map_err(|e| format!("读取配置文件失败: {}", e))?;
+        toml::from_str(&content).map_err(|e| format!("解析 TOML 配置失败: {}", e))
     }
 
     /// 保存配置到 TOML 文件
     pub fn save_to_file(&self, path: &std::path::Path) -> Result<(), String> {
-        let content = toml::to_string_pretty(self)
-            .map_err(|e| format!("序列化配置失败: {}", e))?;
+        let content = toml::to_string_pretty(self).map_err(|e| format!("序列化配置失败: {}", e))?;
         // 确保父目录存在
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("创建目录失败: {}", e))?;
+            std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
         }
-        std::fs::write(path, content)
-            .map_err(|e| format!("写入配置文件失败: {}", e))
+        std::fs::write(path, content).map_err(|e| format!("写入配置文件失败: {}", e))
     }
 
     /// 合并两个配置（other 的非默认值覆盖 self）
