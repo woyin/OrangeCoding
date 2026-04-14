@@ -1,6 +1,6 @@
 # 工具参考手册
 
-> ChengCoding 工具系统完整参考文档。所有工具均实现 `Tool` trait，通过 `ToolRegistry` 统一管理。
+> OrangeCoding 工具系统完整参考文档。所有工具均实现 `Tool` trait，通过 `ToolRegistry` 统一管理。
 
 ## 目录
 
@@ -52,7 +52,7 @@
 
 ## 概述
 
-ChengCoding 的工具系统基于 `chengcoding-tools` crate 实现，提供了一套统一的工具接口。所有工具均实现以下核心 trait：
+OrangeCoding 的工具系统基于 `chengcoding-tools` crate 实现，提供了一套统一的工具接口。所有工具均实现以下核心 trait：
 
 ```rust
 #[async_trait]
@@ -214,7 +214,7 @@ pub type ToolResult<T> = Result<T, ToolError>;
 {
   "path": "src/main.rs",
   "old_text": "fn main() {\n    println!(\"Hello\");\n}",
-  "new_text": "fn main() {\n    println!(\"Hello, ChengCoding!\");\n}"
+  "new_text": "fn main() {\n    println!(\"Hello, OrangeCoding!\");\n}"
 }
 ```
 
@@ -545,7 +545,7 @@ pub type ToolResult<T> = Result<T, ToolError>;
 
 ```json
 {
-  "code": "import json\ndata = {'name': 'ChengCoding', 'version': '0.1.0'}\nprint(json.dumps(data, indent=2))"
+  "code": "import json\ndata = {'name': 'OrangeCoding', 'version': '0.1.0'}\nprint(json.dumps(data, indent=2))"
 }
 ```
 

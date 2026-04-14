@@ -1,6 +1,6 @@
 # 权限系统参考手册
 
-> ChengCoding 权限系统提供多层次的访问控制，确保 Agent 操作在安全边界内执行。
+> OrangeCoding 权限系统提供多层次的访问控制，确保 Agent 操作在安全边界内执行。
 
 ## 目录
 
@@ -20,7 +20,7 @@
 
 ## 概述
 
-ChengCoding 的权限系统分为三层防护：
+OrangeCoding 的权限系统分为三层防护：
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -500,7 +500,7 @@ guard_execute()
 
 ### 沙箱模型
 
-ChengCoding 采用基于白名单的沙箱模型：
+OrangeCoding 采用基于白名单的沙箱模型：
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -583,7 +583,7 @@ ChengCoding 采用基于白名单的沙箱模型：
 
 ## 配置方法
 
-### 配置文件 (`~/.config/ChengCoding/config.toml`)
+### 配置文件 (`~/.config/OrangeCoding/config.toml`)
 
 ```toml
 [tools]
@@ -605,22 +605,22 @@ auto_approve_tools = false
 
 | 环境变量 | 描述 | 示例 |
 |----------|------|------|
-| `ChengCoding_AUTO_APPROVE` | 自动批准所有操作 | `true` |
-| `ChengCoding_ALLOWED_DIRS` | 额外允许目录（逗号分隔） | `/opt/data,/var/log` |
-| `ChengCoding_BLOCKED_PATHS` | 额外阻止路径（逗号分隔） | `/tmp/secret` |
-| `ChengCoding_MAX_FILE_SIZE` | 最大文件大小 | `20971520` |
+| `OrangeCoding_AUTO_APPROVE` | 自动批准所有操作 | `true` |
+| `OrangeCoding_ALLOWED_DIRS` | 额外允许目录（逗号分隔） | `/opt/data,/var/log` |
+| `OrangeCoding_BLOCKED_PATHS` | 额外阻止路径（逗号分隔） | `/tmp/secret` |
+| `OrangeCoding_MAX_FILE_SIZE` | 最大文件大小 | `20971520` |
 
 ### 命令行参数
 
 ```bash
 # 自动批准模式
-ChengCoding launch --auto-approve
+OrangeCoding launch --auto-approve
 
 # 指定允许路径
-ChengCoding launch --allowed-paths "src/,tests/"
+OrangeCoding launch --allowed-paths "src/,tests/"
 
 # 指定日志级别
-ChengCoding launch --log-level debug
+OrangeCoding launch --log-level debug
 ```
 
 ---

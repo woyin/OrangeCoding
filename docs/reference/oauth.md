@@ -1,6 +1,6 @@
 # OAuth 2.1 参考手册
 
-> ChengCoding 的 OAuth 实现遵循最新标准，为 MCP 服务器和 AI 提供商提供安全的认证授权机制。
+> OrangeCoding 的 OAuth 实现遵循最新标准，为 MCP 服务器和 AI 提供商提供安全的认证授权机制。
 
 ## 目录
 
@@ -19,7 +19,7 @@
 
 ## 概述
 
-ChengCoding 在 `chengcoding-cli` crate 的 `oauth.rs` 模块和 `chengcoding-mcp` crate 中实现了完整的 OAuth 2.1 流程，支持以下场景：
+OrangeCoding 在 `chengcoding-cli` crate 的 `oauth.rs` 模块和 `chengcoding-mcp` crate 中实现了完整的 OAuth 2.1 流程，支持以下场景：
 
 1. **MCP 服务器认证**：通过 OAuth 授权访问远程 MCP 服务器的工具和资源
 2. **AI 提供商认证**：安全管理 API 密钥和访问令牌
@@ -27,7 +27,7 @@ ChengCoding 在 `chengcoding-cli` crate 的 `oauth.rs` 模块和 `chengcoding-mc
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                    ChengCoding OAuth 架构                       │
+│                    OrangeCoding OAuth 架构                       │
 │                                                          │
 │  ┌──────────┐     ┌──────────────┐     ┌──────────────┐ │
 │  │ chengcoding-cli │────►│  OAuth 流程   │────►│  Token 存储  │ │
@@ -46,7 +46,7 @@ ChengCoding 在 `chengcoding-cli` crate 的 `oauth.rs` 模块和 `chengcoding-mc
 
 ## 遵循标准
 
-ChengCoding 的 OAuth 实现遵循以下 RFC 标准：
+OrangeCoding 的 OAuth 实现遵循以下 RFC 标准：
 
 ### RFC 9728 — OAuth 2.0 Protected Resource Metadata
 
@@ -64,7 +64,7 @@ Host: mcp-server.example.com
 }
 ```
 
-**在 ChengCoding 中的应用**:
+**在 OrangeCoding 中的应用**:
 - MCP 客户端通过此端点发现授权服务器
 - 自动确定所需的权限范围
 
@@ -88,7 +88,7 @@ Host: auth.example.com
 }
 ```
 
-**在 ChengCoding 中的应用**:
+**在 OrangeCoding 中的应用**:
 - 自动发现授权端点、令牌端点
 - 确认服务器支持 PKCE (S256)
 - 确认支持动态客户端注册
@@ -103,7 +103,7 @@ Host: auth.example.com
 Content-Type: application/json
 
 {
-  "client_name": "ChengCoding CLI",
+  "client_name": "OrangeCoding CLI",
   "redirect_uris": ["http://127.0.0.1:9876/callback"],
   "grant_types": ["authorization_code", "refresh_token"],
   "token_endpoint_auth_method": "none"
@@ -112,12 +112,12 @@ Content-Type: application/json
 响应:
 {
   "client_id": "chengcoding_abc123",
-  "client_name": "ChengCoding CLI",
+  "client_name": "OrangeCoding CLI",
   "redirect_uris": ["http://127.0.0.1:9876/callback"]
 }
 ```
 
-**在 ChengCoding 中的应用**:
+**在 OrangeCoding 中的应用**:
 - 首次连接 MCP 服务器时自动注册
 - 使用 `none` 认证方法（公共客户端）
 - 回调地址使用本地临时端口
@@ -135,7 +135,7 @@ grant_type=authorization_code
 &code_verifier=CODE_VERIFIER
 ```
 
-**在 ChengCoding 中的应用**:
+**在 OrangeCoding 中的应用**:
 - 为特定 MCP 服务器请求令牌
 - 确保令牌仅对目标资源有效
 
@@ -143,7 +143,7 @@ grant_type=authorization_code
 
 ## PKCE 流程
 
-ChengCoding 强制使用 PKCE（Proof Key for Code Exchange）以防止授权码拦截攻击。仅支持 `S256` 方法。
+OrangeCoding 强制使用 PKCE（Proof Key for Code Exchange）以防止授权码拦截攻击。仅支持 `S256` 方法。
 
 ### 流程详解
 
@@ -295,7 +295,7 @@ pub struct StoredToken {
 #### 存储位置
 
 ```
-~/.config/ChengCoding/
+~/.config/OrangeCoding/
 ├── tokens/
 │   ├── mcp_server_a.enc    # 加密的 Token 文件
 │   ├── mcp_server_b.enc
@@ -405,7 +405,7 @@ impl TokenStore {
 ### 认证流程
 
 ```
-ChengCoding CLI                MCP 服务器              授权服务器
+OrangeCoding CLI                MCP 服务器              授权服务器
    │                        │                       │
    │── 1. 发现元数据 ────────►│                       │
    │   GET /.well-known/     │                       │
@@ -500,18 +500,18 @@ let child = Command::new("mcp-server")
 API 密钥通过 `CryptoStore` 加密存储：
 
 ```toml
-# ~/.config/ChengCoding/config.toml
+# ~/.config/OrangeCoding/config.toml
 [ai]
 provider = "anthropic"
 model = "claude-opus-4-6"
 # api_key 不直接存储在配置文件中
-# 使用 ChengCoding config set ai.api_key <key> 命令设置
+# 使用 OrangeCoding config set ai.api_key <key> 命令设置
 # 密钥会被加密存储在 CryptoStore 中
 ```
 
 ```bash
 # 设置 API 密钥（会被加密存储）
-ChengCoding config set ai.api_key sk-ant-xxx
+OrangeCoding config set ai.api_key sk-ant-xxx
 
 # 或通过环境变量
 export ANTHROPIC_API_KEY=sk-ant-xxx
@@ -525,7 +525,7 @@ export OPENAI_API_KEY=sk-xxx
 ### OAuth 配置文件
 
 ```toml
-# ~/.config/ChengCoding/oauth.toml
+# ~/.config/OrangeCoding/oauth.toml
 
 [oauth]
 # 默认回调端口范围
@@ -553,24 +553,24 @@ scopes = ["mcp:tools", "mcp:resources"]
 
 | 变量名 | 描述 | 示例 |
 |--------|------|------|
-| `ChengCoding_OAUTH_CALLBACK_PORT` | 固定回调端口 | `9876` |
-| `ChengCoding_OAUTH_TIMEOUT` | 授权超时时间 | `300` |
-| `ChengCoding_OAUTH_NO_BROWSER` | 禁止自动打开浏览器 | `true` |
+| `OrangeCoding_OAUTH_CALLBACK_PORT` | 固定回调端口 | `9876` |
+| `OrangeCoding_OAUTH_TIMEOUT` | 授权超时时间 | `300` |
+| `OrangeCoding_OAUTH_NO_BROWSER` | 禁止自动打开浏览器 | `true` |
 
 ### 命令行操作
 
 ```bash
 # 手动触发 OAuth 认证
-ChengCoding config oauth login --server https://mcp.example.com
+OrangeCoding config oauth login --server https://mcp.example.com
 
 # 查看已存储的 Token
-ChengCoding config oauth list
+OrangeCoding config oauth list
 
 # 删除指定 Token
-ChengCoding config oauth revoke --server https://mcp.example.com
+OrangeCoding config oauth revoke --server https://mcp.example.com
 
 # 刷新 Token
-ChengCoding config oauth refresh --server https://mcp.example.com
+OrangeCoding config oauth refresh --server https://mcp.example.com
 ```
 
 ---

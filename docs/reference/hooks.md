@@ -1,6 +1,6 @@
 # Hook 系统参考手册
 
-> ChengCoding Hook 系统允许在 Agent 生命周期的关键节点插入自定义逻辑，实现行为扩展和监控。
+> OrangeCoding Hook 系统允许在 Agent 生命周期的关键节点插入自定义逻辑，实现行为扩展和监控。
 
 ## 目录
 
@@ -260,7 +260,7 @@ pub type HookHandler = Arc<dyn Fn(&HookContext) -> HookAction + Send + Sync>;
 
 ## 26 种内置 Hook
 
-ChengCoding 预注册了以下内置 Hook，覆盖安全、监控、转换等核心功能：
+OrangeCoding 预注册了以下内置 Hook，覆盖安全、监控、转换等核心功能：
 
 ### 安全类 Hook（Critical 优先级）
 
@@ -564,11 +564,11 @@ registry.register(create_my_hook());
 
 | 变量名 | 描述 |
 |--------|------|
-| `ChengCoding_HOOK_EVENT` | 事件类型（如 `PreToolCall`） |
-| `ChengCoding_HOOK_SESSION_ID` | 会话 ID |
-| `ChengCoding_HOOK_TOOL_NAME` | 工具名称 |
-| `ChengCoding_HOOK_TOOL_PARAMS` | 工具参数（JSON） |
-| `ChengCoding_HOOK_TOOL_RESULT` | 工具结果 |
+| `OrangeCoding_HOOK_EVENT` | 事件类型（如 `PreToolCall`） |
+| `OrangeCoding_HOOK_SESSION_ID` | 会话 ID |
+| `OrangeCoding_HOOK_TOOL_NAME` | 工具名称 |
+| `OrangeCoding_HOOK_TOOL_PARAMS` | 工具参数（JSON） |
+| `OrangeCoding_HOOK_TOOL_RESULT` | 工具结果 |
 
 **脚本返回值**:
 
@@ -587,7 +587,7 @@ registry.register(create_my_hook());
 #!/bin/bash
 
 # 检查是否在敏感目录中执行
-if echo "$ChengCoding_HOOK_TOOL_PARAMS" | grep -q "/etc/"; then
+if echo "$OrangeCoding_HOOK_TOOL_PARAMS" | grep -q "/etc/"; then
     echo "禁止访问 /etc/ 目录" >&2
     exit 1  # Block
 fi
