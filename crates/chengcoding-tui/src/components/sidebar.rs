@@ -11,11 +11,13 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Tabs},
+    widgets::{Block, Borders, Gauge, List, ListItem, Paragraph, Tabs},
     Frame,
 };
 
-use crate::app::{InteractionMode, SidebarPanel, SidebarState, ThinkingDepth};
+use chrono::{DateTime, Local, Utc};
+
+use crate::app::{InteractionMode, McpConnectionState, SidebarPanel, SidebarState, ThinkingDepth};
 
 // ---------------------------------------------------------------------------
 // 侧边栏视图
@@ -66,25 +68,31 @@ impl SidebarView {
 
         // 根据当前面板渲染内容
         match sidebar.active_panel {
-            SidebarPanel::FileTree => {
-                Self::render_file_tree(frame, chunks[1], sidebar);
+            SidebarPanel::ContextOverview => {
+                Self::render_context_overview(
+                    frame,
+                    chunks[1],
+                    sidebar,
+                    interaction_mode,
+                    thinking_depth,
+                );
             }
-            SidebarPanel::AgentStatus => {
-                Self::render_agent_status(frame, chunks[1], interaction_mode, thinking_depth);
+            SidebarPanel::McpStatus => {
+                Self::render_mcp_status(frame, chunks[1], sidebar);
             }
-            SidebarPanel::SessionList => {
-                Self::render_session_list(frame, chunks[1], sidebar);
+            SidebarPanel::Changes => {
+                Self::render_changes(frame, chunks[1], sidebar);
             }
         }
     }
 
     /// 渲染标签页头部
     fn render_tabs(frame: &mut Frame<'_>, area: Rect, sidebar: &SidebarState) {
-        let titles = vec!["📁 文件", "🤖 智能体", "💬 会话"];
+        let titles = vec!["📊 上下文", "🔌 MCP", "📝 变更"];
         let selected = match sidebar.active_panel {
-            SidebarPanel::FileTree => 0,
-            SidebarPanel::AgentStatus => 1,
-            SidebarPanel::SessionList => 2,
+            SidebarPanel::ContextOverview => 0,
+            SidebarPanel::McpStatus => 1,
+            SidebarPanel::Changes => 2,
         };
 
         let tabs = Tabs::new(titles)
@@ -105,84 +113,38 @@ impl SidebarView {
         frame.render_widget(tabs, area);
     }
 
-    /// 渲染文件树面板
-    fn render_file_tree(frame: &mut Frame<'_>, area: Rect, sidebar: &SidebarState) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" 📁 项目文件 ")
-            .border_style(Style::default().fg(Color::DarkGray));
-
-        if sidebar.file_entries.is_empty() {
-            // 文件树为空时显示提示
-            let hint = Paragraph::new(vec![
-                Line::from(""),
-                Line::from(Span::styled(
-                    "  加载中...",
-                    Style::default().fg(Color::DarkGray),
-                )),
-                Line::from(""),
-                Line::from(Span::styled(
-                    "  项目文件将在此处显示",
-                    Style::default().fg(Color::DarkGray),
-                )),
-            ])
-            .block(block);
-            frame.render_widget(hint, area);
-            return;
-        }
-
-        // 构建文件树列表项
-        let items: Vec<ListItem> = sidebar
-            .file_entries
-            .iter()
-            .enumerate()
-            .map(|(idx, entry)| {
-                // 根据缩进层级添加前缀空格
-                let indent = "  ".repeat(entry.depth);
-                let icon = if entry.is_dir {
-                    if entry.is_expanded {
-                        "📂 "
-                    } else {
-                        "📁 "
-                    }
-                } else {
-                    "📄 "
-                };
-
-                let style = if idx == sidebar.file_tree_index {
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD)
-                } else if entry.is_dir {
-                    Style::default().fg(Color::Blue)
-                } else {
-                    Style::default().fg(Color::White)
-                };
-
-                ListItem::new(Line::from(Span::styled(
-                    format!("{indent}{icon}{}", entry.name),
-                    style,
-                )))
-            })
-            .collect();
-
-        let list = List::new(items).block(block);
-        frame.render_widget(list, area);
-    }
-
-    /// 渲染智能体状态面板
-    fn render_agent_status(
+    fn render_context_overview(
         frame: &mut Frame<'_>,
         area: Rect,
+        sidebar: &SidebarState,
         interaction_mode: &InteractionMode,
         thinking_depth: &ThinkingDepth,
     ) {
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(" 🤖 智能体状态 ")
+            .title(" 📊 执行上下文 ")
             .border_style(Style::default().fg(Color::DarkGray));
 
-        // 构建状态信息行
+        let percent = if sidebar.context_usage.max_tokens == 0 {
+            0
+        } else {
+            ((sidebar.context_usage.used_tokens.saturating_mul(100))
+                / sidebar.context_usage.max_tokens)
+                .min(100) as u16
+        };
+
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(6),
+                Constraint::Length(3),
+                Constraint::Min(0),
+            ])
+            .split(inner);
+
         let mode_color = match interaction_mode {
             InteractionMode::Normal => Color::Green,
             InteractionMode::Plan => Color::Yellow,
@@ -198,22 +160,16 @@ impl SidebarView {
             ThinkingDepth::Maximum => Color::Red,
         };
 
-        let lines = vec![
-            Line::from(""),
+        let summary = Paragraph::new(vec![
             Line::from(vec![
-                Span::styled("  交互模式: ", Style::default().fg(Color::Gray)),
+                Span::styled("  模式: ", Style::default().fg(Color::Gray)),
                 Span::styled(
                     interaction_mode.label(),
                     Style::default().fg(mode_color).add_modifier(Modifier::BOLD),
                 ),
             ]),
-            Line::from(Span::styled(
-                format!("  {}", interaction_mode.description()),
-                Style::default().fg(Color::DarkGray),
-            )),
-            Line::from(""),
             Line::from(vec![
-                Span::styled("  思考深度: ", Style::default().fg(Color::Gray)),
+                Span::styled("  思考: ", Style::default().fg(Color::Gray)),
                 Span::styled(
                     format!("{} {}", thinking_depth.icon(), thinking_depth.label()),
                     Style::default()
@@ -221,57 +177,46 @@ impl SidebarView {
                         .add_modifier(Modifier::BOLD),
                 ),
             ]),
-            Line::from(""),
-            Line::from(Span::styled(
-                "  ─────────────────",
-                Style::default().fg(Color::DarkGray),
-            )),
-            Line::from(""),
-            Line::from(Span::styled(
-                "  快捷键:",
-                Style::default()
-                    .fg(Color::Gray)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(Span::styled(
-                "  Shift+Tab  切换模式",
-                Style::default().fg(Color::DarkGray),
-            )),
-            Line::from(Span::styled(
-                "  Ctrl+L     思考深度",
-                Style::default().fg(Color::DarkGray),
-            )),
-            Line::from(Span::styled(
-                "  Ctrl+B     侧边栏",
-                Style::default().fg(Color::DarkGray),
-            )),
-        ];
+            Line::from(vec![
+                Span::styled("  会话: ", Style::default().fg(Color::Gray)),
+                Span::raw(format!("{} 个", sidebar.context_usage.session_count)),
+            ]),
+        ]);
+        frame.render_widget(summary, chunks[0]);
 
-        let paragraph = Paragraph::new(lines).block(block);
-        frame.render_widget(paragraph, area);
+        let gauge = Gauge::default()
+            .label(format!(
+                "{} / {} tokens",
+                sidebar.context_usage.used_tokens, sidebar.context_usage.max_tokens
+            ))
+            .percent(percent)
+            .gauge_style(Style::default().fg(Color::Cyan));
+        frame.render_widget(gauge, chunks[1]);
+
+        let hints = Paragraph::new(vec![
+            Line::from(Span::styled(
+                "  侧边栏用于展示任务态信息",
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(Span::styled(
+                "  不再展示文件树/智能体/会话列表",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ]);
+        frame.render_widget(hints, chunks[2]);
     }
 
-    /// 渲染会话列表面板
-    fn render_session_list(frame: &mut Frame<'_>, area: Rect, sidebar: &SidebarState) {
+    fn render_mcp_status(frame: &mut Frame<'_>, area: Rect, sidebar: &SidebarState) {
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(" 💬 历史会话 ")
+            .title(" 🔌 MCP 连接 ")
             .border_style(Style::default().fg(Color::DarkGray));
 
-        if sidebar.session_entries.is_empty() {
+        if sidebar.mcp_servers.is_empty() {
             let hint = Paragraph::new(vec![
                 Line::from(""),
                 Line::from(Span::styled(
-                    "  暂无历史会话",
-                    Style::default().fg(Color::DarkGray),
-                )),
-                Line::from(""),
-                Line::from(Span::styled(
-                    "  开始新对话后",
-                    Style::default().fg(Color::DarkGray),
-                )),
-                Line::from(Span::styled(
-                    "  会话将在此列出",
+                    "  暂无 MCP 连接",
                     Style::default().fg(Color::DarkGray),
                 )),
             ])
@@ -280,29 +225,31 @@ impl SidebarView {
             return;
         }
 
-        // 构建会话列表项
         let items: Vec<ListItem> = sidebar
-            .session_entries
+            .mcp_servers
             .iter()
             .enumerate()
-            .map(|(idx, entry)| {
-                let style = if entry.is_active {
+            .map(|(idx, server)| {
+                let (icon, color) = match server.state {
+                    McpConnectionState::Connected => ("●", Color::Green),
+                    McpConnectionState::Disconnected => ("○", Color::Red),
+                    McpConnectionState::Degraded => ("◐", Color::Yellow),
+                };
+                let name_style = if idx == sidebar.mcp_index {
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD)
-                } else if idx == sidebar.session_list_index {
-                    Style::default().fg(Color::White)
                 } else {
-                    Style::default().fg(Color::DarkGray)
+                    Style::default().fg(Color::White)
                 };
 
-                let prefix = if entry.is_active { "▶ " } else { "  " };
-                let time_str = entry.updated_at.format("%m/%d %H:%M").to_string();
-
                 ListItem::new(vec![
-                    Line::from(Span::styled(format!("{prefix}{}", entry.title), style)),
+                    Line::from(vec![
+                        Span::styled(format!(" {icon} "), Style::default().fg(color)),
+                        Span::styled(server.name.clone(), name_style),
+                    ]),
                     Line::from(Span::styled(
-                        format!("    {time_str}"),
+                        format!("   {}", server.detail),
                         Style::default().fg(Color::DarkGray),
                     )),
                 ])
@@ -311,6 +258,63 @@ impl SidebarView {
 
         let list = List::new(items).block(block);
         frame.render_widget(list, area);
+    }
+
+    fn render_changes(frame: &mut Frame<'_>, area: Rect, sidebar: &SidebarState) {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(" 📝 修改文件 ")
+            .border_style(Style::default().fg(Color::DarkGray));
+
+        if sidebar.modified_files.is_empty() {
+            let hint = Paragraph::new(vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "  暂无已记录修改",
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ])
+            .block(block);
+            frame.render_widget(hint, area);
+            return;
+        }
+
+        let items: Vec<ListItem> = sidebar
+            .modified_files
+            .iter()
+            .enumerate()
+            .map(|(idx, entry)| {
+                let style = if idx == sidebar.modified_file_index {
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+
+                ListItem::new(vec![
+                    Line::from(Span::styled(format!(" {}", entry.path), style)),
+                    Line::from(Span::styled(
+                        format!(
+                            "   {} · {}",
+                            entry.change_kind,
+                            Self::format_local_timestamp(&entry.updated_at)
+                        ),
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ])
+            })
+            .collect();
+
+        let list = List::new(items).block(block);
+        frame.render_widget(list, area);
+    }
+
+    fn format_local_timestamp(timestamp: &DateTime<Utc>) -> String {
+        timestamp
+            .with_timezone(&Local)
+            .format("%m/%d %H:%M")
+            .to_string()
     }
 }
 
@@ -321,16 +325,70 @@ impl SidebarView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::{ContextUsage, McpServerStatus, ModifiedFileEntry, SidebarState};
+    use chrono::TimeZone;
 
     #[test]
     fn 测试侧边栏推荐宽度() {
-        // 小终端
         assert_eq!(SidebarView::recommended_width(60), 20);
-        // 中等终端
         assert_eq!(SidebarView::recommended_width(120), 30);
-        // 大终端
         assert_eq!(SidebarView::recommended_width(200), 40);
-        // 极小终端
         assert_eq!(SidebarView::recommended_width(40), 20);
+    }
+
+    #[test]
+    fn 测试侧边栏标签标题() {
+        assert_eq!(SidebarPanel::ContextOverview.title(), "📊 上下文");
+        assert_eq!(SidebarPanel::McpStatus.title(), "🔌 MCP");
+        assert_eq!(SidebarPanel::Changes.title(), "📝 变更");
+    }
+
+    #[test]
+    fn 测试侧边栏默认状态包含任务态信息() {
+        let sidebar = SidebarState::new();
+        assert_eq!(sidebar.active_panel, SidebarPanel::ContextOverview);
+        assert_eq!(sidebar.context_usage.max_tokens, 128_000);
+        assert_eq!(sidebar.context_usage.session_count, 1);
+        assert!(!sidebar.mcp_servers.is_empty());
+    }
+
+    #[test]
+    fn 测试上下文占用百分比计算输入可用() {
+        let sidebar = SidebarState {
+            visible: true,
+            active_panel: SidebarPanel::ContextOverview,
+            mcp_index: 0,
+            modified_file_index: 0,
+            mcp_servers: vec![McpServerStatus {
+                name: "filesystem".to_string(),
+                state: McpConnectionState::Connected,
+                detail: "已连接".to_string(),
+            }],
+            modified_files: vec![ModifiedFileEntry {
+                path: "src/app.rs".to_string(),
+                change_kind: "modified".to_string(),
+                updated_at: Utc.with_ymd_and_hms(2026, 4, 14, 12, 34, 56).unwrap(),
+            }],
+            context_usage: ContextUsage {
+                used_tokens: 64_000,
+                max_tokens: 128_000,
+                session_count: 2,
+            },
+        };
+
+        assert_eq!(
+            sidebar.context_usage.used_tokens * 100 / sidebar.context_usage.max_tokens,
+            50
+        );
+    }
+
+    #[test]
+    fn 测试侧边栏本地时间格式固定() {
+        let utc = Utc.with_ymd_and_hms(2026, 4, 14, 12, 34, 56).unwrap();
+        let formatted = SidebarView::format_local_timestamp(&utc);
+
+        assert_eq!(formatted.len(), 11);
+        assert_eq!(formatted.chars().filter(|ch| *ch == '/').count(), 1);
+        assert_eq!(formatted.chars().filter(|ch| *ch == ':').count(), 1);
     }
 }

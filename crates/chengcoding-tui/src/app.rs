@@ -7,7 +7,7 @@
 use chengcoding_core::message::Role;
 use chengcoding_core::TokenUsage;
 use chrono::{DateTime, Utc};
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
 
 // ---------------------------------------------------------------------------
 // 应用模式（TUI 导航状态）
@@ -251,6 +251,48 @@ pub enum AppAction {
     ToggleSidebar,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CommandMenuKind {
+    Slash,
+    Model,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommandMenuItem {
+    pub value: String,
+    pub description: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommandMenuState {
+    pub kind: CommandMenuKind,
+    pub query: String,
+    pub items: Vec<CommandMenuItem>,
+    pub selected_index: usize,
+}
+
+impl CommandMenuState {
+    pub fn selected_item(&self) -> Option<&CommandMenuItem> {
+        self.items.get(self.selected_index)
+    }
+
+    pub fn select_next(&mut self) {
+        if !self.items.is_empty() {
+            self.selected_index = (self.selected_index + 1) % self.items.len();
+        }
+    }
+
+    pub fn select_previous(&mut self) {
+        if !self.items.is_empty() {
+            self.selected_index = if self.selected_index == 0 {
+                self.items.len() - 1
+            } else {
+                self.selected_index - 1
+            };
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 显示消息
 // ---------------------------------------------------------------------------
@@ -489,102 +531,110 @@ impl Default for InputState {
 /// 侧边栏面板类型 - 控制侧边栏显示的内容面板
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SidebarPanel {
-    /// 文件树面板 - 显示项目文件结构
-    FileTree,
-    /// 智能体状态面板 - 显示当前智能体的运行状态
-    AgentStatus,
-    /// 会话列表面板 - 显示历史对话会话
-    SessionList,
+    ContextOverview,
+    McpStatus,
+    Changes,
 }
 
 impl SidebarPanel {
-    /// 切换到下一个面板（循环切换）
     pub fn next(&self) -> SidebarPanel {
         match self {
-            SidebarPanel::FileTree => SidebarPanel::AgentStatus,
-            SidebarPanel::AgentStatus => SidebarPanel::SessionList,
-            SidebarPanel::SessionList => SidebarPanel::FileTree,
+            SidebarPanel::ContextOverview => SidebarPanel::McpStatus,
+            SidebarPanel::McpStatus => SidebarPanel::Changes,
+            SidebarPanel::Changes => SidebarPanel::ContextOverview,
         }
     }
 
-    /// 获取面板的显示标题
     pub fn title(&self) -> &'static str {
         match self {
-            SidebarPanel::FileTree => "📁 文件",
-            SidebarPanel::AgentStatus => "🤖 智能体",
-            SidebarPanel::SessionList => "💬 会话",
+            SidebarPanel::ContextOverview => "📊 上下文",
+            SidebarPanel::McpStatus => "🔌 MCP",
+            SidebarPanel::Changes => "📝 变更",
         }
     }
 }
 
 impl Default for SidebarPanel {
     fn default() -> Self {
-        SidebarPanel::FileTree
+        SidebarPanel::ContextOverview
     }
 }
 
-/// 侧边栏状态结构 - 管理侧边栏的显示内容和选中状态
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum McpConnectionState {
+    Connected,
+    Disconnected,
+    Degraded,
+}
+
+#[derive(Clone, Debug)]
+pub struct McpServerStatus {
+    pub name: String,
+    pub state: McpConnectionState,
+    pub detail: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct ModifiedFileEntry {
+    pub path: String,
+    pub change_kind: String,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ContextUsage {
+    pub used_tokens: u64,
+    pub max_tokens: u64,
+    pub session_count: usize,
+}
+
 #[derive(Clone, Debug)]
 pub struct SidebarState {
-    /// 是否显示侧边栏
     pub visible: bool,
-    /// 当前活动的面板
     pub active_panel: SidebarPanel,
-    /// 文件树中的选中索引
-    pub file_tree_index: usize,
-    /// 会话列表中的选中索引
-    pub session_list_index: usize,
-    /// 文件树条目列表（路径 + 是否展开）
-    pub file_entries: Vec<FileEntry>,
-    /// 会话列表（会话 ID + 标题）
-    pub session_entries: Vec<SessionEntry>,
-}
-
-/// 文件树条目
-#[derive(Clone, Debug)]
-pub struct FileEntry {
-    /// 文件/目录名称
-    pub name: String,
-    /// 缩进层级
-    pub depth: usize,
-    /// 是否为目录
-    pub is_dir: bool,
-    /// 是否已展开（仅目录有效）
-    pub is_expanded: bool,
-}
-
-/// 会话条目
-#[derive(Clone, Debug)]
-pub struct SessionEntry {
-    /// 会话唯一标识
-    pub id: String,
-    /// 会话显示标题
-    pub title: String,
-    /// 最后更新时间
-    pub updated_at: DateTime<Utc>,
-    /// 是否为当前活动会话
-    pub is_active: bool,
+    pub mcp_index: usize,
+    pub modified_file_index: usize,
+    pub mcp_servers: Vec<McpServerStatus>,
+    pub modified_files: Vec<ModifiedFileEntry>,
+    pub context_usage: ContextUsage,
 }
 
 impl SidebarState {
-    /// 创建默认的侧边栏状态
     pub fn new() -> Self {
         Self {
             visible: true,
-            active_panel: SidebarPanel::FileTree,
-            file_tree_index: 0,
-            session_list_index: 0,
-            file_entries: Vec::new(),
-            session_entries: Vec::new(),
+            active_panel: SidebarPanel::ContextOverview,
+            mcp_index: 0,
+            modified_file_index: 0,
+            mcp_servers: vec![
+                McpServerStatus {
+                    name: "filesystem".to_string(),
+                    state: McpConnectionState::Connected,
+                    detail: "已连接".to_string(),
+                },
+                McpServerStatus {
+                    name: "github".to_string(),
+                    state: McpConnectionState::Disconnected,
+                    detail: "未配置".to_string(),
+                },
+            ],
+            modified_files: vec![ModifiedFileEntry {
+                path: "crates/chengcoding-tui/src/app.rs".to_string(),
+                change_kind: "modified".to_string(),
+                updated_at: Utc::now(),
+            }],
+            context_usage: ContextUsage {
+                used_tokens: 0,
+                max_tokens: 128_000,
+                session_count: 1,
+            },
         }
     }
 
-    /// 切换侧边栏显示/隐藏
     pub fn toggle(&mut self) {
         self.visible = !self.visible;
     }
 
-    /// 切换到下一个面板
     pub fn next_panel(&mut self) {
         self.active_panel = self.active_panel.next();
     }
@@ -673,6 +723,8 @@ pub struct App {
     pub thinking_depth: ThinkingDepth,
     /// 侧边栏状态
     pub sidebar: SidebarState,
+    pub command_menu: Option<CommandMenuState>,
+    pub available_models: Vec<CommandMenuItem>,
 }
 
 impl App {
@@ -684,10 +736,11 @@ impl App {
     /// # 参数
     /// - `model_name`: 当前使用的 AI 模型名称
     pub fn new(model_name: impl Into<String>) -> Self {
+        let model_name = model_name.into();
         Self {
             messages: Vec::new(),
             input: InputState::new(),
-            status: StatusInfo::new(model_name),
+            status: StatusInfo::new(model_name.clone()),
             scroll_offset: 0,
             show_help: false,
             is_running: true,
@@ -695,6 +748,25 @@ impl App {
             interaction_mode: InteractionMode::default(),
             thinking_depth: ThinkingDepth::default(),
             sidebar: SidebarState::new(),
+            command_menu: None,
+            available_models: vec![
+                CommandMenuItem {
+                    value: model_name.clone(),
+                    description: "当前配置模型".to_string(),
+                },
+                CommandMenuItem {
+                    value: "deepseek-chat".to_string(),
+                    description: "DeepSeek Chat".to_string(),
+                },
+                CommandMenuItem {
+                    value: "qwen-plus".to_string(),
+                    description: "通义千问 Plus".to_string(),
+                },
+                CommandMenuItem {
+                    value: "ernie-bot".to_string(),
+                    description: "文心一言".to_string(),
+                },
+            ],
         }
     }
 
@@ -796,6 +868,122 @@ impl App {
         }
     }
 
+    pub fn handle_mouse_event(&mut self, event: MouseEvent) -> AppAction {
+        match event.kind {
+            MouseEventKind::ScrollUp => {
+                self.scroll_up(3);
+                AppAction::None
+            }
+            MouseEventKind::ScrollDown => {
+                self.scroll_down(3);
+                AppAction::None
+            }
+            _ => AppAction::None,
+        }
+    }
+
+    pub fn set_available_models(&mut self, models: Vec<CommandMenuItem>) {
+        self.available_models = models;
+    }
+
+    fn filtered_model_items(&self, query: &str) -> Vec<CommandMenuItem> {
+        let normalized = query.trim().to_lowercase();
+        let mut items: Vec<CommandMenuItem> = self
+            .available_models
+            .iter()
+            .filter(|item| {
+                normalized.is_empty()
+                    || item.value.to_lowercase().contains(&normalized)
+                    || item.description.to_lowercase().contains(&normalized)
+            })
+            .cloned()
+            .collect();
+
+        if items.is_empty() && !normalized.is_empty() {
+            items.push(CommandMenuItem {
+                value: normalized,
+                description: "使用自定义模型值".to_string(),
+            });
+        }
+
+        items
+    }
+
+    fn slash_menu_items() -> Vec<CommandMenuItem> {
+        vec![
+            CommandMenuItem {
+                value: "model".to_string(),
+                description: "打开模型选择菜单".to_string(),
+            },
+            CommandMenuItem {
+                value: "help".to_string(),
+                description: "显示命令帮助".to_string(),
+            },
+            CommandMenuItem {
+                value: "clear".to_string(),
+                description: "清空当前对话".to_string(),
+            },
+        ]
+    }
+
+    fn open_slash_menu(&mut self) {
+        self.command_menu = Some(CommandMenuState {
+            kind: CommandMenuKind::Slash,
+            query: String::new(),
+            items: Self::slash_menu_items(),
+            selected_index: 0,
+        });
+    }
+
+    fn open_model_menu(&mut self, query: &str) {
+        self.command_menu = Some(CommandMenuState {
+            kind: CommandMenuKind::Model,
+            query: query.to_string(),
+            items: self.filtered_model_items(query),
+            selected_index: 0,
+        });
+    }
+
+    fn refresh_command_menu(&mut self) {
+        let Some(kind) = self.command_menu.as_ref().map(|menu| menu.kind.clone()) else {
+            return;
+        };
+
+        let (query, items) = match kind {
+            CommandMenuKind::Slash => {
+                let query = self
+                    .input
+                    .buffer
+                    .trim()
+                    .trim_start_matches('/')
+                    .to_lowercase();
+                let items = Self::slash_menu_items()
+                    .into_iter()
+                    .filter(|item| query.is_empty() || item.value.contains(&query))
+                    .collect::<Vec<_>>();
+                (query, items)
+            }
+            CommandMenuKind::Model => {
+                let query = self
+                    .input
+                    .buffer
+                    .trim()
+                    .strip_prefix("/model")
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                let items = self.filtered_model_items(&query);
+                (query, items)
+            }
+        };
+
+        if let Some(menu) = self.command_menu.as_mut() {
+            menu.query = query;
+            menu.items = items;
+            menu.selected_index = 0;
+        }
+    }
+
     /// 普通模式下的键盘事件处理
     ///
     /// 支持的快捷键：
@@ -847,6 +1035,7 @@ impl App {
             KeyCode::Char('/') | KeyCode::Char(':') => {
                 self.mode = AppMode::Command;
                 self.input.clear();
+                self.open_slash_menu();
                 AppAction::None
             }
             // Tab 切换侧边栏面板
@@ -867,18 +1056,14 @@ impl App {
     /// - `Up`/`Down`: 浏览历史记录
     fn handle_input_mode(&mut self, event: KeyEvent) -> AppAction {
         match event.code {
-            // 发送消息或执行斜杠命令
             KeyCode::Enter => {
                 let text = self.input.buffer.trim().to_string();
                 if text.is_empty() {
                     return AppAction::None;
                 }
-                // 保存到历史记录
                 self.input.push_history();
-                // 清空输入缓冲区
                 self.input.clear();
 
-                // 检测斜杠命令（以 / 开头）
                 if let Some(cmd_text) = text.strip_prefix('/') {
                     let parts: Vec<&str> = cmd_text.splitn(2, char::is_whitespace).collect();
                     let name = parts[0].to_string();
@@ -888,53 +1073,44 @@ impl App {
                     AppAction::SendMessage(text)
                 }
             }
-            // 返回普通模式
             KeyCode::Esc => {
                 self.mode = AppMode::Normal;
+                self.command_menu = None;
                 AppAction::None
             }
-            // 退格删除
             KeyCode::Backspace => {
                 self.input.delete_char_before_cursor();
                 AppAction::None
             }
-            // 光标左移
             KeyCode::Left => {
                 self.input.move_cursor_left();
                 AppAction::None
             }
-            // 光标右移
             KeyCode::Right => {
                 self.input.move_cursor_right();
                 AppAction::None
             }
-            // 浏览历史（上一条）
             KeyCode::Up => {
                 self.input.history_previous();
                 AppAction::None
             }
-            // 浏览历史（下一条）
             KeyCode::Down => {
                 self.input.history_next();
                 AppAction::None
             }
-            // 光标移到行首
             KeyCode::Home => {
                 self.input.move_cursor_home();
                 AppAction::None
             }
-            // 光标移到行尾
             KeyCode::End => {
                 self.input.move_cursor_end();
                 AppAction::None
             }
-            // Tab 键插入空格（防止焦点切换）
             KeyCode::Tab => {
                 self.input.insert_char(' ');
                 self.input.insert_char(' ');
                 AppAction::None
             }
-            // 普通字符输入
             KeyCode::Char(ch) => {
                 self.input.insert_char(ch);
                 AppAction::None
@@ -951,17 +1127,49 @@ impl App {
     /// - 字符输入：追加到命令缓冲区
     fn handle_command_mode(&mut self, event: KeyEvent) -> AppAction {
         match event.code {
-            // 执行命令
             KeyCode::Enter => {
-                let cmd = self.input.buffer.trim().to_string();
+                if let Some((kind, value)) = self.command_menu.as_ref().and_then(|menu| {
+                    menu.selected_item()
+                        .map(|item| (menu.kind.clone(), item.value.clone()))
+                }) {
+                    match kind {
+                        CommandMenuKind::Slash => {
+                            if value == "model" {
+                                self.input.buffer = "/model ".to_string();
+                                self.input.cursor_position = self.input.char_count();
+                                self.open_model_menu("");
+                                return AppAction::None;
+                            }
+
+                            self.input.clear();
+                            self.command_menu = None;
+                            self.mode = AppMode::Input;
+                            return AppAction::SlashCommand {
+                                name: value,
+                                args: String::new(),
+                            };
+                        }
+                        CommandMenuKind::Model => {
+                            self.input.clear();
+                            self.command_menu = None;
+                            self.mode = AppMode::Input;
+                            return AppAction::SlashCommand {
+                                name: "model".to_string(),
+                                args: value,
+                            };
+                        }
+                    }
+                }
+
+                let cmd = self.input.buffer.trim().trim_start_matches('/').to_string();
                 self.input.clear();
+                self.command_menu = None;
                 self.mode = AppMode::Input;
 
                 if cmd.is_empty() {
                     return AppAction::None;
                 }
 
-                // 解析命令名和参数
                 let parts: Vec<&str> = cmd.splitn(2, char::is_whitespace).collect();
                 let cmd_name = parts[0].to_lowercase();
                 let cmd_args = parts.get(1).unwrap_or(&"").trim().to_string();
@@ -981,31 +1189,61 @@ impl App {
                         self.mode = AppMode::Help;
                         AppAction::None
                     }
-                    // 所有其他命令作为斜杠命令转发
                     _ => AppAction::SlashCommand {
                         name: cmd_name,
                         args: cmd_args,
                     },
                 }
             }
-            // 取消命令
             KeyCode::Esc => {
                 self.input.clear();
+                self.command_menu = None;
                 self.mode = AppMode::Input;
                 AppAction::None
             }
-            // 退格删除
             KeyCode::Backspace => {
                 self.input.delete_char_before_cursor();
-                // 如果命令缓冲区清空，自动返回输入模式
                 if self.input.buffer.is_empty() {
+                    self.command_menu = None;
                     self.mode = AppMode::Input;
+                } else {
+                    self.refresh_command_menu();
                 }
                 AppAction::None
             }
-            // 字符输入
+            KeyCode::Up => {
+                if let Some(menu) = self.command_menu.as_mut() {
+                    menu.select_previous();
+                }
+                AppAction::None
+            }
+            KeyCode::Down => {
+                if let Some(menu) = self.command_menu.as_mut() {
+                    menu.select_next();
+                }
+                AppAction::None
+            }
             KeyCode::Char(ch) => {
+                if self.input.buffer.is_empty() && ch == '/' {
+                    self.input.insert_char(ch);
+                    self.open_slash_menu();
+                    return AppAction::None;
+                }
+
                 self.input.insert_char(ch);
+                if self.input.buffer.starts_with("/model") {
+                    let query = self
+                        .input
+                        .buffer
+                        .trim()
+                        .strip_prefix("/model")
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    self.open_model_menu(&query);
+                } else {
+                    self.refresh_command_menu();
+                }
                 AppAction::None
             }
             _ => AppAction::None,
@@ -1080,10 +1318,20 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossterm::event::MouseEvent;
 
     /// 辅助函数：创建一个按键按下事件
     fn key_press(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn mouse_scroll(kind: MouseEventKind) -> MouseEvent {
+        MouseEvent {
+            kind,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        }
     }
 
     /// 辅助函数：创建一个带修饰键的按键事件
@@ -1237,6 +1485,38 @@ mod tests {
     }
 
     #[test]
+    fn 测试鼠标滚轮向上滚动消息() {
+        let mut app = App::new("gpt-4");
+        app.mode = AppMode::Normal;
+
+        app.handle_mouse_event(mouse_scroll(MouseEventKind::ScrollUp));
+
+        assert_eq!(app.scroll_offset, 3);
+    }
+
+    #[test]
+    fn 测试鼠标滚轮向下滚动消息() {
+        let mut app = App::new("gpt-4");
+        app.mode = AppMode::Normal;
+        app.scroll_offset = 5;
+
+        app.handle_mouse_event(mouse_scroll(MouseEventKind::ScrollDown));
+
+        assert_eq!(app.scroll_offset, 2);
+    }
+
+    #[test]
+    fn 测试鼠标滚轮向下不会滚成负数() {
+        let mut app = App::new("gpt-4");
+        app.mode = AppMode::Normal;
+        app.scroll_offset = 1;
+
+        app.handle_mouse_event(mouse_scroll(MouseEventKind::ScrollDown));
+
+        assert_eq!(app.scroll_offset, 0);
+    }
+
+    #[test]
     fn 测试输入状态的光标操作() {
         let mut input = InputState::new();
 
@@ -1327,14 +1607,109 @@ mod tests {
         let mut app = App::new("gpt-4");
         app.mode = AppMode::Normal;
 
-        // 进入命令模式
         app.handle_key_event(key_press(KeyCode::Char(':')));
         assert_eq!(app.mode, AppMode::Command);
 
-        // 输入 "q" 并执行
+        app.command_menu = None;
         app.handle_key_event(key_press(KeyCode::Char('q')));
         let action = app.handle_key_event(key_press(KeyCode::Enter));
         assert_eq!(action, AppAction::Quit);
+    }
+
+    #[test]
+    fn 测试斜杠进入命令菜单() {
+        let mut app = App::new("gpt-4");
+        app.mode = AppMode::Normal;
+
+        app.handle_key_event(key_press(KeyCode::Char('/')));
+
+        assert_eq!(app.mode, AppMode::Command);
+        assert!(app.command_menu.is_some());
+        assert_eq!(
+            app.command_menu.as_ref().unwrap().kind,
+            CommandMenuKind::Slash
+        );
+    }
+
+    #[test]
+    fn 测试选择model进入模型菜单() {
+        let mut app = App::new("gpt-4");
+        app.mode = AppMode::Normal;
+        app.handle_key_event(key_press(KeyCode::Char('/')));
+
+        let action = app.handle_key_event(key_press(KeyCode::Enter));
+
+        assert_eq!(action, AppAction::None);
+        assert!(app.command_menu.is_some());
+        assert_eq!(
+            app.command_menu.as_ref().unwrap().kind,
+            CommandMenuKind::Model
+        );
+        assert_eq!(app.input.buffer, "/model ");
+    }
+
+    #[test]
+    fn 测试模型菜单回车产生斜杠命令() {
+        let mut app = App::new("gpt-4");
+        app.mode = AppMode::Normal;
+        app.set_available_models(vec![
+            CommandMenuItem {
+                value: "glm-5.1".to_string(),
+                description: "GLM 5.1".to_string(),
+            },
+            CommandMenuItem {
+                value: "deepseek-chat".to_string(),
+                description: "DeepSeek Chat".to_string(),
+            },
+        ]);
+
+        app.handle_key_event(key_press(KeyCode::Char('/')));
+        app.handle_key_event(key_press(KeyCode::Enter));
+        let action = app.handle_key_event(key_press(KeyCode::Enter));
+
+        assert_eq!(
+            action,
+            AppAction::SlashCommand {
+                name: "model".to_string(),
+                args: "glm-5.1".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn 测试斜杠菜单可直接执行help() {
+        let mut app = App::new("gpt-4");
+        app.mode = AppMode::Normal;
+
+        app.handle_key_event(key_press(KeyCode::Char('/')));
+        app.handle_key_event(key_press(KeyCode::Char('h')));
+        let action = app.handle_key_event(key_press(KeyCode::Enter));
+
+        assert_eq!(
+            action,
+            AppAction::SlashCommand {
+                name: "help".to_string(),
+                args: String::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn 测试斜杠菜单可直接执行clear() {
+        let mut app = App::new("gpt-4");
+        app.mode = AppMode::Normal;
+
+        app.handle_key_event(key_press(KeyCode::Char('/')));
+        app.handle_key_event(key_press(KeyCode::Char('c')));
+        let action = app.handle_key_event(key_press(KeyCode::Enter));
+
+        assert_eq!(
+            action,
+            AppAction::SlashCommand {
+                name: "clear".to_string(),
+                args: String::new(),
+            }
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1497,16 +1872,16 @@ mod tests {
     #[test]
     fn 测试侧边栏面板切换() {
         let mut sidebar = SidebarState::new();
-        assert_eq!(sidebar.active_panel, SidebarPanel::FileTree);
+        assert_eq!(sidebar.active_panel, SidebarPanel::ContextOverview);
 
         sidebar.next_panel();
-        assert_eq!(sidebar.active_panel, SidebarPanel::AgentStatus);
+        assert_eq!(sidebar.active_panel, SidebarPanel::McpStatus);
 
         sidebar.next_panel();
-        assert_eq!(sidebar.active_panel, SidebarPanel::SessionList);
+        assert_eq!(sidebar.active_panel, SidebarPanel::Changes);
 
         sidebar.next_panel();
-        assert_eq!(sidebar.active_panel, SidebarPanel::FileTree);
+        assert_eq!(sidebar.active_panel, SidebarPanel::ContextOverview);
     }
 
     // -----------------------------------------------------------------------

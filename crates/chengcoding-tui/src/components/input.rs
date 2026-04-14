@@ -12,7 +12,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::{App, AppMode};
+use crate::app::{App, AppMode, CommandMenuKind};
 
 // ---------------------------------------------------------------------------
 // 输入视图
@@ -79,10 +79,54 @@ impl InputView {
         let paragraph = Paragraph::new(content_line).block(block);
         frame.render_widget(paragraph, area);
 
-        // 在输入模式和命令模式下显示光标
+        if let Some(menu) = &app.command_menu {
+            if area.height >= 3 {
+                let preview = menu
+                    .items
+                    .iter()
+                    .take(3)
+                    .enumerate()
+                    .map(|(idx, item)| {
+                        let prefix = if idx == menu.selected_index {
+                            "›"
+                        } else {
+                            " "
+                        };
+                        let color = if idx == menu.selected_index {
+                            Color::Cyan
+                        } else {
+                            Color::DarkGray
+                        };
+                        Line::from(vec![
+                            Span::styled(format!("{prefix} "), Style::default().fg(color)),
+                            Span::styled(item.value.clone(), Style::default().fg(Color::White)),
+                            Span::styled(
+                                format!(" — {}", item.description),
+                                Style::default().fg(Color::DarkGray),
+                            ),
+                        ])
+                    })
+                    .collect::<Vec<_>>();
+
+                let menu_title = match menu.kind {
+                    CommandMenuKind::Slash => " 命令建议 ",
+                    CommandMenuKind::Model => " 模型选择 ",
+                };
+
+                let menu_area = Rect::new(area.x, area.y.saturating_sub(4), area.width.min(80), 4);
+                let menu_widget = Paragraph::new(preview).block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(menu_title)
+                        .border_style(Style::default().fg(Color::Yellow)),
+                );
+                frame.render_widget(menu_widget, menu_area);
+            }
+        }
+
         if matches!(app.mode, AppMode::Input | AppMode::Command) {
             let cursor_x = Self::calculate_cursor_x(app, area);
-            let cursor_y = area.y + 1; // 边框内第一行
+            let cursor_y = area.y + 1;
             frame.set_cursor(cursor_x, cursor_y);
         }
     }
@@ -172,7 +216,8 @@ impl InputView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::layout::Rect;
+    use crate::app::{CommandMenuItem, CommandMenuKind, CommandMenuState};
+    use ratatui::{backend::TestBackend, layout::Rect, Terminal};
 
     #[test]
     fn 测试光标位置计算_ascii() {
@@ -241,7 +286,30 @@ mod tests {
         let area = Rect::new(0, 0, 80, 3);
         let cursor_x = InputView::calculate_cursor_x(&app, area);
 
-        // X = 0 + 1 + 2 + 0 = 3
         assert_eq!(cursor_x, 3);
+    }
+
+    #[test]
+    fn 测试命令菜单渲染不崩溃() {
+        let backend = TestBackend::new(100, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = App::new("gpt-4");
+        app.mode = AppMode::Command;
+        app.input.buffer = "/model".to_string();
+        app.command_menu = Some(CommandMenuState {
+            kind: CommandMenuKind::Model,
+            query: String::new(),
+            items: vec![CommandMenuItem {
+                value: "glm-5.1".to_string(),
+                description: "GLM 5.1".to_string(),
+            }],
+            selected_index: 0,
+        });
+
+        terminal
+            .draw(|frame| {
+                InputView::render(frame, Rect::new(0, 5, 100, 3), &app);
+            })
+            .unwrap();
     }
 }
