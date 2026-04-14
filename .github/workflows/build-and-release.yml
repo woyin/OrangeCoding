@@ -9,7 +9,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  BINARY_NAME: chengcoding
+  BINARY_NAME: orangecoding
 
 jobs:
   # 测试任务 — 先运行所有测试和检查，通过后才构建
