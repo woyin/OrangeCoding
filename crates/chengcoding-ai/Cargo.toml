@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "AI provider adapters for ChengCoding"
+description = "AI provider adapters for OrangeCoding"
 
 [dependencies]
 chengcoding-core = { workspace = true }

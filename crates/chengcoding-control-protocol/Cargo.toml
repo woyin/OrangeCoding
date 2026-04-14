@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Control plane protocol types for ChengCoding Web UI"
+description = "Control plane protocol types for OrangeCoding Web UI"
 
 [dependencies]
 serde = { workspace = true }

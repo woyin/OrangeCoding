@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Tool system and file operations for ChengCoding"
+description = "Tool system and file operations for OrangeCoding"
 
 [dependencies]
 chengcoding-core = { workspace = true }

@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Agent worker runtime adapter for ChengCoding control plane"
+description = "Agent worker runtime adapter for OrangeCoding control plane"
 
 [dependencies]
 chengcoding-core = { workspace = true }

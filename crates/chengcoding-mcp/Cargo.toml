@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "MCP (Model Context Protocol) implementation for ChengCoding"
+description = "MCP (Model Context Protocol) implementation for OrangeCoding"
 
 [dependencies]
 chengcoding-core = { workspace = true }

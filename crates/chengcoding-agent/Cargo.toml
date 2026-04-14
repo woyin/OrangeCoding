@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Agent core loop and execution for ChengCoding"
+description = "Agent core loop and execution for OrangeCoding"
 
 [dependencies]
 chengcoding-core = { workspace = true }

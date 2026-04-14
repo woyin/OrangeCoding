@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Multi-agent mesh system for ChengCoding"
+description = "Multi-agent mesh system for OrangeCoding"
 
 [dependencies]
 chengcoding-core = { workspace = true }

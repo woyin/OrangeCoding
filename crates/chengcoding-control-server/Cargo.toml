@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "HTTP and WebSocket control server for ChengCoding"
+description = "HTTP and WebSocket control server for OrangeCoding"
 
 [dependencies]
 chengcoding-core = { workspace = true }
