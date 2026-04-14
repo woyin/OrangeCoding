@@ -68,7 +68,7 @@ sudo dnf install -y gcc openssl-devel pkg-config
 cargo install chengcoding-cli
 ```
 
-安装完成后，`ChengCoding` 命令将添加到 `~/.cargo/bin/` 目录下。确保该目录已加入 `PATH`：
+安装完成后，`orangecoding` 命令将添加到 `~/.cargo/bin/` 目录下。确保该目录已加入 `PATH`：
 
 ```bash
 # 在 ~/.bashrc 或 ~/.zshrc 中添加
@@ -79,14 +79,14 @@ export PATH="$HOME/.cargo/bin:$PATH"
 
 ```bash
 # 克隆仓库
-git clone https://github.com/woyin/chengcoding_cli.git
-cd chengcoding_cli
+git clone https://github.com/woyin/OrangeCoding.git
+cd OrangeCoding
 
 # 编译 release 版本
 cargo build --release
 
-# 可执行文件位于 target/release/ChengCoding
-./target/release/ChengCoding --version
+# 可执行文件位于 target/release/orangecoding
+./target/release/orangecoding --version
 ```
 
 如需安装到系统路径：

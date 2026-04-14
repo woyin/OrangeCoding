@@ -1,4 +1,4 @@
-# ChengCoding — AI 编程助手 (Rust 实现)
+# OrangeCoding — AI 编程助手 (Rust 实现)
 
 > 基于公开文档的 Clean-room 重新实现，使用 Rust 构建的终端 AI 编程代理。
 
@@ -138,7 +138,7 @@
 - **记忆系统** — 跨会话知识提取与整合（默认关闭）
 - **Intent Gate** — 意图分类引擎（中英文关键词支持）
 - **JSONC 配置** — 支持注释和尾逗号的配置文件格式
-- **配置发现** — 兼容 .ChengCoding/.claude/.codex/.gemini 多工具配置
+- **配置发现** — 兼容 .orangecoding/.claude/.codex/.gemini 多工具配置
 - **RPC 模式** — JSONL stdio 协议，支持编程式访问
 - **MCP 协议** — Model Context Protocol 客户端/服务器
 
@@ -149,16 +149,16 @@
 cargo build --release
 
 # 运行
-./target/release/ChengCoding --help
+./target/release/orangecoding --help
 
 # 初始化项目
-ChengCoding init
+orangecoding init
 
 # 启动会话
-ChengCoding launch
+orangecoding launch
 
 # 查看状态
-ChengCoding status
+orangecoding status
 ```
 
 ## 📋 开发
