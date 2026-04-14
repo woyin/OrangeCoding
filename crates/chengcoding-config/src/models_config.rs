@@ -152,7 +152,6 @@ pub struct ModelsConfig {
 }
 
 impl ModelsConfig {
-    /// 从 YAML 文件加载配置
     pub fn load_from_file(path: &Path) -> chengcoding_core::Result<Self> {
         let content = std::fs::read_to_string(path).map_err(|e| {
             CeairError::config(format!("读取模型配置文件失败: {}: {}", path.display(), e))
@@ -163,24 +162,50 @@ impl ModelsConfig {
         })
     }
 
-    /// 合并另一个配置（另一个的值覆盖当前值）
     pub fn merge(&mut self, other: ModelsConfig) {
         for (name, provider) in other.providers {
             self.providers.insert(name, provider);
         }
     }
 
-    /// 获取提供商配置
     pub fn get_provider(&self, name: &str) -> Option<&ProviderConfig> {
         self.providers.get(name)
     }
 
-    /// 列出所有模型，返回 `(提供商名称, 模型定义)` 列表
+    pub fn canonical_provider_name(name: &str) -> String {
+        match name.trim().to_lowercase().as_str() {
+            "z.ai" | "zai" => "zai".to_string(),
+            "zen" | "opencode-zen" => "zen".to_string(),
+            other => other.to_string(),
+        }
+    }
+
+    pub fn provider_display_name(name: &str) -> String {
+        match Self::canonical_provider_name(name).as_str() {
+            "zai" => "z.ai".to_string(),
+            "zen" => "OpenCode Zen".to_string(),
+            other => other.to_string(),
+        }
+    }
+
+    pub fn model_identity(provider_name: &str, model_id: &str) -> String {
+        format!(
+            "{}/{}",
+            Self::canonical_provider_name(provider_name),
+            model_id
+        )
+    }
+
+    pub fn custom_provider_models_declared(provider: &ProviderConfig) -> bool {
+        !provider.models.is_empty()
+    }
+
     pub fn list_models(&self) -> Vec<(String, &ModelDefinition)> {
         let mut models = Vec::new();
         for (provider_name, provider) in &self.providers {
+            let canonical = Self::canonical_provider_name(provider_name);
             for model in &provider.models {
-                models.push((provider_name.clone(), model));
+                models.push((canonical.clone(), model));
             }
         }
         models
@@ -416,6 +441,63 @@ output: 15.0
         assert!((cost.output - 15.0).abs() < f64::EPSILON);
         assert!(cost.cache_read.is_none());
         assert!(cost.cache_write.is_none());
+    }
+
+    #[test]
+    fn test_canonical_provider_name_and_display_name() {
+        assert_eq!(ModelsConfig::canonical_provider_name("z.ai"), "zai");
+        assert_eq!(ModelsConfig::canonical_provider_name("opencode-zen"), "zen");
+        assert_eq!(ModelsConfig::provider_display_name("zai"), "z.ai");
+        assert_eq!(ModelsConfig::provider_display_name("zen"), "OpenCode Zen");
+    }
+
+    #[test]
+    fn test_model_identity_handles_same_model_name_across_providers() {
+        assert_eq!(
+            ModelsConfig::model_identity("z.ai", "glm-5.1"),
+            "zai/glm-5.1"
+        );
+        assert_eq!(
+            ModelsConfig::model_identity("zen", "glm-5.1"),
+            "zen/glm-5.1"
+        );
+    }
+
+    #[test]
+    fn test_custom_provider_requires_declared_models() {
+        let empty_provider = ProviderConfig {
+            base_url: Some("https://example.com".to_string()),
+            api_key: Some("KEY".to_string()),
+            api: Some(ApiType::OpenAiCompletions),
+            headers: None,
+            auth: Some(AuthType::Bearer),
+            models: vec![],
+            discovery: None,
+        };
+        assert!(!ModelsConfig::custom_provider_models_declared(
+            &empty_provider
+        ));
+
+        let declared_provider = ProviderConfig {
+            base_url: Some("https://example.com".to_string()),
+            api_key: Some("KEY".to_string()),
+            api: Some(ApiType::OpenAiCompletions),
+            headers: None,
+            auth: Some(AuthType::Bearer),
+            models: vec![ModelDefinition {
+                id: "glm-5.1".to_string(),
+                name: Some("GLM 5.1".to_string()),
+                reasoning: None,
+                input: None,
+                cost: None,
+                context_window: None,
+                max_tokens: None,
+            }],
+            discovery: None,
+        };
+        assert!(ModelsConfig::custom_provider_models_declared(
+            &declared_provider
+        ));
     }
 
     // -----------------------------------------------------------------------

@@ -374,9 +374,9 @@ impl ProviderFactory {
     /// 传入不支持的提供者名称时返回 `AiError::UnsupportedProvider`
     pub fn create_provider(name: &str, config: ProviderConfig) -> AiResult<Box<dyn AiProvider>> {
         match name.to_lowercase().as_str() {
-            "openai" => Ok(Box::new(crate::providers::openai::OpenAiProvider::new(
-                config,
-            )?)),
+            "openai" | "zai" | "z.ai" | "zen" | "opencode-zen" => Ok(Box::new(
+                crate::providers::openai::OpenAiProvider::new(config)?,
+            )),
             "anthropic" | "claude" => Ok(Box::new(
                 crate::providers::anthropic::AnthropicProvider::new(config)?,
             )),
@@ -497,6 +497,10 @@ mod tests {
             "wenxin",
             "ernie",
             "baidu",
+            "zai",
+            "z.ai",
+            "zen",
+            "opencode-zen",
         ];
 
         for name in names {

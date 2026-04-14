@@ -12,7 +12,7 @@ use chengcoding_ai::provider::{FunctionDefinition, ToolParameter};
 use chengcoding_ai::{
     AiProvider, ChatMessage, ChatOptions, ProviderConfig, ProviderFactory, ToolDefinition,
 };
-use chengcoding_config::CeairConfig;
+use chengcoding_config::{CeairConfig, ModelsConfig};
 use chengcoding_core::message::Role;
 use chengcoding_tools::{create_default_registry, SecurityPolicy, ToolRegistry};
 use chengcoding_tui::App;
@@ -133,13 +133,33 @@ pub async fn execute(args: LaunchArgs, config: CeairConfig) -> Result<()> {
 /// - `args`: 命令行参数（可能指定了 provider）
 /// - `config`: 配置文件中的设置
 fn setup_provider(args: &LaunchArgs, config: &CeairConfig) -> Result<Box<dyn AiProvider>> {
-    // 确定提供商名称（命令行优先）
-    let provider_name = args.provider.as_deref().unwrap_or(&config.ai.provider);
+    let requested_provider = args.provider.as_deref().unwrap_or(&config.ai.provider);
+    let provider_name = ModelsConfig::canonical_provider_name(requested_provider);
+    let builtin_provider = matches!(
+        provider_name.as_str(),
+        "openai"
+            | "anthropic"
+            | "claude"
+            | "deepseek"
+            | "qianwen"
+            | "tongyi"
+            | "dashscope"
+            | "wenxin"
+            | "ernie"
+            | "baidu"
+            | "zai"
+            | "zen"
+    );
 
-    // 获取 API 密钥（配置文件 > 环境变量）
+    if !builtin_provider {
+        return Err(anyhow::anyhow!(
+            "自定义 provider '{}' 需要先在配置中声明模型清单，并映射到受支持的运行时 provider",
+            requested_provider
+        ));
+    }
+
     let api_key = config.ai.api_key.clone().or_else(|| {
-        // 尝试从环境变量获取（格式：ChengCoding_API_KEY 或 <PROVIDER>_API_KEY）
-        let env_key = format!("{}_API_KEY", provider_name.to_uppercase());
+        let env_key = format!("{}_API_KEY", provider_name.to_uppercase().replace('.', "_"));
         std::env::var(&env_key)
             .ok()
             .or_else(|| std::env::var("ChengCoding_API_KEY").ok())
@@ -151,11 +171,13 @@ fn setup_provider(args: &LaunchArgs, config: &CeairConfig) -> Result<Box<dyn AiP
         warn!("未配置 API 密钥，部分功能可能不可用");
     }
 
-    // 构建提供商配置
     let provider_config = ProviderConfig {
         api_key,
         api_secret: config.ai.api_secret.clone().or_else(|| {
-            let env_secret = format!("{}_API_SECRET", provider_name.to_uppercase());
+            let env_secret = format!(
+                "{}_API_SECRET",
+                provider_name.to_uppercase().replace('.', "_")
+            );
             std::env::var(&env_secret).ok()
         }),
         base_url: config.ai.base_url.clone(),
@@ -168,8 +190,7 @@ fn setup_provider(args: &LaunchArgs, config: &CeairConfig) -> Result<Box<dyn AiP
         extra: HashMap::new(),
     };
 
-    // 通过工厂方法创建提供商
-    ProviderFactory::create_provider(provider_name, provider_config)
+    ProviderFactory::create_provider(&provider_name, provider_config)
         .map_err(|e| anyhow::anyhow!("创建 AI 提供商 '{}' 失败: {}", provider_name, e))
 }
 
@@ -379,7 +400,7 @@ async fn run_tui_mode(
     use chengcoding_tui::components::MainLayout;
     use chengcoding_tui::AppAction;
     use crossterm::{
-        event::{self, Event},
+        event::{self, DisableMouseCapture, EnableMouseCapture, Event},
         execute,
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     };
@@ -392,7 +413,7 @@ async fn run_tui_mode(
     // 初始化终端
     enable_raw_mode().context("启用终端 raw 模式失败")?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen).context("进入备用终端屏幕失败")?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture).context("进入备用终端屏幕失败")?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).context("创建终端实例失败")?;
 
@@ -435,8 +456,12 @@ async fn run_tui_mode(
 
         // 等待事件（50ms 超时，保持界面响应性）
         if event::poll(Duration::from_millis(50)).unwrap_or(false) {
-            if let Ok(Event::Key(key_event)) = event::read() {
-                let action = app.handle_key_event(key_event);
+            if let Ok(event) = event::read() {
+                let action = match event {
+                    Event::Key(key_event) => app.handle_key_event(key_event),
+                    Event::Mouse(mouse_event) => app.handle_mouse_event(mouse_event),
+                    _ => AppAction::None,
+                };
 
                 match action {
                     AppAction::SendMessage(text) => {
@@ -564,7 +589,12 @@ async fn run_tui_mode(
 
     // 清理终端
     disable_raw_mode().ok();
-    execute!(terminal.backend_mut(), LeaveAlternateScreen).ok();
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )
+    .ok();
     terminal.show_cursor().ok();
 
     result

@@ -17,7 +17,7 @@ use tracing::info;
 use chengcoding_agent::executor::ToolExecutor;
 use chengcoding_agent::{AgentContext, AgentLoop, AgentLoopConfig};
 use chengcoding_ai::{AiProvider, ChatOptions, ProviderConfig, ProviderFactory};
-use chengcoding_config::CeairConfig;
+use chengcoding_config::{CeairConfig, ModelsConfig};
 use chengcoding_control_server::{start_server, ControlServerConfig};
 use chengcoding_core::{AgentEvent, AgentId, SessionId};
 use chengcoding_tools::{create_default_registry, SecurityPolicy};
@@ -143,10 +143,33 @@ pub async fn execute(args: ServeArgs, config: CeairConfig) -> Result<()> {
 }
 
 fn setup_provider(config: &CeairConfig) -> Result<Box<dyn AiProvider>> {
-    let provider_name = &config.ai.provider;
+    let requested_provider = &config.ai.provider;
+    let provider_name = ModelsConfig::canonical_provider_name(requested_provider);
+    let builtin_provider = matches!(
+        provider_name.as_str(),
+        "openai"
+            | "anthropic"
+            | "claude"
+            | "deepseek"
+            | "qianwen"
+            | "tongyi"
+            | "dashscope"
+            | "wenxin"
+            | "ernie"
+            | "baidu"
+            | "zai"
+            | "zen"
+    );
+
+    if !builtin_provider {
+        return Err(anyhow::anyhow!(
+            "自定义 provider '{}' 需要先在配置中声明模型清单，并映射到受支持的运行时 provider",
+            requested_provider
+        ));
+    }
 
     let api_key = config.ai.api_key.clone().or_else(|| {
-        let env_key = format!("{}_API_KEY", provider_name.to_uppercase());
+        let env_key = format!("{}_API_KEY", provider_name.to_uppercase().replace('.', "_"));
         std::env::var(&env_key)
             .ok()
             .or_else(|| std::env::var("ChengCoding_API_KEY").ok())
@@ -157,7 +180,10 @@ fn setup_provider(config: &CeairConfig) -> Result<Box<dyn AiProvider>> {
     let provider_config = ProviderConfig {
         api_key,
         api_secret: config.ai.api_secret.clone().or_else(|| {
-            let env_secret = format!("{}_API_SECRET", provider_name.to_uppercase());
+            let env_secret = format!(
+                "{}_API_SECRET",
+                provider_name.to_uppercase().replace('.', "_")
+            );
             std::env::var(&env_secret).ok()
         }),
         base_url: config.ai.base_url.clone(),
@@ -166,6 +192,6 @@ fn setup_provider(config: &CeairConfig) -> Result<Box<dyn AiProvider>> {
         extra: HashMap::new(),
     };
 
-    ProviderFactory::create_provider(provider_name, provider_config)
+    ProviderFactory::create_provider(&provider_name, provider_config)
         .map_err(|e| anyhow::anyhow!("创建 AI 提供商 '{}' 失败: {}", provider_name, e))
 }
