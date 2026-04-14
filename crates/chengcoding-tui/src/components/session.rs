@@ -61,7 +61,7 @@ impl SessionView {
             let welcome_lines = vec![
                 Line::from(""),
                 Line::from(Span::styled(
-                    "  欢迎使用 ChengCoding AI 编程助手！",
+                    "  欢迎使用 OrangeCoding AI 编程助手！",
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),

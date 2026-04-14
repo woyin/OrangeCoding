@@ -162,7 +162,7 @@ fn setup_provider(args: &LaunchArgs, config: &CeairConfig) -> Result<Box<dyn AiP
         let env_key = format!("{}_API_KEY", provider_name.to_uppercase().replace('.', "_"));
         std::env::var(&env_key)
             .ok()
-            .or_else(|| std::env::var("ChengCoding_API_KEY").ok())
+            .or_else(|| std::env::var("ORANGECODING_API_KEY").ok())
     });
 
     let api_key = api_key.unwrap_or_default();

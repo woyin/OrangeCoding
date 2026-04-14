@@ -184,7 +184,7 @@ impl MainLayout {
         let help_lines = vec![
             Line::from(""),
             Line::from(Span::styled(
-                "  ChengCoding 快捷键帮助",
+                "  OrangeCoding 快捷键帮助",
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),

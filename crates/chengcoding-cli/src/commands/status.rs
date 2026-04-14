@@ -62,7 +62,7 @@ pub async fn execute(args: StatusArgs, config: CeairConfig) -> Result<()> {
 
 /// 输出版本信息段
 fn print_version_section() {
-    println!("📋 ChengCoding 系统状态");
+    println!("📋 OrangeCoding 系统状态");
     println!("{}", "─".repeat(50));
     println!("  版本:   {}", env!("CARGO_PKG_VERSION"));
     println!();
@@ -110,7 +110,7 @@ fn print_api_key_section(config: &CeairConfig) {
 
     // 检查环境变量中的密钥
     let env_keys = [
-        ("ChengCoding_API_KEY", "通用密钥"),
+        ("ORANGECODING_API_KEY", "通用密钥"),
         ("DEEPSEEK_API_KEY", "DeepSeek 密钥"),
         ("QIANWEN_API_KEY", "通义千问密钥"),
         ("WENXIN_API_KEY", "文心一言密钥"),
