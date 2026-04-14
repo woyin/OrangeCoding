@@ -1,6 +1,6 @@
 # 工作流文档
 
-> ChengCoding 内置多种工作流模式，支持从手动交互到全自动开发的灵活切换。
+> OrangeCoding 内置多种工作流模式，支持从手动交互到全自动开发的灵活切换。
 
 ## 目录
 
@@ -17,7 +17,7 @@
 
 ## 工作流概述
 
-ChengCoding 的工作流系统分为三个层次：
+OrangeCoding 的工作流系统分为三个层次：
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -45,7 +45,7 @@ ChengCoding 的工作流系统分为三个层次：
 
 ## UltraWork (ULW) 模式
 
-UltraWork 是 ChengCoding 的全自动开发模式，能够自主完成从需求分析到代码验证的完整开发流程。
+UltraWork 是 OrangeCoding 的全自动开发模式，能够自主完成从需求分析到代码验证的完整开发流程。
 
 ### 触发方式
 
@@ -171,7 +171,7 @@ UltraWork 是 ChengCoding 的全自动开发模式，能够自主完成从需求
 
 ## Prometheus 规划工作流
 
-Prometheus 是 ChengCoding 的战略规划器，通过结构化的状态机流程生成高质量的开发计划。
+Prometheus 是 OrangeCoding 的战略规划器，通过结构化的状态机流程生成高质量的开发计划。
 
 ### 规划状态机
 
@@ -372,7 +372,7 @@ Atlas: [按依赖顺序执行]
 
 ## Boulder 系统
 
-Boulder 是 ChengCoding 的会话连续性系统，以西西弗斯推动的巨石命名。它记录工作状态，支持跨会话的任务延续。
+Boulder 是 OrangeCoding 的会话连续性系统，以西西弗斯推动的巨石命名。它记录工作状态，支持跨会话的任务延续。
 
 ### 状态文件
 
@@ -435,7 +435,7 @@ progress.is_complete() → bool   // 是否全部完成
 # 退出
 
 # 第二个会话
-ChengCoding                  # 重新启动
+OrangeCoding                  # 重新启动
 > 继续上次的工作        # Boulder 自动恢复上下文
 ```
 
@@ -538,7 +538,7 @@ Ralph 循环是一个迭代式的持续改进工作流，自动执行 plan → i
 
 ## 任务协商和重分配
 
-ChengCoding 通过 `chengcoding-mesh` 模块支持多 Agent 间的任务协商和动态重分配。
+OrangeCoding 通过 `chengcoding-mesh` 模块支持多 Agent 间的任务协商和动态重分配。
 
 ### 通信机制
 
@@ -664,12 +664,12 @@ UltraWork 自动组合所有工作流：扫描 → 探索 → Prometheus 规划 
 # 退出
 
 # 第 2 天
-ChengCoding
+OrangeCoding
 > 继续昨天的工作    # Boulder 自动恢复
 > 完成前端集成和测试
 
 # 第 3 天
-ChengCoding
+OrangeCoding
 > 完成最后的文档和部署配置
 ```
 
