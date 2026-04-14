@@ -13,6 +13,8 @@ use ratatui::{
     Frame,
 };
 
+use chrono::{DateTime, Local, Utc};
+
 use crate::app::{App, DisplayMessage};
 use crate::markdown::MarkdownRenderer;
 
@@ -157,7 +159,7 @@ impl SessionView {
     /// - 带样式的头部行
     fn render_message_header(message: &DisplayMessage) -> Line<'static> {
         let role_color = Self::role_color(&message.role);
-        let timestamp = message.timestamp.format("%H:%M:%S").to_string();
+        let timestamp = Self::format_local_timestamp(&message.timestamp);
 
         Line::from(vec![
             // 角色标签
@@ -188,6 +190,13 @@ impl SessionView {
             Role::Tool => Color::Magenta,
         }
     }
+
+    fn format_local_timestamp(timestamp: &DateTime<Utc>) -> String {
+        timestamp
+            .with_timezone(&Local)
+            .format("%H:%M:%S")
+            .to_string()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -197,6 +206,7 @@ impl SessionView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
 
     #[test]
     fn 测试角色颜色映射() {
@@ -211,11 +221,18 @@ mod tests {
         let msg = DisplayMessage::new(Role::User, "测试消息");
         let header = SessionView::render_message_header(&msg);
 
-        // 头部应该包含角色标签和时间戳
         assert_eq!(header.spans.len(), 2);
 
-        // 验证角色标签包含用户标识
         let label_text: String = header.spans[0].content.to_string();
         assert!(label_text.contains("用户"));
+    }
+
+    #[test]
+    fn 测试本地时间格式化输出固定格式() {
+        let utc = Utc.with_ymd_and_hms(2026, 4, 14, 12, 34, 56).unwrap();
+        let formatted = SessionView::format_local_timestamp(&utc);
+
+        assert_eq!(formatted.len(), 8);
+        assert_eq!(formatted.chars().filter(|ch| *ch == ':').count(), 2);
     }
 }
