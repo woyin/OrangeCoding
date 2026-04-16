@@ -111,6 +111,8 @@ impl InputView {
                 let menu_title = match menu.kind {
                     CommandMenuKind::Slash => " 命令建议 ",
                     CommandMenuKind::Model => " 模型选择 ",
+                    CommandMenuKind::Mode => " 交互模式 ",
+                    CommandMenuKind::Think => " 思考深度 ",
                 };
 
                 let menu_area = Rect::new(area.x, area.y.saturating_sub(4), area.width.min(80), 4);

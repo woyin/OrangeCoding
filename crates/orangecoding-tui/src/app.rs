@@ -255,6 +255,8 @@ pub enum AppAction {
 pub enum CommandMenuKind {
     Slash,
     Model,
+    Mode,
+    Think,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -972,6 +974,57 @@ impl App {
         });
     }
 
+    pub fn open_mode_menu(&mut self) {
+        let current = self.interaction_mode.label();
+        let items: Vec<CommandMenuItem> = InteractionMode::all()
+            .iter()
+            .map(|m| {
+                let suffix = if m.label() == current { " ✓" } else { "" };
+                CommandMenuItem {
+                    value: m.label().to_string(),
+                    description: format!("{}{}", m.description(), suffix),
+                }
+            })
+            .collect();
+        self.command_menu = Some(CommandMenuState {
+            kind: CommandMenuKind::Mode,
+            query: String::new(),
+            items,
+            selected_index: 0,
+        });
+    }
+
+    pub fn open_think_menu(&mut self) {
+        let current_label = self.thinking_depth.label();
+        let depths = [
+            ("off", ThinkingDepth::Off),
+            ("light", ThinkingDepth::Light),
+            ("medium", ThinkingDepth::Medium),
+            ("deep", ThinkingDepth::Deep),
+            ("maximum", ThinkingDepth::Maximum),
+        ];
+        let items: Vec<CommandMenuItem> = depths
+            .iter()
+            .map(|(key, d)| {
+                let suffix = if d.label() == current_label {
+                    " ✓"
+                } else {
+                    ""
+                };
+                CommandMenuItem {
+                    value: key.to_string(),
+                    description: format!("{} {}{}", d.icon(), d.label(), suffix),
+                }
+            })
+            .collect();
+        self.command_menu = Some(CommandMenuState {
+            kind: CommandMenuKind::Think,
+            query: String::new(),
+            items,
+            selected_index: 0,
+        });
+    }
+
     fn refresh_command_menu(&mut self) {
         let Some(kind) = self.command_menu.as_ref().map(|menu| menu.kind.clone()) else {
             return;
@@ -1010,6 +1063,10 @@ impl App {
                     .to_string();
                 let items = self.filtered_model_items(&query);
                 (query, items)
+            }
+            CommandMenuKind::Mode | CommandMenuKind::Think => {
+                // Static menus — no dynamic filtering needed
+                return;
             }
         };
 
@@ -1185,6 +1242,18 @@ impl App {
                                 self.open_model_menu("");
                                 return AppAction::None;
                             }
+                            if value == "mode" {
+                                self.input.buffer = "/mode ".to_string();
+                                self.input.cursor_position = self.input.char_count();
+                                self.open_mode_menu();
+                                return AppAction::None;
+                            }
+                            if value == "think" {
+                                self.input.buffer = "/think ".to_string();
+                                self.input.cursor_position = self.input.char_count();
+                                self.open_think_menu();
+                                return AppAction::None;
+                            }
 
                             self.input.clear();
                             self.command_menu = None;
@@ -1201,6 +1270,34 @@ impl App {
                             return AppAction::SlashCommand {
                                 name: "model".to_string(),
                                 args: value,
+                            };
+                        }
+                        CommandMenuKind::Mode => {
+                            let mode_value = value.clone();
+                            self.input.clear();
+                            self.command_menu = None;
+                            self.mode = AppMode::Input;
+                            if let Some(mode) = InteractionMode::from_str_name(&mode_value) {
+                                self.interaction_mode = mode.clone();
+                                return AppAction::SwitchInteractionMode(mode);
+                            }
+                            return AppAction::SlashCommand {
+                                name: "mode".to_string(),
+                                args: mode_value,
+                            };
+                        }
+                        CommandMenuKind::Think => {
+                            let depth_value = value.clone();
+                            self.input.clear();
+                            self.command_menu = None;
+                            self.mode = AppMode::Input;
+                            if let Some(depth) = ThinkingDepth::from_str_name(&depth_value) {
+                                self.thinking_depth = depth.clone();
+                                return AppAction::SwitchThinkingDepth(depth);
+                            }
+                            return AppAction::SlashCommand {
+                                name: "think".to_string(),
+                                args: depth_value,
                             };
                         }
                     }
@@ -2061,5 +2158,103 @@ mod tests {
         assert_eq!(input.cursor_position, 0);
         input.move_cursor_end();
         assert_eq!(input.cursor_position, 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // 子菜单测试：/mode 和 /think
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn 测试选择mode进入模式子菜单() {
+        let mut app = App::new("gpt-4");
+        app.mode = AppMode::Normal;
+
+        // 进入命令菜单
+        app.handle_key_event(key_press(KeyCode::Char('/')));
+        assert_eq!(
+            app.command_menu.as_ref().unwrap().kind,
+            CommandMenuKind::Slash
+        );
+
+        // 输入 "mo" 过滤到 mode
+        app.handle_key_event(key_press(KeyCode::Char('m')));
+        app.handle_key_event(key_press(KeyCode::Char('o')));
+
+        // 第一个匹配应该是 "mode" (prefix match)
+        let menu = app.command_menu.as_ref().unwrap();
+        assert!(menu.items.iter().any(|i| i.value == "mode"));
+
+        // 找到 "mode" 并选中
+        let mode_idx = menu.items.iter().position(|i| i.value == "mode").unwrap();
+        for _ in 0..mode_idx {
+            app.handle_key_event(key_press(KeyCode::Down));
+        }
+        let action = app.handle_key_event(key_press(KeyCode::Enter));
+        assert_eq!(action, AppAction::None);
+        assert_eq!(
+            app.command_menu.as_ref().unwrap().kind,
+            CommandMenuKind::Mode
+        );
+        assert_eq!(app.command_menu.as_ref().unwrap().items.len(), 4);
+    }
+
+    #[test]
+    fn 测试选择think进入思考深度子菜单() {
+        let mut app = App::new("gpt-4");
+        app.mode = AppMode::Normal;
+
+        app.handle_key_event(key_press(KeyCode::Char('/')));
+        app.handle_key_event(key_press(KeyCode::Char('t')));
+
+        let menu = app.command_menu.as_ref().unwrap();
+        assert!(menu.items.iter().any(|i| i.value == "think"));
+
+        let think_idx = menu.items.iter().position(|i| i.value == "think").unwrap();
+        for _ in 0..think_idx {
+            app.handle_key_event(key_press(KeyCode::Down));
+        }
+        let action = app.handle_key_event(key_press(KeyCode::Enter));
+        assert_eq!(action, AppAction::None);
+        assert_eq!(
+            app.command_menu.as_ref().unwrap().kind,
+            CommandMenuKind::Think
+        );
+        assert_eq!(app.command_menu.as_ref().unwrap().items.len(), 5);
+    }
+
+    #[test]
+    fn 测试mode子菜单选择切换模式() {
+        let mut app = App::new("gpt-4");
+        assert_eq!(app.interaction_mode, InteractionMode::Normal);
+
+        app.mode = AppMode::Command;
+        app.open_mode_menu();
+
+        // 选择 Autopilot (index 2)
+        app.handle_key_event(key_press(KeyCode::Down));
+        app.handle_key_event(key_press(KeyCode::Down));
+        let action = app.handle_key_event(key_press(KeyCode::Enter));
+        assert_eq!(
+            action,
+            AppAction::SwitchInteractionMode(InteractionMode::Autopilot)
+        );
+        assert_eq!(app.interaction_mode, InteractionMode::Autopilot);
+    }
+
+    #[test]
+    fn 测试think子菜单选择切换深度() {
+        let mut app = App::new("gpt-4");
+        assert_eq!(app.thinking_depth, ThinkingDepth::Medium);
+
+        app.mode = AppMode::Command;
+        app.open_think_menu();
+
+        // 选择 deep (index 3)
+        app.handle_key_event(key_press(KeyCode::Down));
+        app.handle_key_event(key_press(KeyCode::Down));
+        app.handle_key_event(key_press(KeyCode::Down));
+        let action = app.handle_key_event(key_press(KeyCode::Enter));
+        assert_eq!(action, AppAction::SwitchThinkingDepth(ThinkingDepth::Deep));
+        assert_eq!(app.thinking_depth, ThinkingDepth::Deep);
     }
 }

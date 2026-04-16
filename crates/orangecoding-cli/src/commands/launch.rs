@@ -645,13 +645,8 @@ fn handle_slash_command(app: &mut App, options: &mut ChatOptions, name: &str, ar
         }
         "mode" => {
             if args.is_empty() {
-                app.add_message(
-                    Role::System,
-                    format!(
-                        "当前模式: {}。可选: normal, plan, autopilot, ultrawork",
-                        app.interaction_mode.label()
-                    ),
-                );
+                app.open_mode_menu();
+                app.mode = orangecoding_tui::app::AppMode::Command;
             } else if let Some(mode) = InteractionMode::from_str_name(args) {
                 app.interaction_mode = mode.clone();
                 app.add_message(
@@ -670,14 +665,8 @@ fn handle_slash_command(app: &mut App, options: &mut ChatOptions, name: &str, ar
         }
         "think" | "depth" => {
             if args.is_empty() {
-                app.add_message(
-                    Role::System,
-                    format!(
-                        "当前思考深度: {} {}。可选: off, light, medium, deep, maximum",
-                        app.thinking_depth.icon(),
-                        app.thinking_depth.label()
-                    ),
-                );
+                app.open_think_menu();
+                app.mode = orangecoding_tui::app::AppMode::Command;
             } else if let Some(depth) = ThinkingDepth::from_str_name(args) {
                 app.thinking_depth = depth.clone();
                 app.add_message(
