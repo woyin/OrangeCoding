@@ -62,14 +62,43 @@ impl SessionView {
             let welcome_lines = vec![
                 Line::from(""),
                 Line::from(Span::styled(
-                    "  欢迎使用 OrangeCoding AI 编程助手！",
+                    "   ██████╗ ██████╗  █████╗ ███╗   ██╗ ██████╗ ███████╗",
+                    Style::default().fg(Color::Rgb(255, 140, 0)),
+                )),
+                Line::from(Span::styled(
+                    "  ██╔═══██╗██╔══██╗██╔══██╗████╗  ██║██╔════╝ ██╔════╝",
+                    Style::default().fg(Color::Rgb(255, 140, 0)),
+                )),
+                Line::from(Span::styled(
+                    "  ██║   ██║██████╔╝███████║██╔██╗ ██║██║  ███╗█████╗  ",
+                    Style::default().fg(Color::Rgb(255, 140, 0)),
+                )),
+                Line::from(Span::styled(
+                    "  ██║   ██║██╔══██╗██╔══██║██║╚██╗██║██║   ██║██╔══╝  ",
+                    Style::default().fg(Color::Rgb(255, 165, 0)),
+                )),
+                Line::from(Span::styled(
+                    "  ╚██████╔╝██║  ██║██║  ██║██║ ╚████║╚██████╔╝███████╗",
+                    Style::default().fg(Color::Rgb(255, 165, 0)),
+                )),
+                Line::from(Span::styled(
+                    "   ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚══════╝",
+                    Style::default().fg(Color::Rgb(255, 165, 0)),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "  🍊 OrangeCoding — 顶级 AI 编码代理",
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
                 )),
                 Line::from(""),
                 Line::from(Span::styled(
-                    "  输入消息开始对话，按 ? 查看帮助。",
+                    "  /help 查看命令  ·  /doctor 健康检查  ·  /cost 查看用量",
+                    Style::default().fg(Color::DarkGray),
+                )),
+                Line::from(Span::styled(
+                    "  Shift+Tab 切换规划模式  ·  Ctrl+C 退出",
                     Style::default().fg(Color::DarkGray),
                 )),
                 Line::from(""),
