@@ -117,7 +117,7 @@ impl HookRegistry {
         for hook in &hooks {
             let action = match &hook.handler {
                 HookHandler::Inline(cmd) => parse_inline_action(cmd),
-                HookHandler::Script(_) => HookAction::Continue,
+                HookHandler::Script(path) => run_script_hook(path, ctx),
             };
             match &action {
                 HookAction::Block(_) | HookAction::Skip | HookAction::Modify(_) => return action,
@@ -126,6 +126,14 @@ impl HookRegistry {
         }
 
         HookAction::Continue
+    }
+
+    /// 构建钩子执行的环境变量（对齐规范 §4.3）
+    ///
+    /// 从 HookContext.data 中提取标准字段并映射为 AGENT_* 变量。
+    /// 同时额外暴露 `data` 中其他键值对为 AGENT_<KEY>。
+    pub fn build_env_vars(ctx: &HookContext) -> Vec<(String, String)> {
+        build_hook_env_vars(ctx)
     }
 
     /// 返回已注册钩子数量
@@ -158,6 +166,106 @@ fn parse_inline_action(cmd: &str) -> HookAction {
     } else {
         HookAction::Continue
     }
+}
+
+/// 规范 §4.3 定义的标准钩子环境变量键
+pub const HOOK_ENV_TOOL_NAME: &str = "AGENT_TOOL_NAME";
+pub const HOOK_ENV_FILE_PATH: &str = "AGENT_FILE_PATH";
+pub const HOOK_ENV_COMMAND: &str = "AGENT_COMMAND";
+pub const HOOK_ENV_SESSION_ID: &str = "AGENT_SESSION_ID";
+pub const HOOK_ENV_WORKING_DIR: &str = "AGENT_WORKING_DIR";
+pub const HOOK_ENV_EXIT_CODE: &str = "AGENT_EXIT_CODE";
+pub const HOOK_ENV_EVENT: &str = "AGENT_EVENT";
+
+/// 从 HookContext 构建标准环境变量
+fn build_hook_env_vars(ctx: &HookContext) -> Vec<(String, String)> {
+    let mut vars: Vec<(String, String)> = Vec::new();
+
+    vars.push((HOOK_ENV_EVENT.to_string(), format!("{:?}", ctx.event)));
+
+    // 标准字段映射
+    let mapping = [
+        ("tool_name", HOOK_ENV_TOOL_NAME),
+        ("file_path", HOOK_ENV_FILE_PATH),
+        ("command", HOOK_ENV_COMMAND),
+        ("session_id", HOOK_ENV_SESSION_ID),
+        ("working_dir", HOOK_ENV_WORKING_DIR),
+        ("exit_code", HOOK_ENV_EXIT_CODE),
+    ];
+
+    for (key, env_name) in mapping {
+        if let Some(v) = ctx.data.get(key) {
+            let s = value_to_env_string(v);
+            vars.push((env_name.to_string(), s));
+        }
+    }
+
+    // 其他字段以 AGENT_<UPPER> 暴露
+    for (k, v) in &ctx.data {
+        let known = mapping.iter().any(|(src, _)| *src == k.as_str());
+        if known {
+            continue;
+        }
+        let upper = k.to_uppercase().replace('-', "_");
+        let env_name = format!("AGENT_{}", upper);
+        vars.push((env_name, value_to_env_string(v)));
+    }
+
+    vars
+}
+
+fn value_to_env_string(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
+/// 执行脚本钩子（注入标准环境变量）
+///
+/// 脚本的 stdout 中若包含以下标记开头的行，则对应触发：
+/// - `HOOK_BLOCK:<原因>` → Block
+/// - `HOOK_MODIFY:<内容>` → Modify
+/// - `HOOK_SKIP` → Skip
+/// - 非零退出码 → Block("exit <code>")
+/// - 其他 → Continue
+fn run_script_hook(path: &std::path::Path, ctx: &HookContext) -> HookAction {
+    use std::process::Command;
+
+    let envs = build_hook_env_vars(ctx);
+    let mut cmd = Command::new(path);
+    for (k, v) in &envs {
+        cmd.env(k, v);
+    }
+
+    let output = match cmd.output() {
+        Ok(o) => o,
+        Err(e) => {
+            tracing::warn!("hook script {} failed to spawn: {}", path.display(), e);
+            return HookAction::Continue;
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        if let Some(reason) = line.strip_prefix("HOOK_BLOCK:") {
+            return HookAction::Block(reason.trim().to_string());
+        }
+        if let Some(content) = line.strip_prefix("HOOK_MODIFY:") {
+            return HookAction::Modify(content.trim().to_string());
+        }
+        if line.trim() == "HOOK_SKIP" {
+            return HookAction::Skip;
+        }
+    }
+
+    if !output.status.success() {
+        let code = output.status.code().unwrap_or(-1);
+        return HookAction::Block(format!("hook exit {}", code));
+    }
+
+    HookAction::Continue
 }
 
 /// 扩展钩子事件类型（用于内置钩子绑定）
@@ -815,5 +923,99 @@ mod tests {
         let json = serde_json::to_string(&modified).unwrap();
         let de: HookResult = serde_json::from_str(&json).unwrap();
         assert_eq!(de, HookResult::Modified(serde_json::json!({"a": 1})));
+    }
+
+    #[test]
+    fn test_build_env_vars_standard_fields() {
+        let mut data = HashMap::new();
+        data.insert("tool_name".to_string(), serde_json::json!("Bash"));
+        data.insert("file_path".to_string(), serde_json::json!("/tmp/x.rs"));
+        data.insert("command".to_string(), serde_json::json!("ls -la"));
+        data.insert("session_id".to_string(), serde_json::json!("sess-123"));
+        data.insert("working_dir".to_string(), serde_json::json!("/project"));
+        data.insert("exit_code".to_string(), serde_json::json!(0));
+
+        let ctx = HookContext {
+            event: HookEvent::PostToolCall,
+            data,
+        };
+        let envs = HookRegistry::build_env_vars(&ctx);
+        let map: HashMap<_, _> = envs.into_iter().collect();
+
+        assert_eq!(map.get(HOOK_ENV_TOOL_NAME).unwrap(), "Bash");
+        assert_eq!(map.get(HOOK_ENV_FILE_PATH).unwrap(), "/tmp/x.rs");
+        assert_eq!(map.get(HOOK_ENV_COMMAND).unwrap(), "ls -la");
+        assert_eq!(map.get(HOOK_ENV_SESSION_ID).unwrap(), "sess-123");
+        assert_eq!(map.get(HOOK_ENV_WORKING_DIR).unwrap(), "/project");
+        assert_eq!(map.get(HOOK_ENV_EXIT_CODE).unwrap(), "0");
+        assert!(map.get(HOOK_ENV_EVENT).unwrap().contains("PostToolCall"));
+    }
+
+    #[test]
+    fn test_build_env_vars_custom_fields() {
+        let mut data = HashMap::new();
+        data.insert("custom_key".to_string(), serde_json::json!("value1"));
+        let ctx = HookContext {
+            event: HookEvent::PreMessage,
+            data,
+        };
+        let envs = HookRegistry::build_env_vars(&ctx);
+        let map: HashMap<_, _> = envs.into_iter().collect();
+        assert_eq!(map.get("AGENT_CUSTOM_KEY").unwrap(), "value1");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_run_script_hook_block() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("hook.sh");
+        let mut f = std::fs::File::create(&script).unwrap();
+        writeln!(
+            f,
+            "#!/bin/sh\necho HOOK_BLOCK:tool $AGENT_TOOL_NAME not allowed\n"
+        )
+        .unwrap();
+        drop(f);
+        let mut perms = std::fs::metadata(&script).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&script, perms).unwrap();
+
+        let mut data = HashMap::new();
+        data.insert("tool_name".to_string(), serde_json::json!("Bash"));
+        let ctx = HookContext {
+            event: HookEvent::PreToolCall,
+            data,
+        };
+        let action = run_script_hook(&script, &ctx);
+        match action {
+            HookAction::Block(reason) => assert!(reason.contains("Bash")),
+            other => panic!("expected Block, got {:?}", other),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_run_script_hook_continue_on_success() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("ok.sh");
+        let mut f = std::fs::File::create(&script).unwrap();
+        writeln!(f, "#!/bin/sh\nexit 0\n").unwrap();
+        drop(f);
+        let mut perms = std::fs::metadata(&script).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&script, perms).unwrap();
+
+        let ctx = HookContext {
+            event: HookEvent::PostToolCall,
+            data: HashMap::new(),
+        };
+        let action = run_script_hook(&script, &ctx);
+        assert_eq!(action, HookAction::Continue);
     }
 }
