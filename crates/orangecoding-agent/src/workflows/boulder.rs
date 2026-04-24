@@ -53,6 +53,15 @@ impl Progress {
     }
 }
 
+/// Harness 快照
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HarnessSnapshot {
+    /// 任务契约
+    pub mission_contract: crate::harness::MissionContract,
+    /// 最近已接受检查点
+    pub last_accepted_checkpoint: Option<String>,
+}
+
 /// Boulder 持久化状态（序列化到 boulder.json）
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoulderState {
@@ -66,6 +75,8 @@ pub struct BoulderState {
     pub plan_name: String,
     /// 执行进度
     pub progress: Progress,
+    /// Harness 快照
+    pub harness: Option<HarnessSnapshot>,
 }
 
 impl BoulderState {
@@ -81,6 +92,7 @@ impl BoulderState {
             started_at: chrono::Utc::now().to_rfc3339(),
             plan_name: plan_name.into(),
             progress: Progress::new(total_tasks),
+            harness: None,
         }
     }
 }
@@ -147,18 +159,44 @@ impl BoulderManager {
         state.session_ids.push(new_session_id.into());
 
         // 生成继续提示
+        let harness_note = state
+            .harness
+            .as_ref()
+            .and_then(|snapshot| snapshot.last_accepted_checkpoint.as_ref())
+            .map(|checkpoint| format!("\n最近已接受检查点: {checkpoint}"))
+            .unwrap_or_default();
+
         let prompt = format!(
             "继续执行计划「{}」。\n\
              当前进度: {}/{}（{:.1}%）\n\
-             已使用 {} 个会话。",
+             已使用 {} 个会话。{}",
             state.plan_name,
             state.progress.checked_count,
             state.progress.total_count,
             state.progress.percentage(),
             state.session_ids.len(),
+            harness_note,
         );
 
         Ok(prompt)
+    }
+
+    /// 附加 Harness 快照
+    pub fn attach_harness_snapshot(
+        &mut self,
+        mission_contract: crate::harness::MissionContract,
+        last_accepted_checkpoint: Option<String>,
+    ) -> bool {
+        match self.state.as_mut() {
+            Some(state) => {
+                state.harness = Some(HarnessSnapshot {
+                    mission_contract,
+                    last_accepted_checkpoint,
+                });
+                true
+            }
+            None => false,
+        }
     }
 
     /// 更新执行进度
@@ -213,6 +251,7 @@ mod tests {
                 checked_count: 3,
                 total_count: 10,
             },
+            harness: None,
         })
         .unwrap()
     }
@@ -276,6 +315,28 @@ mod tests {
     }
 
     #[test]
+    fn 恢复会话包含最近已接受检查点() {
+        let mut mgr = BoulderManager::new();
+        let mut state = BoulderState::new(".sisyphus/plans/plan-001.json", "重构认证模块", 10);
+        state.session_ids.push("session-abc".to_string());
+        state.harness = Some(HarnessSnapshot {
+            mission_contract: crate::harness::MissionContract::new(
+                "实现 Harness 对齐层".into(),
+                vec!["出现检查点".into()],
+                crate::harness::ReviewGatePolicy::MajorPlanChange,
+                crate::harness::HarnessConfig::default(),
+            ),
+            last_accepted_checkpoint: Some("完成了第一段执行".into()),
+        });
+
+        let json = serde_json::to_string_pretty(&state).unwrap();
+        let prompt = mgr.resume(&json, "session-def").unwrap();
+
+        assert!(prompt.contains("最近已接受检查点"));
+        assert!(prompt.contains("完成了第一段执行"));
+    }
+
+    #[test]
     fn 更新进度() {
         let mut mgr = BoulderManager::new();
         mgr.create_new(".sisyphus/plans/p1.json", "进度测试", 10, "s1");
@@ -316,5 +377,25 @@ mod tests {
     #[test]
     fn 文件路径常量正确() {
         assert_eq!(BoulderManager::file_path(), ".sisyphus/boulder.json");
+    }
+
+    #[test]
+    fn boulder_state_保存_harness_snapshot() {
+        let mut mgr = BoulderManager::new();
+        let contract = crate::harness::MissionContract::new(
+            "实现 Harness".into(),
+            vec!["保持对齐".into()],
+            crate::harness::ReviewGatePolicy::MajorPlanChange,
+            crate::harness::HarnessConfig::default(),
+        );
+
+        let state = mgr.create_new(".sisyphus/plans/p1.json", "Harness 计划", 4, "sess-1");
+        assert!(state.harness.is_none());
+
+        mgr.attach_harness_snapshot(contract.clone(), Some("完成了第一段执行".into()));
+        let json = mgr.save().unwrap();
+
+        assert!(json.contains("实现 Harness"));
+        assert!(json.contains("完成了第一段执行"));
     }
 }
