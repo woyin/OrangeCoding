@@ -43,6 +43,8 @@ const DEFAULT_ANCHOR_INTERVAL_STEPS: u32 = 5;
 const DEFAULT_STEP_BUDGET_INITIAL: u32 = 100;
 /// 默认重复动作循环检测阈值
 const DEFAULT_LOOP_DETECTION_THRESHOLD: u32 = 3;
+/// 指令回锚系统消息前缀
+const INSTRUCTION_ANCHOR_PREFIX: &str = "[指令回锚]";
 
 /// 代理循环配置
 ///
@@ -243,9 +245,7 @@ impl AgentLoop {
             );
 
             if let Some(anchor_message) = instruction_anchor.on_step() {
-                self.context
-                    .get_conversation_mut()
-                    .add_message(Message::system(anchor_message));
+                self.add_instruction_anchor_message(anchor_message);
             }
 
             // 将对话历史转换为 AI 提供者的消息格式
@@ -300,19 +300,8 @@ impl AgentLoop {
 
             info!("代理 {} 请求 {} 个工具调用", self.id, num_calls);
 
-            let mut hard_stop_reason = None;
-            for tc in &core_tool_calls {
-                let action_signature = format!("{}:{}", tc.function_name, tc.arguments);
-                match budget_guard.tick(&action_signature) {
-                    BudgetDecision::Continue => {}
-                    BudgetDecision::HardStop { reason } => {
-                        hard_stop_reason = Some(reason);
-                        break;
-                    }
-                }
-            }
-
-            if let Some(reason) = hard_stop_reason {
+            let batch_signature = Self::build_batch_action_signature(&core_tool_calls);
+            if let BudgetDecision::HardStop { reason } = budget_guard.tick(&batch_signature) {
                 warn!("代理 {} 步骤预算守卫触发硬停止: {}", self.id, reason);
                 let _ = event_sender
                     .send(AgentEvent::error(
@@ -492,6 +481,44 @@ impl AgentLoop {
                 CoreToolCall::new(&ac.id, &ac.function.name, arguments)
             })
             .collect()
+    }
+
+    /// 构建稳定的批次动作签名，用于按 AI 迭代检测重复循环
+    fn build_batch_action_signature(tool_calls: &[CoreToolCall]) -> String {
+        let mut signatures: Vec<String> = tool_calls
+            .iter()
+            .map(|tc| format!("{}:{}", tc.function_name, tc.arguments))
+            .collect();
+        signatures.sort();
+        signatures.join("\n")
+    }
+
+    /// 判断消息是否为指令回锚系统消息
+    fn is_instruction_anchor_message(message: &Message) -> bool {
+        message.role == Role::System
+            && message
+                .content
+                .as_deref()
+                .is_some_and(|content| content.starts_with(INSTRUCTION_ANCHOR_PREFIX))
+    }
+
+    /// 添加新的指令回锚消息，并移除旧的回锚消息
+    fn add_instruction_anchor_message(&mut self, anchor_message: String) {
+        let retained_messages: Vec<Message> = self
+            .context
+            .get_conversation()
+            .get_messages()
+            .iter()
+            .filter(|message| !Self::is_instruction_anchor_message(message))
+            .cloned()
+            .collect();
+
+        let conversation = self.context.get_conversation_mut();
+        conversation.clear();
+        for message in retained_messages {
+            conversation.add_message(message);
+        }
+        conversation.add_message(Message::system(anchor_message));
     }
 
     /// 构建工具定义列表（从工具注册表生成 AI 格式的工具描述）
@@ -703,11 +730,11 @@ mod tests {
                 .call_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
-            if count == 0 {
+            if count < 2 {
                 Ok(AiResponse {
                     content: String::new(),
                     tool_calls: vec![orangecoding_ai::ToolCall {
-                        id: "call_anchor_1".to_string(),
+                        id: format!("call_anchor_{count}"),
                         call_type: "function".to_string(),
                         function: orangecoding_ai::provider::FunctionCall {
                             name: "test_tool".to_string(),
@@ -795,6 +822,89 @@ mod tests {
                 model: "mock-model".to_string(),
                 finish_reason: "tool_calls".to_string(),
             })
+        }
+
+        async fn chat_completion_stream(
+            &self,
+            _messages: &[ChatMessage],
+            _tools: &[ToolDefinition],
+            _options: &ChatOptions,
+        ) -> AiResult<orangecoding_ai::provider::StreamResponse> {
+            Err(AiError::Config("流式模式未实现".to_string()))
+        }
+    }
+
+    /// 模拟 AI 提供者：单个批次返回两个相同工具调用
+    struct DuplicateBatchToolCallProvider {
+        call_count: std::sync::atomic::AtomicU32,
+    }
+
+    impl DuplicateBatchToolCallProvider {
+        fn new() -> Self {
+            Self {
+                call_count: std::sync::atomic::AtomicU32::new(0),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AiProvider for DuplicateBatchToolCallProvider {
+        fn name(&self) -> &str {
+            "duplicate_batch_tool_call_provider"
+        }
+
+        async fn chat_completion(
+            &self,
+            _messages: &[ChatMessage],
+            _tools: &[ToolDefinition],
+            _options: &ChatOptions,
+        ) -> AiResult<AiResponse> {
+            let count = self
+                .call_count
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+            if count == 0 {
+                Ok(AiResponse {
+                    content: String::new(),
+                    tool_calls: vec![
+                        orangecoding_ai::ToolCall {
+                            id: "call_duplicate_1".to_string(),
+                            call_type: "function".to_string(),
+                            function: orangecoding_ai::provider::FunctionCall {
+                                name: "test_tool".to_string(),
+                                arguments: r#"{"key": "same"}"#.to_string(),
+                            },
+                        },
+                        orangecoding_ai::ToolCall {
+                            id: "call_duplicate_2".to_string(),
+                            call_type: "function".to_string(),
+                            function: orangecoding_ai::provider::FunctionCall {
+                                name: "test_tool".to_string(),
+                                arguments: r#"{"key": "same"}"#.to_string(),
+                            },
+                        },
+                    ],
+                    usage: AiTokenUsage {
+                        prompt_tokens: 1,
+                        completion_tokens: 1,
+                        total_tokens: 2,
+                    },
+                    model: "mock-model".to_string(),
+                    finish_reason: "tool_calls".to_string(),
+                })
+            } else {
+                Ok(AiResponse {
+                    content: "已完成".to_string(),
+                    tool_calls: vec![],
+                    usage: AiTokenUsage {
+                        prompt_tokens: 1,
+                        completion_tokens: 1,
+                        total_tokens: 2,
+                    },
+                    model: "mock-model".to_string(),
+                    finish_reason: "stop".to_string(),
+                })
+            }
         }
 
         async fn chat_completion_stream(
@@ -1061,22 +1171,72 @@ mod tests {
 
         let result = agent_loop.run(&options, cancel_token, tx).await.unwrap();
 
-        assert!(result.messages.iter().any(|message| {
-            message
-                .content
-                .as_deref()
-                .is_some_and(|content| content.contains("[指令回锚]"))
-        }));
-        assert!(provider
-            .seen_messages
-            .lock()
-            .unwrap()
+        let anchor_messages: Vec<_> = result
+            .messages
             .iter()
-            .flatten()
-            .any(|message| message
-                .content
-                .as_deref()
-                .is_some_and(|content| content.contains("[指令回锚]"))));
+            .filter(|message| {
+                message.role == Role::System
+                    && message
+                        .content
+                        .as_deref()
+                        .is_some_and(|content| content.starts_with("[指令回锚]"))
+            })
+            .collect();
+        assert_eq!(anchor_messages.len(), 1);
+
+        let seen_messages = provider.seen_messages.lock().unwrap();
+        assert!(seen_messages.iter().flatten().any(|message| message
+            .content
+            .as_deref()
+            .is_some_and(|content| content.starts_with("[指令回锚]"))));
+        assert!(seen_messages.iter().all(|snapshot| {
+            snapshot
+                .iter()
+                .filter(|message| {
+                    message.role == MessageRole::System
+                        && message
+                            .content
+                            .as_deref()
+                            .is_some_and(|content| content.starts_with("[指令回锚]"))
+                })
+                .count()
+                <= 1
+        }));
+    }
+
+    /// 测试同一批次内的重复工具调用不会触发跨迭代循环硬停止
+    #[tokio::test]
+    async fn 测试单批次重复工具调用仍会执行() {
+        let provider = Arc::new(DuplicateBatchToolCallProvider::new());
+        let executions = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let executor = create_counting_executor(executions.clone());
+        let mut context = AgentContext::new(SessionId::new(), PathBuf::from("."));
+        context.add_user_message("在同一批次中调用两个相同工具");
+
+        let config = AgentLoopConfig {
+            max_iterations: 3,
+            loop_detection_threshold: 2,
+            ..Default::default()
+        };
+
+        let mut agent_loop = AgentLoop::new(AgentId::new(), provider, executor, context, config);
+
+        let cancel_token = CancellationToken::new();
+        let (tx, mut rx) = mpsc::channel(100);
+        let options = ChatOptions::with_model("mock-model");
+
+        let result = agent_loop.run(&options, cancel_token, tx).await.unwrap();
+
+        assert_eq!(result.tool_calls_made, 2);
+        assert_eq!(executions.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+        let mut saw_error = false;
+        while let Ok(event) = rx.try_recv() {
+            if matches!(event, AgentEvent::Error { .. }) {
+                saw_error = true;
+            }
+        }
+        assert!(!saw_error);
     }
 
     /// 测试重复工具调用达到阈值时会在执行批次前硬停止
