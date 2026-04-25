@@ -17,7 +17,7 @@ use orangecoding_ai::provider::{
 };
 use orangecoding_ai::TokenUsage as AiTokenUsage;
 use orangecoding_core::event::AgentEvent;
-use orangecoding_core::message::{Message, ToolCall as CoreToolCall};
+use orangecoding_core::message::{Message, Role, ToolCall as CoreToolCall};
 use orangecoding_core::types::{AgentId, ToolName};
 use orangecoding_core::TokenUsage;
 use tokio::sync::mpsc;
@@ -26,6 +26,8 @@ use tracing::{debug, info, warn};
 
 use crate::context::AgentContext;
 use crate::executor::ToolExecutor;
+use crate::instruction_anchor::InstructionAnchor;
+use crate::step_budget::{BudgetDecision, StepBudgetGuard};
 
 // ---------------------------------------------------------------------------
 // 代理循环配置
@@ -35,6 +37,12 @@ use crate::executor::ToolExecutor;
 const DEFAULT_MAX_ITERATIONS: u32 = 20;
 /// 代理循环的默认超时时间（5 分钟）
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
+/// 默认指令回锚间隔步数
+const DEFAULT_ANCHOR_INTERVAL_STEPS: u32 = 5;
+/// 默认初始步骤预算
+const DEFAULT_STEP_BUDGET_INITIAL: u32 = 100;
+/// 默认重复动作循环检测阈值
+const DEFAULT_LOOP_DETECTION_THRESHOLD: u32 = 3;
 
 /// 代理循环配置
 ///
@@ -47,6 +55,12 @@ pub struct AgentLoopConfig {
     pub timeout: Duration,
     /// 是否自动批准工具调用（跳过人工确认）
     pub auto_approve_tools: bool,
+    /// 每隔多少次 AI 调用注入一次原始指令回锚，0 表示禁用
+    pub anchor_interval_steps: u32,
+    /// 工具执行步骤的初始预算
+    pub step_budget_initial: u32,
+    /// 连续相同工具动作达到该阈值时硬停止
+    pub loop_detection_threshold: u32,
 }
 
 impl Default for AgentLoopConfig {
@@ -60,6 +74,9 @@ impl Default for AgentLoopConfig {
             max_iterations: DEFAULT_MAX_ITERATIONS,
             timeout: DEFAULT_TIMEOUT,
             auto_approve_tools: false,
+            anchor_interval_steps: DEFAULT_ANCHOR_INTERVAL_STEPS,
+            step_budget_initial: DEFAULT_STEP_BUDGET_INITIAL,
+            loop_detection_threshold: DEFAULT_LOOP_DETECTION_THRESHOLD,
         }
     }
 }
@@ -178,6 +195,22 @@ impl AgentLoop {
         // 收集工具定义（用于传递给 AI 提供者）
         let tool_definitions = self.build_tool_definitions();
 
+        let original_instruction = self
+            .context
+            .get_conversation()
+            .get_messages()
+            .iter()
+            .find(|msg| msg.role == Role::User)
+            .and_then(|msg| msg.content.as_deref())
+            .unwrap_or("")
+            .to_string();
+        let mut instruction_anchor =
+            InstructionAnchor::new(&original_instruction, self.config.anchor_interval_steps);
+        let mut budget_guard = StepBudgetGuard::new(
+            self.config.step_budget_initial,
+            self.config.loop_detection_threshold as usize,
+        );
+
         // 主事件循环
         for iteration in 0..self.config.max_iterations {
             // 检查取消信号
@@ -208,6 +241,12 @@ impl AgentLoop {
                 iteration + 1,
                 self.config.max_iterations
             );
+
+            if let Some(anchor_message) = instruction_anchor.on_step() {
+                self.context
+                    .get_conversation_mut()
+                    .add_message(Message::system(anchor_message));
+            }
 
             // 将对话历史转换为 AI 提供者的消息格式
             let chat_messages = self.convert_to_chat_messages();
@@ -260,6 +299,30 @@ impl AgentLoop {
             let num_calls = core_tool_calls.len() as u32;
 
             info!("代理 {} 请求 {} 个工具调用", self.id, num_calls);
+
+            let mut hard_stop_reason = None;
+            for tc in &core_tool_calls {
+                let action_signature = format!("{}:{}", tc.function_name, tc.arguments);
+                match budget_guard.tick(&action_signature) {
+                    BudgetDecision::Continue => {}
+                    BudgetDecision::HardStop { reason } => {
+                        hard_stop_reason = Some(reason);
+                        break;
+                    }
+                }
+            }
+
+            if let Some(reason) = hard_stop_reason {
+                warn!("代理 {} 步骤预算守卫触发硬停止: {}", self.id, reason);
+                let _ = event_sender
+                    .send(AgentEvent::error(
+                        self.id.clone(),
+                        session_id.clone(),
+                        reason,
+                    ))
+                    .await;
+                break;
+            }
 
             // 将带工具调用的助手消息添加到对话
             self.context
@@ -606,6 +669,144 @@ mod tests {
         }
     }
 
+    /// 模拟 AI 提供者：记录每次收到的消息，先请求工具再返回文本
+    struct RecordingToolCallProvider {
+        /// 计数器（使用原子计数实现调用次数追踪）
+        call_count: std::sync::atomic::AtomicU32,
+        /// 每次调用收到的消息快照
+        seen_messages: std::sync::Mutex<Vec<Vec<ChatMessage>>>,
+    }
+
+    impl RecordingToolCallProvider {
+        fn new() -> Self {
+            Self {
+                call_count: std::sync::atomic::AtomicU32::new(0),
+                seen_messages: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AiProvider for RecordingToolCallProvider {
+        fn name(&self) -> &str {
+            "recording_tool_call_provider"
+        }
+
+        async fn chat_completion(
+            &self,
+            messages: &[ChatMessage],
+            _tools: &[ToolDefinition],
+            _options: &ChatOptions,
+        ) -> AiResult<AiResponse> {
+            self.seen_messages.lock().unwrap().push(messages.to_vec());
+            let count = self
+                .call_count
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+            if count == 0 {
+                Ok(AiResponse {
+                    content: String::new(),
+                    tool_calls: vec![orangecoding_ai::ToolCall {
+                        id: "call_anchor_1".to_string(),
+                        call_type: "function".to_string(),
+                        function: orangecoding_ai::provider::FunctionCall {
+                            name: "test_tool".to_string(),
+                            arguments: r#"{"key": "value"}"#.to_string(),
+                        },
+                    }],
+                    usage: AiTokenUsage {
+                        prompt_tokens: 1,
+                        completion_tokens: 1,
+                        total_tokens: 2,
+                    },
+                    model: "mock-model".to_string(),
+                    finish_reason: "tool_calls".to_string(),
+                })
+            } else {
+                Ok(AiResponse {
+                    content: "已完成".to_string(),
+                    tool_calls: vec![],
+                    usage: AiTokenUsage {
+                        prompt_tokens: 1,
+                        completion_tokens: 1,
+                        total_tokens: 2,
+                    },
+                    model: "mock-model".to_string(),
+                    finish_reason: "stop".to_string(),
+                })
+            }
+        }
+
+        async fn chat_completion_stream(
+            &self,
+            _messages: &[ChatMessage],
+            _tools: &[ToolDefinition],
+            _options: &ChatOptions,
+        ) -> AiResult<orangecoding_ai::provider::StreamResponse> {
+            Err(AiError::Config("流式模式未实现".to_string()))
+        }
+    }
+
+    /// 模拟 AI 提供者：每次都请求相同工具调用，用于触发循环检测
+    struct RepeatingToolCallProvider {
+        /// 计数器（使用原子计数实现调用次数追踪）
+        call_count: std::sync::atomic::AtomicU32,
+    }
+
+    impl RepeatingToolCallProvider {
+        fn new() -> Self {
+            Self {
+                call_count: std::sync::atomic::AtomicU32::new(0),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AiProvider for RepeatingToolCallProvider {
+        fn name(&self) -> &str {
+            "repeating_tool_call_provider"
+        }
+
+        async fn chat_completion(
+            &self,
+            _messages: &[ChatMessage],
+            _tools: &[ToolDefinition],
+            _options: &ChatOptions,
+        ) -> AiResult<AiResponse> {
+            let count = self
+                .call_count
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+            Ok(AiResponse {
+                content: String::new(),
+                tool_calls: vec![orangecoding_ai::ToolCall {
+                    id: format!("call_repeat_{count}"),
+                    call_type: "function".to_string(),
+                    function: orangecoding_ai::provider::FunctionCall {
+                        name: "test_tool".to_string(),
+                        arguments: r#"{"key": "same"}"#.to_string(),
+                    },
+                }],
+                usage: AiTokenUsage {
+                    prompt_tokens: 1,
+                    completion_tokens: 1,
+                    total_tokens: 2,
+                },
+                model: "mock-model".to_string(),
+                finish_reason: "tool_calls".to_string(),
+            })
+        }
+
+        async fn chat_completion_stream(
+            &self,
+            _messages: &[ChatMessage],
+            _tools: &[ToolDefinition],
+            _options: &ChatOptions,
+        ) -> AiResult<orangecoding_ai::provider::StreamResponse> {
+            Err(AiError::Config("流式模式未实现".to_string()))
+        }
+    }
+
     #[async_trait::async_trait]
     impl AiProvider for MockToolCallProvider {
         fn name(&self) -> &str {
@@ -699,6 +900,37 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    struct CountingTool {
+        executions: Arc<std::sync::atomic::AtomicU32>,
+    }
+
+    #[async_trait::async_trait]
+    impl orangecoding_tools::Tool for CountingTool {
+        fn name(&self) -> &str {
+            "test_tool"
+        }
+        fn description(&self) -> &str {
+            "用于统计执行次数的模拟工具"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string"}
+                }
+            })
+        }
+        async fn execute(
+            &self,
+            _params: serde_json::Value,
+        ) -> orangecoding_tools::ToolResult<String> {
+            self.executions
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok("计数工具执行结果".to_string())
+        }
+    }
+
     // -----------------------------------------------------------------------
     // 辅助函数
     // -----------------------------------------------------------------------
@@ -707,6 +939,13 @@ mod tests {
     fn create_test_executor() -> ToolExecutor {
         let registry = ToolRegistry::new();
         registry.register(Arc::new(TestTool));
+        ToolExecutor::new(Arc::new(registry))
+    }
+
+    /// 创建带执行次数统计的工具执行器
+    fn create_counting_executor(executions: Arc<std::sync::atomic::AtomicU32>) -> ToolExecutor {
+        let registry = ToolRegistry::new();
+        registry.register(Arc::new(CountingTool { executions }));
         ToolExecutor::new(Arc::new(registry))
     }
 
@@ -722,6 +961,9 @@ mod tests {
         assert_eq!(config.max_iterations, DEFAULT_MAX_ITERATIONS);
         assert_eq!(config.timeout, DEFAULT_TIMEOUT);
         assert!(!config.auto_approve_tools);
+        assert_eq!(config.anchor_interval_steps, 5);
+        assert_eq!(config.step_budget_initial, 100);
+        assert_eq!(config.loop_detection_threshold, 3);
     }
 
     /// 测试 AI 直接返回文本回复（无工具调用）的场景
@@ -737,6 +979,7 @@ mod tests {
             max_iterations: 5,
             timeout: Duration::from_secs(30),
             auto_approve_tools: true,
+            ..Default::default()
         };
 
         let mut agent_loop = AgentLoop::new(AgentId::new(), provider, executor, context, config);
@@ -775,6 +1018,7 @@ mod tests {
             max_iterations: 10,
             timeout: Duration::from_secs(30),
             auto_approve_tools: true,
+            ..Default::default()
         };
 
         let mut agent_loop = AgentLoop::new(AgentId::new(), provider, executor, context, config);
@@ -791,6 +1035,90 @@ mod tests {
         assert_eq!(result.tokens_used.total_tokens, 60); // 30 + 35 的 prompt+completion
                                                          // 验证耗时已被记录（Duration 非零或至少能正常返回）
         let _ = result.duration;
+    }
+
+    /// 测试事件循环会按步数注入指令回锚系统消息
+    #[tokio::test]
+    async fn 测试运行时注入指令回锚消息() {
+        let provider = Arc::new(RecordingToolCallProvider::new());
+        let executor = create_test_executor();
+        let mut context = AgentContext::new(SessionId::new(), PathBuf::from("."));
+        context.set_system_prompt("你是一个编程助手");
+        context.add_user_message("请读取文件并保持目标");
+
+        let config = AgentLoopConfig {
+            max_iterations: 3,
+            anchor_interval_steps: 1,
+            ..Default::default()
+        };
+
+        let mut agent_loop =
+            AgentLoop::new(AgentId::new(), provider.clone(), executor, context, config);
+
+        let cancel_token = CancellationToken::new();
+        let (tx, _rx) = mpsc::channel(100);
+        let options = ChatOptions::with_model("mock-model");
+
+        let result = agent_loop.run(&options, cancel_token, tx).await.unwrap();
+
+        assert!(result.messages.iter().any(|message| {
+            message
+                .content
+                .as_deref()
+                .is_some_and(|content| content.contains("[指令回锚]"))
+        }));
+        assert!(provider
+            .seen_messages
+            .lock()
+            .unwrap()
+            .iter()
+            .flatten()
+            .any(|message| message
+                .content
+                .as_deref()
+                .is_some_and(|content| content.contains("[指令回锚]"))));
+    }
+
+    /// 测试重复工具调用达到阈值时会在执行批次前硬停止
+    #[tokio::test]
+    async fn 测试重复工具调用达到阈值时停止执行() {
+        let provider = Arc::new(RepeatingToolCallProvider::new());
+        let executions = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let executor = create_counting_executor(executions.clone());
+        let mut context = AgentContext::new(SessionId::new(), PathBuf::from("."));
+        context.add_user_message("持续调用相同工具");
+
+        let config = AgentLoopConfig {
+            max_iterations: 5,
+            loop_detection_threshold: 2,
+            ..Default::default()
+        };
+
+        let mut agent_loop = AgentLoop::new(AgentId::new(), provider, executor, context, config);
+
+        let cancel_token = CancellationToken::new();
+        let (tx, mut rx) = mpsc::channel(100);
+        let options = ChatOptions::with_model("mock-model");
+
+        let result = agent_loop.run(&options, cancel_token, tx).await.unwrap();
+
+        assert_eq!(result.tool_calls_made, 1);
+        assert_eq!(executions.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        let mut error_message = None;
+        while let Ok(event) = rx.try_recv() {
+            if let AgentEvent::Error {
+                error_message: message,
+                ..
+            } = event
+            {
+                error_message = Some(message);
+            }
+        }
+
+        assert!(error_message
+            .as_deref()
+            .is_some_and(|message| message.contains("重复")));
     }
 
     /// 测试取消信号能够中止循环
