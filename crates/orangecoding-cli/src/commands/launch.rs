@@ -5,12 +5,18 @@
 
 use anyhow::{Context, Result};
 use clap::Args;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
+use std::path::PathBuf;
 use tracing::{info, warn};
 
+use orangecoding_agent::execution_prompt::{build_system_prompt, ExecutionMode};
+use orangecoding_agent::instruction_anchor::InstructionAnchor;
+use orangecoding_agent::model_router::{Difficulty, ModelRouter, OrangeRuntimeConfig, TaskType};
+use orangecoding_agent::step_budget::{BudgetDecision, StepBudgetGuard};
 use orangecoding_ai::provider::{FunctionDefinition, ToolParameter};
 use orangecoding_ai::{
-    AiProvider, ChatMessage, ChatOptions, ProviderConfig, ProviderFactory, ToolDefinition,
+    AiProvider, ChatMessage, ChatOptions, MessageRole, ProviderConfig, ProviderFactory,
+    ToolDefinition,
 };
 use orangecoding_config::{ModelsConfig, OrangeConfig};
 use orangecoding_core::message::Role;
@@ -107,17 +113,27 @@ pub async fn execute(args: LaunchArgs, config: OrangeConfig) -> Result<()> {
 
     // 确定使用的模型名称
     let model_name = args.model.as_deref().unwrap_or(&config.ai.model);
+    let explicit_model = args.model.is_some();
 
     // 根据运行模式分发
     if let Some(ref prompt) = args.prompt {
         // 单次任务模式：发送 prompt 并获取结果
-        run_single_shot(provider.as_ref(), &registry, prompt, model_name, &config).await
+        run_single_shot(
+            provider.as_ref(),
+            &registry,
+            prompt,
+            model_name,
+            explicit_model,
+            args.autopilot || args.autopilot_file.is_some(),
+            &config,
+        )
+        .await
     } else if args.no_tui {
         // 用户明确禁用 TUI，使用纯文本交互模式
-        run_interactive_mode(provider, registry, model_name, &config).await
+        run_interactive_mode(provider, registry, model_name, explicit_model, &config).await
     } else {
         // 默认启动 TUI 交互界面
-        run_tui_mode(provider, registry, model_name, &config).await
+        run_tui_mode(provider, registry, model_name, explicit_model, &config).await
     }
 }
 
@@ -269,6 +285,226 @@ fn build_tool_definitions(registry: &ToolRegistry) -> Vec<ToolDefinition> {
         .collect()
 }
 
+/// 返回执行期配置文件路径。
+fn orange_runtime_config_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(".config/orangecoding/orange.json"))
+}
+
+/// 加载执行期配置，缺失或无效时使用默认值。
+fn load_runtime_config() -> OrangeRuntimeConfig {
+    orange_runtime_config_path()
+        .map(|path| OrangeRuntimeConfig::load_or_default(&path))
+        .unwrap_or_default()
+}
+
+/// 根据任务内容推断模型；显式选择模型时保持不变。
+fn routed_model(
+    router: &ModelRouter,
+    requested_model: &str,
+    prompt: &str,
+    allow_routing: bool,
+) -> String {
+    if !allow_routing || !requested_model.trim().is_empty() {
+        return requested_model.to_string();
+    }
+
+    let difficulty = Difficulty::infer(prompt);
+    let task_type = TaskType::infer(prompt);
+    router.route(difficulty, task_type).to_string()
+}
+
+/// 在当前提供商内路由模型，避免把模型名发送到不兼容的客户端。
+fn routed_model_for_provider(
+    router: &ModelRouter,
+    fallback_model: &str,
+    provider: &str,
+    prompt: &str,
+    allow_routing: bool,
+) -> String {
+    if !allow_routing {
+        return fallback_model.to_string();
+    }
+
+    let routed = routed_model(router, "", prompt, true);
+    compatible_model_for_provider(&routed, provider).unwrap_or_else(|| {
+        warn!(
+            routed_model = %routed,
+            provider = %provider,
+            fallback_model = %fallback_model,
+            "路由模型与当前提供商不兼容，回退到当前模型"
+        );
+        fallback_model.to_string()
+    })
+}
+
+fn compatible_model_for_provider(model: &str, provider: &str) -> Option<String> {
+    let canonical_provider = ModelsConfig::canonical_provider_name(provider);
+    let model = model.trim();
+    if model.is_empty() {
+        return None;
+    }
+
+    if let Some((model_provider, model_id)) = model.split_once('/') {
+        let model_provider = ModelsConfig::canonical_provider_name(model_provider);
+        return (providers_compatible(&model_provider, &canonical_provider)
+            && !model_id.trim().is_empty())
+        .then(|| model_id.trim().to_string());
+    }
+
+    if model_matches_provider(model, &canonical_provider) {
+        Some(model.to_string())
+    } else {
+        None
+    }
+}
+
+fn providers_compatible(model_provider: &str, active_provider: &str) -> bool {
+    model_provider == active_provider
+        || matches!(
+            (model_provider, active_provider),
+            ("anthropic", "claude") | ("claude", "anthropic")
+        )
+}
+
+fn model_matches_provider(model: &str, canonical_provider: &str) -> bool {
+    let normalized = model.trim().to_lowercase();
+    match canonical_provider {
+        "openai" => {
+            normalized.starts_with("gpt-")
+                || normalized.starts_with("o1")
+                || normalized.starts_with("o3")
+                || normalized.starts_with("o4")
+        }
+        "anthropic" | "claude" => normalized.starts_with("claude-"),
+        "deepseek" => normalized.starts_with("deepseek-"),
+        "qianwen" | "tongyi" | "dashscope" => {
+            normalized.starts_with("qwen-")
+                || normalized.starts_with("qwq-")
+                || normalized.starts_with("qvq-")
+        }
+        "wenxin" | "ernie" | "baidu" => {
+            normalized.starts_with("ernie") || normalized.starts_with("wenxin")
+        }
+        "zai" => normalized.starts_with("glm-"),
+        "zen" => true,
+        _ => true,
+    }
+}
+
+/// 将 TUI 交互模式映射到代理执行模式。
+fn mode_to_execution_mode(mode: orangecoding_tui::app::InteractionMode) -> ExecutionMode {
+    match mode {
+        orangecoding_tui::app::InteractionMode::Normal => ExecutionMode::Exec,
+        orangecoding_tui::app::InteractionMode::Plan => ExecutionMode::Plan,
+        orangecoding_tui::app::InteractionMode::Autopilot => ExecutionMode::Autopilot,
+        orangecoding_tui::app::InteractionMode::UltraWork => ExecutionMode::UltraWork,
+    }
+}
+
+/// 确保对话最前方只有一个模式系统提示词。
+fn ensure_system_prompt(messages: &mut Vec<ChatMessage>, mode: ExecutionMode) {
+    messages.retain(|message| !is_mode_system_prompt(message));
+    messages.insert(0, ChatMessage::system(build_system_prompt(mode)));
+}
+
+fn is_mode_system_prompt(message: &ChatMessage) -> bool {
+    if message.role != MessageRole::System {
+        return false;
+    }
+
+    let Some(content) = message.content.as_deref() else {
+        return false;
+    };
+
+    [
+        ExecutionMode::Exec,
+        ExecutionMode::Plan,
+        ExecutionMode::Autopilot,
+        ExecutionMode::UltraWork,
+    ]
+    .into_iter()
+    .any(|mode| content == build_system_prompt(mode))
+}
+
+/// 判断消息是否为指令回锚系统消息。
+fn is_instruction_anchor_message(message: &ChatMessage) -> bool {
+    message.role == MessageRole::System
+        && message
+            .content
+            .as_deref()
+            .map(|content| content.trim_start().starts_with("[指令回锚]"))
+            .unwrap_or(false)
+}
+
+/// 替换最新的指令回锚消息，避免历史中累积多条回锚。
+fn replace_latest_anchor_message(messages: &mut Vec<ChatMessage>, anchor_message: String) {
+    messages.retain(|message| !is_instruction_anchor_message(message));
+    messages.push(ChatMessage::system(anchor_message));
+}
+
+/// 清理上一轮留下的回锚消息，避免跨用户请求污染上下文。
+fn clear_instruction_anchor_messages(messages: &mut Vec<ChatMessage>) {
+    messages.retain(|message| !is_instruction_anchor_message(message));
+}
+
+/// 将一批工具调用规范化为稳定签名，用于跨批次循环检测。
+fn normalized_tool_batch_signature(tool_calls: &[orangecoding_ai::ToolCall]) -> String {
+    let calls: BTreeSet<String> = tool_calls
+        .iter()
+        .map(|tool_call| {
+            format!(
+                "{}:{}",
+                tool_call.function.name,
+                normalized_arguments(&tool_call.function.arguments)
+            )
+        })
+        .collect();
+
+    if calls.is_empty() {
+        "no-tool-calls".to_string()
+    } else {
+        calls.into_iter().collect::<Vec<_>>().join("|")
+    }
+}
+
+fn normalized_arguments(arguments: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(arguments)
+        .map(|value| canonical_json(&value))
+        .unwrap_or_else(|_| arguments.trim().to_string())
+}
+
+fn canonical_json(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Number(_)
+        | serde_json::Value::String(_) => {
+            serde_json::to_string(value).unwrap_or_else(|_| value.to_string())
+        }
+        serde_json::Value::Array(values) => {
+            let items = values.iter().map(canonical_json).collect::<Vec<_>>();
+            format!("[{}]", items.join(","))
+        }
+        serde_json::Value::Object(map) => {
+            let fields = map
+                .iter()
+                .map(|(key, value)| {
+                    let key = serde_json::to_string(key).unwrap_or_else(|_| format!("{key:?}"));
+                    format!("{key}:{}", canonical_json(value))
+                })
+                .collect::<Vec<_>>();
+            format!("{{{}}}", fields.join(","))
+        }
+    }
+}
+
+fn runtime_step_guard(runtime_config: &OrangeRuntimeConfig) -> StepBudgetGuard {
+    StepBudgetGuard::new(
+        runtime_config.execution.step_budget_initial,
+        runtime_config.execution.loop_detection_threshold as usize,
+    )
+}
+
 // ============================================================
 // 单次任务模式
 // ============================================================
@@ -286,23 +522,40 @@ async fn run_single_shot(
     registry: &ToolRegistry,
     prompt: &str,
     model: &str,
+    explicit_model: bool,
+    autopilot: bool,
     config: &OrangeConfig,
 ) -> Result<()> {
     println!("🚀 正在执行任务: {}", prompt);
     println!();
 
+    let runtime_config = load_runtime_config();
+    let execution_mode = if autopilot {
+        ExecutionMode::Autopilot
+    } else {
+        ExecutionMode::Exec
+    };
+    let selected_model = if explicit_model {
+        routed_model(runtime_config.model_router(), model, prompt, false)
+    } else {
+        routed_model_for_provider(
+            runtime_config.model_router(),
+            model,
+            &config.ai.provider,
+            prompt,
+            true,
+        )
+    };
+    let mut anchor = InstructionAnchor::new(prompt, runtime_config.execution.anchor_interval_steps);
+    let mut budget_guard = runtime_step_guard(&runtime_config);
+
     // 构造消息列表
-    let mut messages = vec![
-        ChatMessage::system(
-            "你是一个专业的 AI 编程助手。你可以使用提供的工具来完成任务。\
-             请仔细分析用户的需求，合理使用工具，并给出清晰的回答。",
-        ),
-        ChatMessage::user(prompt),
-    ];
+    let mut messages = vec![ChatMessage::user(prompt)];
+    ensure_system_prompt(&mut messages, execution_mode);
 
     // 构建工具定义和请求选项
     let tools = build_tool_definitions(registry);
-    let options = ChatOptions::with_model(model)
+    let options = ChatOptions::with_model(selected_model)
         .temperature(config.ai.temperature)
         .max_tokens(config.ai.max_tokens);
 
@@ -310,6 +563,11 @@ async fn run_single_shot(
     let max_iterations = config.agent.max_iterations;
     for iteration in 0..max_iterations {
         info!("智能体迭代 #{}", iteration + 1);
+
+        if let Some(anchor_message) = anchor.on_step() {
+            replace_latest_anchor_message(&mut messages, anchor_message);
+        }
+        ensure_system_prompt(&mut messages, execution_mode);
 
         // 调用 AI 模型
         let response = provider
@@ -320,6 +578,11 @@ async fn run_single_shot(
         // 如果 AI 返回了工具调用请求
         if !response.tool_calls.is_empty() {
             info!("AI 请求调用 {} 个工具", response.tool_calls.len());
+
+            let batch_signature = normalized_tool_batch_signature(&response.tool_calls);
+            if let BudgetDecision::HardStop { reason } = budget_guard.tick(&batch_signature) {
+                anyhow::bail!(reason);
+            }
 
             // 将 AI 的响应（包含工具调用请求）添加到消息历史
             messages.push(ChatMessage {
@@ -395,6 +658,7 @@ async fn run_tui_mode(
     provider: Box<dyn AiProvider>,
     registry: ToolRegistry,
     model_name: &str,
+    explicit_model: bool,
     config: &OrangeConfig,
 ) -> Result<()> {
     use crossterm::{
@@ -409,6 +673,8 @@ async fn run_tui_mode(
     use std::time::Duration;
 
     info!("正在启动 TUI 交互模式...");
+    let runtime_config = load_runtime_config();
+    let mut model_manually_selected = explicit_model;
 
     // 初始化终端
     enable_raw_mode().context("启用终端 raw 模式失败")?;
@@ -466,7 +732,7 @@ async fn run_tui_mode(
     let mut messages: Vec<ChatMessage> = Vec::new();
 
     // TUI 主循环 — 查询循环心跳模式
-    let result = loop {
+    let result = 'main: loop {
         // 渲染界面
         if let Err(e) = terminal.draw(|frame| {
             MainLayout::render(frame, &app);
@@ -501,10 +767,36 @@ async fn run_tui_mode(
 
                         // 构建 AI 请求
                         messages.push(ChatMessage::user(&text));
+                        clear_instruction_anchor_messages(&mut messages);
+                        let execution_mode = mode_to_execution_mode(app.interaction_mode.clone());
+                        ensure_system_prompt(&mut messages, execution_mode);
+
+                        if !model_manually_selected {
+                            let selected_model = routed_model_for_provider(
+                                runtime_config.model_router(),
+                                model_name,
+                                &config.ai.provider,
+                                &text,
+                                true,
+                            );
+                            options.model = selected_model.clone();
+                            app.status.model_name = selected_model;
+                        }
+
+                        let mut anchor = InstructionAnchor::new(
+                            &text,
+                            runtime_config.execution.anchor_interval_steps,
+                        );
+                        let mut budget_guard = runtime_step_guard(&runtime_config);
 
                         // 智能体循环：支持多轮工具调用
                         let max_iterations = config.agent.max_iterations;
                         for iteration in 0..max_iterations {
+                            if let Some(anchor_message) = anchor.on_step() {
+                                replace_latest_anchor_message(&mut messages, anchor_message);
+                            }
+                            ensure_system_prompt(&mut messages, execution_mode);
+
                             let response =
                                 match provider.chat_completion(&messages, &tools, &options).await {
                                     Ok(resp) => resp,
@@ -521,6 +813,18 @@ async fn run_tui_mode(
 
                             // 处理工具调用
                             if !response.tool_calls.is_empty() {
+                                let batch_signature =
+                                    normalized_tool_batch_signature(&response.tool_calls);
+                                if let BudgetDecision::HardStop { reason } =
+                                    budget_guard.tick(&batch_signature)
+                                {
+                                    app.add_message(
+                                        Role::System,
+                                        format!("⛔ 步骤预算守卫停止执行: {}", reason),
+                                    );
+                                    break 'main Err(anyhow::anyhow!(reason));
+                                }
+
                                 // 记录 AI 的工具调用响应
                                 messages.push(ChatMessage {
                                     role: orangecoding_ai::MessageRole::Assistant,
@@ -584,6 +888,9 @@ async fn run_tui_mode(
                         }
                     }
                     AppAction::SlashCommand { name, args } => {
+                        if name == "model" && !args.is_empty() {
+                            model_manually_selected = true;
+                        }
                         if handle_slash_command(&mut app, &mut options, &name, &args) {
                             messages.clear();
                         }
@@ -727,6 +1034,7 @@ async fn run_interactive_mode(
     provider: Box<dyn AiProvider>,
     registry: ToolRegistry,
     model_name: &str,
+    explicit_model: bool,
     config: &OrangeConfig,
 ) -> Result<()> {
     info!("正在启动交互模式...");
@@ -750,6 +1058,7 @@ async fn run_interactive_mode(
         &registry,
         &tools,
         &options,
+        explicit_model,
         config,
     )
     .await
@@ -765,13 +1074,14 @@ async fn run_text_loop(
     registry: &ToolRegistry,
     tools: &[ToolDefinition],
     options: &ChatOptions,
+    explicit_model: bool,
     config: &OrangeConfig,
 ) -> Result<()> {
+    let runtime_config = load_runtime_config();
+
     // 维护对话消息历史
-    let mut messages = vec![ChatMessage::system(
-        "你是一个专业的 AI 编程助手。你可以使用提供的工具来完成任务。\
-         请仔细分析用户的需求，合理使用工具，并给出清晰的回答。",
-    )];
+    let mut messages = Vec::new();
+    ensure_system_prompt(&mut messages, ExecutionMode::Exec);
 
     // 读取输入的缓冲区
     let stdin = std::io::stdin();
@@ -797,12 +1107,36 @@ async fn run_text_loop(
 
         // 将用户消息添加到历史
         messages.push(ChatMessage::user(input));
+        clear_instruction_anchor_messages(&mut messages);
+        ensure_system_prompt(&mut messages, ExecutionMode::Exec);
+
+        let mut request_options = options.clone();
+        if !explicit_model {
+            request_options.model = routed_model_for_provider(
+                runtime_config.model_router(),
+                &options.model,
+                &config.ai.provider,
+                input,
+                true,
+            );
+        }
+        let mut anchor =
+            InstructionAnchor::new(input, runtime_config.execution.anchor_interval_steps);
+        let mut budget_guard = runtime_step_guard(&runtime_config);
 
         // 智能体循环处理（支持多轮工具调用）
         let max_iterations = config.agent.max_iterations;
         for iteration in 0..max_iterations {
+            if let Some(anchor_message) = anchor.on_step() {
+                replace_latest_anchor_message(&mut messages, anchor_message);
+            }
+            ensure_system_prompt(&mut messages, ExecutionMode::Exec);
+
             // 调用 AI 模型
-            let response = match provider.chat_completion(&messages, tools, options).await {
+            let response = match provider
+                .chat_completion(&messages, tools, &request_options)
+                .await
+            {
                 Ok(resp) => resp,
                 Err(e) => {
                     eprintln!("❌ AI 请求失败: {}", e);
@@ -817,6 +1151,11 @@ async fn run_text_loop(
                     iteration + 1,
                     response.tool_calls.len()
                 );
+
+                let batch_signature = normalized_tool_batch_signature(&response.tool_calls);
+                if let BudgetDecision::HardStop { reason } = budget_guard.tick(&batch_signature) {
+                    anyhow::bail!(reason);
+                }
 
                 // 记录 AI 的工具调用响应
                 messages.push(ChatMessage {
@@ -864,4 +1203,186 @@ async fn run_text_loop(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orangecoding_agent::model_router::RoutingRule;
+    use orangecoding_ai::provider::FunctionCall;
+    use orangecoding_ai::{MessageRole, ToolCall};
+    use orangecoding_tui::app::InteractionMode;
+
+    #[test]
+    fn 测试系统提示词只保留一个模式提示且不删除历史() {
+        let mut messages = vec![
+            ChatMessage::system(build_system_prompt(ExecutionMode::Exec)),
+            ChatMessage::user("保留用户消息"),
+            ChatMessage::assistant("保留助手消息"),
+            ChatMessage::system(build_system_prompt(ExecutionMode::Plan)),
+        ];
+
+        ensure_system_prompt(&mut messages, ExecutionMode::Autopilot);
+
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0].role, MessageRole::System);
+        assert_eq!(
+            messages[0].content.as_deref(),
+            Some(build_system_prompt(ExecutionMode::Autopilot).as_str())
+        );
+        assert_eq!(messages[1].content.as_deref(), Some("保留用户消息"));
+        assert_eq!(messages[2].content.as_deref(), Some("保留助手消息"));
+    }
+
+    #[test]
+    fn 测试回锚消息替换最新一条而不是累积() {
+        let mut messages = vec![
+            ChatMessage::system(build_system_prompt(ExecutionMode::Exec)),
+            ChatMessage::user("任务"),
+        ];
+
+        replace_latest_anchor_message(&mut messages, "[指令回锚]\n第一次".to_string());
+        replace_latest_anchor_message(&mut messages, "[指令回锚]\n第二次".to_string());
+
+        let anchors: Vec<_> = messages
+            .iter()
+            .filter(|message| is_instruction_anchor_message(message))
+            .collect();
+        assert_eq!(anchors.len(), 1);
+        assert_eq!(anchors[0].content.as_deref(), Some("[指令回锚]\n第二次"));
+        assert_eq!(messages[1].content.as_deref(), Some("任务"));
+    }
+
+    #[test]
+    fn 测试清理回锚消息不会删除对话历史() {
+        let mut messages = vec![
+            ChatMessage::system(build_system_prompt(ExecutionMode::Exec)),
+            ChatMessage::user("旧任务"),
+            ChatMessage::system("[指令回锚]\n旧任务"),
+            ChatMessage::assistant("旧回复"),
+            ChatMessage::user("新任务"),
+        ];
+
+        clear_instruction_anchor_messages(&mut messages);
+
+        assert!(!messages.iter().any(is_instruction_anchor_message));
+        assert_eq!(messages.len(), 4);
+        assert_eq!(messages[1].content.as_deref(), Some("旧任务"));
+        assert_eq!(messages[2].content.as_deref(), Some("旧回复"));
+        assert_eq!(messages[3].content.as_deref(), Some("新任务"));
+    }
+
+    #[test]
+    fn 测试工具批次签名排序去重并规范化参数() {
+        let calls = vec![
+            tool_call("2", "write_file", r#"{"b":2,"a":1}"#),
+            tool_call("1", "read_file", r#"{"path":"Cargo.toml"}"#),
+            tool_call("3", "write_file", r#"{"a":1,"b":2}"#),
+        ];
+
+        let signature = normalized_tool_batch_signature(&calls);
+
+        assert_eq!(
+            signature,
+            r#"read_file:{"path":"Cargo.toml"}|write_file:{"a":1,"b":2}"#
+        );
+    }
+
+    #[test]
+    fn 测试模型路由尊重显式模型并在允许时推断路由() {
+        let router = ModelRouter {
+            rules: vec![RoutingRule::new(
+                Some(Difficulty::Hard),
+                Some(TaskType::Code),
+                "hard-code-model",
+            )],
+            fallback: "fallback-model".to_string(),
+        };
+
+        assert_eq!(
+            routed_model(&router, "manual-model", "修复复杂代码问题", false),
+            "manual-model"
+        );
+        assert_eq!(
+            routed_model(&router, "", "修复复杂代码问题并运行测试", true),
+            "hard-code-model"
+        );
+    }
+
+    #[test]
+    fn 测试路由模型会回退不兼容的内置提供商模型() {
+        let router = ModelRouter {
+            rules: vec![RoutingRule::new(
+                Some(Difficulty::Hard),
+                Some(TaskType::Code),
+                "claude-sonnet-4-5",
+            )],
+            fallback: "deepseek-chat".to_string(),
+        };
+
+        assert_eq!(
+            routed_model_for_provider(
+                &router,
+                "deepseek-chat",
+                "deepseek",
+                "修复复杂代码问题并运行测试",
+                true,
+            ),
+            "deepseek-chat"
+        );
+    }
+
+    #[test]
+    fn 测试路由模型接受当前提供商限定模型并去掉前缀() {
+        let router = ModelRouter {
+            rules: vec![RoutingRule::new(
+                Some(Difficulty::Hard),
+                Some(TaskType::Code),
+                "anthropic/claude-sonnet-4-5",
+            )],
+            fallback: "claude-haiku".to_string(),
+        };
+
+        assert_eq!(
+            routed_model_for_provider(
+                &router,
+                "claude-haiku",
+                "claude",
+                "修复复杂代码问题并运行测试",
+                true,
+            ),
+            "claude-sonnet-4-5"
+        );
+    }
+
+    #[test]
+    fn 测试_tui_交互模式映射到执行模式() {
+        assert_eq!(
+            mode_to_execution_mode(InteractionMode::Normal),
+            ExecutionMode::Exec
+        );
+        assert_eq!(
+            mode_to_execution_mode(InteractionMode::Plan),
+            ExecutionMode::Plan
+        );
+        assert_eq!(
+            mode_to_execution_mode(InteractionMode::Autopilot),
+            ExecutionMode::Autopilot
+        );
+        assert_eq!(
+            mode_to_execution_mode(InteractionMode::UltraWork),
+            ExecutionMode::UltraWork
+        );
+    }
+
+    fn tool_call(id: &str, name: &str, arguments: &str) -> ToolCall {
+        ToolCall {
+            id: id.to_string(),
+            call_type: "function".to_string(),
+            function: FunctionCall {
+                name: name.to_string(),
+                arguments: arguments.to_string(),
+            },
+        }
+    }
 }
