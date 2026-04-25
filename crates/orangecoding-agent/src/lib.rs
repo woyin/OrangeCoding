@@ -43,6 +43,9 @@ pub mod context;
 /// 工具执行器模块
 pub mod executor;
 
+/// 模式化执行系统提示词模块
+pub mod execution_prompt;
+
 /// Hashline 编辑模块
 pub mod hashline;
 
