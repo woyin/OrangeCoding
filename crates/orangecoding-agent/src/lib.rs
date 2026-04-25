@@ -67,6 +67,9 @@ pub mod ttsr;
 /// 记忆系统模块
 pub mod memory;
 
+/// 运行时模型路由与执行配置模块
+pub mod model_router;
+
 /// Token 预算状态机模块
 pub mod token_budget;
 
