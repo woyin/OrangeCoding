@@ -5,8 +5,6 @@ use std::collections::VecDeque;
 pub enum BudgetDecision {
     /// 继续执行下一步。
     Continue,
-    /// 预算已自动扩展。
-    BudgetExtended { new_budget: u32 },
     /// 检测到必须停止的情况。
     HardStop { reason: String },
 }
@@ -55,9 +53,6 @@ impl StepBudgetGuard {
         if self.current > self.budget {
             let extension = (self.budget.saturating_add(1) / 2).max(1);
             self.budget = self.budget.saturating_add(extension);
-            return BudgetDecision::BudgetExtended {
-                new_budget: self.budget,
-            };
         }
 
         BudgetDecision::Continue
@@ -84,10 +79,7 @@ mod tests {
 
         assert_eq!(guard.tick("read:file_a"), BudgetDecision::Continue);
         assert_eq!(guard.tick("write:file_b"), BudgetDecision::Continue);
-        assert_eq!(
-            guard.tick("run:test_c"),
-            BudgetDecision::BudgetExtended { new_budget: 3 }
-        );
+        assert_eq!(guard.tick("run:test_c"), BudgetDecision::Continue);
         assert_eq!(guard.current(), 3);
         assert_eq!(guard.budget(), 3);
     }
@@ -99,10 +91,7 @@ mod tests {
         assert_eq!(guard.tick("a"), BudgetDecision::Continue);
         assert_eq!(guard.tick("b"), BudgetDecision::Continue);
         assert_eq!(guard.tick("c"), BudgetDecision::Continue);
-        assert_eq!(
-            guard.tick("d"),
-            BudgetDecision::BudgetExtended { new_budget: 5 }
-        );
+        assert_eq!(guard.tick("d"), BudgetDecision::Continue);
         assert_eq!(guard.budget(), 5);
     }
 
