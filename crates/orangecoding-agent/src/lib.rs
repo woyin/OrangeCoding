@@ -52,6 +52,9 @@ pub mod hooks;
 /// 意图门控模块（请求意图分类）
 pub mod intent_gate;
 
+/// 指令回锚模块
+pub mod instruction_anchor;
+
 /// 技能系统模块
 pub mod skills;
 
