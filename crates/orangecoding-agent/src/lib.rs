@@ -130,6 +130,9 @@ pub mod memory_anchor;
 /// 任务交接文档（Handoff Artifact）
 pub mod handoff;
 
+/// Harness 对齐层模块
+pub mod harness;
+
 /// 验证 Agent 框架
 pub mod verification;
 
