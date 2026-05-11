@@ -47,7 +47,7 @@ Layer 0: core (no internal deps)
 Additional cross-layer deps:
 - `cli` → `agent`, `config`, `tui`, `mesh`, `mcp`, `control-server`, `worker`
 - `control-server` → `control-protocol`, `worker`, `core`
-- `worker` → `control-protocol`, `core`
+- `worker` → `control-protocol`, `agent`, `core`
 - `tui` → `core`
 
 ## Technology Stack
