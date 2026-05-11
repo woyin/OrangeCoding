@@ -149,6 +149,35 @@ func TestToolNameEmpty(t *testing.T) {
 	}
 }
 
+func TestToolNameJSONRoundTrip(t *testing.T) {
+	original := NewToolName("bash")
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal(ToolName) error: %v", err)
+	}
+	if string(data) != `"bash"` {
+		t.Fatalf("Marshal(ToolName) = %s, want %q", data, `"bash"`)
+	}
+	var got ToolName
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal(ToolName) error: %v", err)
+	}
+	if got != original {
+		t.Fatalf("round-trip: got %v, want %v", got, original)
+	}
+}
+
+func TestToolNameMarshalNotEmptyObject(t *testing.T) {
+	name := NewToolName("edit")
+	data, err := json.Marshal(name)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+	if string(data) == `{}` {
+		t.Fatalf("ToolName should not serialize as {}, got %s", data)
+	}
+}
+
 // --- TokenUsage ---
 
 func TestNewTokenUsage(t *testing.T) {
@@ -205,6 +234,25 @@ func TestTokenUsageAccumulateZero(t *testing.T) {
 	}
 }
 
+func TestTokenUsageJSONSnakeCase(t *testing.T) {
+	tu := NewTokenUsage(100, 50)
+	data, err := json.Marshal(tu)
+	if err != nil {
+		t.Fatalf("Marshal(TokenUsage) error: %v", err)
+	}
+	want := `{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150}`
+	if string(data) != want {
+		t.Fatalf("Marshal(TokenUsage) = %s, want %s", data, want)
+	}
+	var got TokenUsage
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal(TokenUsage) error: %v", err)
+	}
+	if got != tu {
+		t.Fatalf("round-trip: got %+v, want %+v", got, tu)
+	}
+}
+
 // --- AgentRole ---
 
 func TestAgentRoleValues(t *testing.T) {
@@ -246,6 +294,31 @@ func TestAgentRoleMarshalJSON(t *testing.T) {
 	}
 	if string(data) != `"coder"` {
 		t.Errorf("Marshal(RoleCoder) = %s, want %q", data, `"coder"`)
+	}
+}
+
+func TestAgentRoleJSONRoundTrip(t *testing.T) {
+	roles := []AgentRole{RoleCoder, RoleReviewer, RolePlanner, RoleExecutor, RoleObserver}
+	for _, r := range roles {
+		data, err := json.Marshal(r)
+		if err != nil {
+			t.Fatalf("Marshal(%v) error: %v", r, err)
+		}
+		var got AgentRole
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatalf("Unmarshal(%s) error: %v", data, err)
+		}
+		if got != r {
+			t.Errorf("round-trip: got %v, want %v", got, r)
+		}
+	}
+}
+
+func TestAgentRoleUnmarshalJSONInvalid(t *testing.T) {
+	var r AgentRole
+	err := json.Unmarshal([]byte(`"invalid"`), &r)
+	if err == nil {
+		t.Error("expected error for invalid agent role string, got nil")
 	}
 }
 
@@ -302,6 +375,31 @@ func TestAgentStatusString(t *testing.T) {
 		if got := tt.status.String(); got != tt.want {
 			t.Errorf("AgentStatus(%d).String() = %q, want %q", tt.status, got, tt.want)
 		}
+	}
+}
+
+func TestAgentStatusJSONRoundTrip(t *testing.T) {
+	statuses := []AgentStatus{StatusIdle, StatusRunning, StatusWaiting, StatusCompleted, StatusFailed}
+	for _, s := range statuses {
+		data, err := json.Marshal(s)
+		if err != nil {
+			t.Fatalf("Marshal(%v) error: %v", s, err)
+		}
+		var got AgentStatus
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatalf("Unmarshal(%s) error: %v", data, err)
+		}
+		if got != s {
+			t.Errorf("round-trip: got %v, want %v", got, s)
+		}
+	}
+}
+
+func TestAgentStatusUnmarshalJSONInvalid(t *testing.T) {
+	var s AgentStatus
+	err := json.Unmarshal([]byte(`"invalid"`), &s)
+	if err == nil {
+		t.Error("expected error for invalid agent status string, got nil")
 	}
 }
 
@@ -389,6 +487,40 @@ func TestAgentCapabilityEmptyTools(t *testing.T) {
 	}
 	if cap.SupportsTool(NewToolName("bash")) {
 		t.Error("expected SupportsTool(bash) = false for empty tools")
+	}
+}
+
+func TestAgentCapabilityJSON(t *testing.T) {
+	cap := AgentCapability{
+		Name:        "code-generation",
+		Description: "Can generate code",
+		SupportedTools: []ToolName{
+			NewToolName("bash"),
+			NewToolName("edit"),
+		},
+	}
+	data, err := json.Marshal(cap)
+	if err != nil {
+		t.Fatalf("Marshal(AgentCapability) error: %v", err)
+	}
+	want := `{"name":"code-generation","description":"Can generate code","supported_tools":["bash","edit"]}`
+	if string(data) != want {
+		t.Fatalf("Marshal(AgentCapability) = %s, want %s", data, want)
+	}
+	var got AgentCapability
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal(AgentCapability) error: %v", err)
+	}
+	if got.Name != cap.Name || got.Description != cap.Description {
+		t.Fatalf("round-trip name/description mismatch: got %+v, want %+v", got, cap)
+	}
+	if len(got.SupportedTools) != len(cap.SupportedTools) {
+		t.Fatalf("round-trip tools count: got %d, want %d", len(got.SupportedTools), len(cap.SupportedTools))
+	}
+	for i, tool := range got.SupportedTools {
+		if tool != cap.SupportedTools[i] {
+			t.Errorf("tool[%d]: got %v, want %v", i, tool, cap.SupportedTools[i])
+		}
 	}
 }
 

@@ -97,15 +97,25 @@ func (t ToolName) String() string {
 	return t.name
 }
 
+// MarshalJSON serializes ToolName as a plain JSON string.
+func (t ToolName) MarshalJSON() ([]byte, error) {
+	return json.Marshal(t.name)
+}
+
+// UnmarshalJSON deserializes a JSON string into ToolName.
+func (t *ToolName) UnmarshalJSON(data []byte) error {
+	return json.Unmarshal(data, &t.name)
+}
+
 // ---------------------------------------------------------------------------
 // TokenUsage
 // ---------------------------------------------------------------------------
 
 // TokenUsage tracks token consumption for a single LLM call.
 type TokenUsage struct {
-	PromptTokens     uint64
-	CompletionTokens uint64
-	TotalTokens      uint64
+	PromptTokens     uint64 `json:"prompt_tokens"`
+	CompletionTokens uint64 `json:"completion_tokens"`
+	TotalTokens      uint64 `json:"total_tokens"`
 }
 
 // NewTokenUsage creates a TokenUsage with the given prompt and completion token
@@ -167,6 +177,29 @@ func (r AgentRole) MarshalJSON() ([]byte, error) {
 	return json.Marshal(r.String())
 }
 
+// UnmarshalJSON parses a quoted JSON string into an AgentRole.
+func (r *AgentRole) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	switch s {
+	case "coder":
+		*r = RoleCoder
+	case "reviewer":
+		*r = RoleReviewer
+	case "planner":
+		*r = RolePlanner
+	case "executor":
+		*r = RoleExecutor
+	case "observer":
+		*r = RoleObserver
+	default:
+		return fmt.Errorf("unknown agent role: %q", s)
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // AgentStatus (iota enum)
 // ---------------------------------------------------------------------------
@@ -207,6 +240,34 @@ func (s AgentStatus) IsTerminal() bool {
 // IsActive returns true for Running and Waiting statuses.
 func (s AgentStatus) IsActive() bool {
 	return s == StatusRunning || s == StatusWaiting
+}
+
+// MarshalJSON returns the status as a quoted JSON string.
+func (s AgentStatus) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.String())
+}
+
+// UnmarshalJSON parses a quoted JSON string into an AgentStatus.
+func (s *AgentStatus) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err != nil {
+		return err
+	}
+	switch str {
+	case "idle":
+		*s = StatusIdle
+	case "running":
+		*s = StatusRunning
+	case "waiting":
+		*s = StatusWaiting
+	case "completed":
+		*s = StatusCompleted
+	case "failed":
+		*s = StatusFailed
+	default:
+		return fmt.Errorf("unknown agent status: %q", str)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -271,9 +332,9 @@ func (r *Role) UnmarshalJSON(data []byte) error {
 // AgentCapability describes a capability that an agent possesses,
 // including which tools it supports.
 type AgentCapability struct {
-	Name           string
-	Description    string
-	SupportedTools []ToolName
+	Name           string     `json:"name"`
+	Description    string     `json:"description"`
+	SupportedTools []ToolName `json:"supported_tools"`
 }
 
 // SupportsTool checks whether this capability supports the given tool.
