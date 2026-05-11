@@ -27,6 +27,25 @@ func (a AgentId) String() string {
 	return "agent-" + a.id.String()
 }
 
+// MarshalJSON serializes AgentId as a quoted JSON string.
+func (a AgentId) MarshalJSON() ([]byte, error) {
+	return json.Marshal(a.String())
+}
+
+// UnmarshalJSON deserializes a JSON string into AgentId.
+func (a *AgentId) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err != nil {
+		return err
+	}
+	parsed, err := ParseAgentId(str)
+	if err != nil {
+		return err
+	}
+	*a = parsed
+	return nil
+}
+
 // ParseAgentId parses a string in the format "agent-{uuid}" and returns an AgentId.
 func ParseAgentId(s string) (AgentId, error) {
 	if !strings.HasPrefix(s, "agent-") {
@@ -60,6 +79,25 @@ func NewSessionId() SessionId {
 // String returns the session ID in the format "session-{uuid}".
 func (s SessionId) String() string {
 	return "session-" + s.id.String()
+}
+
+// MarshalJSON serializes SessionId as a quoted JSON string.
+func (s SessionId) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.String())
+}
+
+// UnmarshalJSON deserializes a JSON string into SessionId.
+func (s *SessionId) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err != nil {
+		return err
+	}
+	parsed, err := ParseSessionId(str)
+	if err != nil {
+		return err
+	}
+	*s = parsed
+	return nil
 }
 
 // ParseSessionId parses a string in the format "session-{uuid}" and returns a SessionId.
