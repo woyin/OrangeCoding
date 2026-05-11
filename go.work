@@ -1,0 +1,19 @@
+go 1.22
+
+use (
+	./modules/agent
+	./modules/ai
+	./modules/audit
+	./modules/cli
+	./modules/config
+	./modules/control-protocol
+	./modules/control-server
+	./modules/core
+	./modules/invariant
+	./modules/mcp
+	./modules/mesh
+	./modules/session
+	./modules/tools
+	./modules/tui
+	./modules/worker
+)
