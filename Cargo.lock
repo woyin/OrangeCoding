@@ -1388,6 +1388,7 @@ dependencies = [
  "mockall",
  "orangecoding-ai",
  "orangecoding-core",
+ "orangecoding-invariant",
  "orangecoding-tools",
  "regex",
  "ring",

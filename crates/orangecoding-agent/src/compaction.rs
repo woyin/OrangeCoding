@@ -318,7 +318,6 @@ impl MicroCompactor {
             // 对于 CompactionMessage，我们通过工具名称标注来判断
             // 简化策略：所有 tool 角色的旧消息都可压缩
             // （更精确的实现需要在 CompactionMessage 中追踪工具名称）
-            let old_tokens = messages[idx].token_estimate;
             let placeholder_tokens = ContextCompactor::estimate_tokens(MICRO_COMPACT_PLACEHOLDER);
 
             messages[idx].content = MICRO_COMPACT_PLACEHOLDER.to_string();

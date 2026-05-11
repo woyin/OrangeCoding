@@ -1,4 +1,5 @@
 //! OrangeCoding 核心类型和 trait 库
+#![allow(non_snake_case)]
 //!
 //! `orangecoding-core` 是 OrangeCoding 系统的基础 crate，定义了所有其他 crate 共享的
 //! 核心类型、错误处理、事件系统和消息格式。

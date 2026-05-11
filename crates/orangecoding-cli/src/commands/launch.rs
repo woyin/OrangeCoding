@@ -20,6 +20,7 @@ use orangecoding_ai::{
 };
 use orangecoding_config::{ModelsConfig, OrangeConfig};
 use orangecoding_core::message::Role;
+use orangecoding_tools::permissions::PermissionContext;
 use orangecoding_tools::{create_default_registry, SecurityPolicy, ToolRegistry};
 use orangecoding_tui::App;
 
@@ -550,6 +551,7 @@ async fn run_single_shot(
     println!("🚀 正在执行任务: {}", prompt);
     println!();
 
+    let permission_ctx = PermissionContext::new(std::env::current_dir()?);
     let runtime_config = load_runtime_config();
     let execution_mode = if goal {
         ExecutionMode::Goal
@@ -630,7 +632,10 @@ async fn run_single_shot(
                     .unwrap_or(serde_json::Value::Object(Default::default()));
 
                 // 执行工具
-                let tool_result = match registry.execute(tool_name, params).await {
+                let tool_result = match registry
+                    .execute_with_permissions(tool_name, params, &permission_ctx)
+                    .await
+                {
                     Ok(output) => output,
                     Err(e) => format!("工具执行错误: {}", e),
                 };
@@ -691,6 +696,7 @@ async fn run_tui_mode(
     use std::time::Duration;
 
     info!("正在启动 TUI 交互模式...");
+    let permission_ctx = PermissionContext::new(std::env::current_dir()?);
     let runtime_config = load_runtime_config();
     let mut model_manually_selected = explicit_model;
 
@@ -873,11 +879,17 @@ async fn run_tui_mode(
                                                 Default::default(),
                                             ));
 
-                                    let tool_result =
-                                        match registry.execute(tool_name, params).await {
-                                            Ok(output) => output,
-                                            Err(e) => format!("工具执行错误: {}", e),
-                                        };
+                                    let tool_result = match registry
+                                        .execute_with_permissions(
+                                            tool_name,
+                                            params,
+                                            &permission_ctx,
+                                        )
+                                        .await
+                                    {
+                                        Ok(output) => output,
+                                        Err(e) => format!("工具执行错误: {}", e),
+                                    };
 
                                     messages.push(ChatMessage::tool_result(
                                         &tool_call.id,
@@ -985,10 +997,7 @@ fn handle_slash_command(app: &mut App, options: &mut ChatOptions, name: &str, ar
             } else {
                 app.add_message(
                     Role::System,
-                    format!(
-                        "未知模式: {}。可选: normal, plan, goal, ultrawork",
-                        args
-                    ),
+                    format!("未知模式: {}。可选: normal, plan, goal, ultrawork", args),
                 );
             }
         }
@@ -1100,6 +1109,7 @@ async fn run_text_loop(
     explicit_model: bool,
     config: &OrangeConfig,
 ) -> Result<()> {
+    let permission_ctx = PermissionContext::new(std::env::current_dir()?);
     let runtime_config = load_runtime_config();
 
     // 维护对话消息历史
@@ -1205,7 +1215,10 @@ async fn run_text_loop(
                         serde_json::from_str(&tool_call.function.arguments)
                             .unwrap_or(serde_json::Value::Object(Default::default()));
 
-                    let result = match registry.execute(tool_name, params).await {
+                    let result = match registry
+                        .execute_with_permissions(tool_name, params, &permission_ctx)
+                        .await
+                    {
                         Ok(output) => output,
                         Err(e) => format!("工具执行错误: {}", e),
                     };

@@ -18,17 +18,18 @@
   - Buddy: B-001~B-002 (确定性身份、异步观察者)
   - KAIROS: K-001~K-003 (后采样钩子、建议引擎、上下文提示)
 - **Web 控制面 Phase A**: 本地 Web 控制 (协议/服务器/Worker/CLI serve)
+- **不变量提取** (Phase 3): `docs/invariants.md` — 18 条规则 8 个类别
+- **不变量测试** (Phase 4): 6 个集成测试套件
+- **不变量检查器** (Phase 5): `orangecoding-invariant` crate (checker/report/rules)
+- **Pre-Check Gate** (Phase 6): 集成到 agent executor，自主模式下拦截 git commit
+- **Runtime Guard** (Phase 7): 集成到 agent executor，拦截高危工具调用
+- **Auto Rollback** (Phase 8): rollback 模块 + Goal 配置集成
+- **Verification Agent** (Phase 9): 5 项检查流水线 + Goal 配置集成
+- **Self-Healing** (Phase 10): 检测→建议→修复→验证生命周期
+- **Self-Evolving** (Phase 11): 模式学习→策略生成→快照比较
+- **Agent OS 文档** (Phase 12): `docs/agent_os.md` — 完整架构文档
 
 ### 缺失
-- 系统不变量定义与测试
-- 不变量检查器 (Invariant Checker)
-- 提交前门控 (Pre-Check Gate)
-- 运行时守卫 (Runtime Guard)
-- 自动回滚 (Auto Rollback)
-- 验证代理 (Verification Agent — 生产版)
-- 自我修复 (Self-Healing)
-- 自我进化 (Self-Evolving)
-- Agent OS 架构文档
 - Web 控制面 Phase B/C
 
 ---

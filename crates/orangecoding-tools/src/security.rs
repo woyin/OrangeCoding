@@ -392,6 +392,23 @@ impl Tool for FileOperationGuard {
         self.inner.parameters_schema()
     }
 
+    fn metadata(&self) -> crate::ToolMetadata {
+        self.inner.metadata()
+    }
+
+    fn validate_input(&self, params: &Value) -> ToolResult<()> {
+        self.inner.validate_input(params)?;
+        self.validate_params(params)
+    }
+
+    fn check_permissions(
+        &self,
+        params: &Value,
+        ctx: &crate::permissions::PermissionContext,
+    ) -> crate::permissions::PermissionDecision {
+        self.inner.check_permissions(params, ctx)
+    }
+
     /// 安全执行工具操作
     ///
     /// 先进行路径安全检查，通过后再委托给内部工具执行。

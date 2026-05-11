@@ -5,7 +5,6 @@
 //! 它拥有完整的工具访问权限，不受任何工具限制。
 
 use super::{AgentDefinition, AgentKind};
-use std::collections::HashSet;
 
 /// 系统提示词常量 — 描述 Sisyphus 的角色和行为准则
 const SYSTEM_PROMPT: &str = "\

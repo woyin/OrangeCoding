@@ -14,6 +14,8 @@
 /// 工具调用信息（用于分区判断）
 #[derive(Clone, Debug)]
 pub struct ToolCallInfo {
+    /// 原始调用位置
+    pub original_index: usize,
     /// 工具名称
     pub tool_name: String,
     /// 调用 ID
@@ -100,6 +102,7 @@ mod tests {
 
     fn safe_call(name: &str) -> ToolCallInfo {
         ToolCallInfo {
+            original_index: 0,
             tool_name: name.to_string(),
             call_id: format!("id-{}", name),
             is_concurrency_safe: true,
@@ -108,6 +111,7 @@ mod tests {
 
     fn unsafe_call(name: &str) -> ToolCallInfo {
         ToolCallInfo {
+            original_index: 0,
             tool_name: name.to_string(),
             call_id: format!("id-{}", name),
             is_concurrency_safe: false,

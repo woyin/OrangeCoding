@@ -72,6 +72,10 @@ pub struct GoalConfig {
     pub completion_promise: String,
     /// 是否启用漂移检测
     pub enable_drift_detection: bool,
+    /// 是否启用自动回滚（验证失败时）
+    pub enable_auto_rollback: bool,
+    /// 是否启用不变量验证
+    pub enable_invariant_verification: bool,
 }
 
 impl Default for GoalConfig {
@@ -83,6 +87,8 @@ impl Default for GoalConfig {
             auto_commit_per_cycle: true,
             completion_promise: "GOAL_COMPLETE".to_string(),
             enable_drift_detection: true,
+            enable_auto_rollback: true,
+            enable_invariant_verification: true,
         }
     }
 }
@@ -242,10 +248,7 @@ impl GoalMode {
                 true
             }
             GoalPhase::Verifying => {
-                let passed = self
-                    .last_verification
-                    .as_ref()
-                    .map_or(false, |v| v.passed);
+                let passed = self.last_verification.as_ref().map_or(false, |v| v.passed);
 
                 if passed {
                     self.phase = GoalPhase::Done;
@@ -511,8 +514,7 @@ mod tests {
             reason: "编译错误".to_string(),
         };
         let json = serde_json::to_string(&status).expect("序列化失败");
-        let deserialized: GoalTaskStatus =
-            serde_json::from_str(&json).expect("反序列化失败");
+        let deserialized: GoalTaskStatus = serde_json::from_str(&json).expect("反序列化失败");
         assert_eq!(status, deserialized);
     }
 
@@ -535,16 +537,12 @@ mod tests {
             context: "项目使用 Actix-web 框架".to_string(),
         };
         let json = serde_json::to_string(&plan).expect("序列化失败");
-        let deserialized: GoalPlan =
-            serde_json::from_str(&json).expect("反序列化失败");
+        let deserialized: GoalPlan = serde_json::from_str(&json).expect("反序列化失败");
         assert_eq!(plan.requirement, deserialized.requirement);
         assert_eq!(plan.tasks.len(), deserialized.tasks.len());
         assert_eq!(plan.tasks[0].id, deserialized.tasks[0].id);
         assert_eq!(plan.cycle, deserialized.cycle);
-        assert_eq!(
-            plan.forbidden_detours,
-            deserialized.forbidden_detours
-        );
+        assert_eq!(plan.forbidden_detours, deserialized.forbidden_detours);
         assert_eq!(plan.context, deserialized.context);
     }
 

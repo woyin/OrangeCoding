@@ -1,4 +1,5 @@
 //! OrangeCoding 多代理网格系统
+#![allow(non_snake_case)]
 //!
 //! `orangecoding-mesh` 是 OrangeCoding 系统的多代理协调 crate，负责管理代理之间的
 //! 通信、协作和任务编排。提供了共享状态、消息总线、代理注册、

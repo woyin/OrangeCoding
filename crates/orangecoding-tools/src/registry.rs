@@ -18,6 +18,7 @@ use crate::grep_tool::GrepTool;
 use crate::lsp_tool::LspTool;
 use crate::multi_edit_tool::MultiEditTool;
 use crate::notebook_tool::NotebookTool;
+use crate::permissions::{PermissionContext, PermissionDecision};
 use crate::python_tool::PythonTool;
 use crate::security::{FileOperationGuard, PathValidator, SecurityPolicy};
 use crate::ssh_tool::SshTool;
@@ -159,7 +160,8 @@ impl ToolRegistry {
 
     /// 通过名称执行指定工具
     ///
-    /// 便捷方法，自动查找工具并调用其 `execute` 方法。
+    /// 便捷方法，自动查找工具并按标准执行管线调用：
+    /// `validate_input` → `check_permissions` → `execute`。
     ///
     /// # 参数
     /// - `name`: 工具名称
@@ -168,9 +170,38 @@ impl ToolRegistry {
     /// # 返回值
     /// 工具执行结果或错误
     pub async fn execute(&self, name: &str, params: Value) -> ToolResult<String> {
+        self.execute_with_permissions(name, params, &PermissionContext::default())
+            .await
+    }
+
+    /// 使用指定权限上下文执行工具。
+    pub async fn execute_with_permissions(
+        &self,
+        name: &str,
+        params: Value,
+        ctx: &PermissionContext,
+    ) -> ToolResult<String> {
         let tool = self
             .get(name)
             .ok_or_else(|| ToolError::NotFound(name.to_string()))?;
+
+        tool.validate_input(&params)?;
+        match tool.check_permissions(&params, ctx) {
+            PermissionDecision::Allow => {}
+            PermissionDecision::Deny(reason) => {
+                return Err(ToolError::SecurityViolation(format!(
+                    "权限拒绝: {}",
+                    reason
+                )));
+            }
+            PermissionDecision::Ask(prompt) => {
+                return Err(ToolError::SecurityViolation(format!(
+                    "需要用户确认: {}",
+                    prompt
+                )));
+            }
+        }
+
         tool.execute(params).await
     }
 }
@@ -277,9 +308,11 @@ pub fn create_default_registry(policy: SecurityPolicy) -> ToolRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::permissions;
     use crate::Tool;
     use async_trait::async_trait;
     use serde_json::json;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// 用于测试的简单模拟工具
     #[derive(Debug)]
@@ -425,6 +458,93 @@ mod tests {
             ToolError::NotFound(name) => assert_eq!(name, "unknown"),
             other => panic!("期望 NotFound 错误，得到: {:?}", other),
         }
+    }
+
+    #[derive(Debug)]
+    struct RegistryDenyTool {
+        execute_count: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl Tool for RegistryDenyTool {
+        fn name(&self) -> &str {
+            "registry_deny"
+        }
+
+        fn description(&self) -> &str {
+            "注册表权限拒绝测试工具"
+        }
+
+        fn parameters_schema(&self) -> Value {
+            json!({"type": "object", "properties": {}})
+        }
+
+        async fn execute(&self, _params: Value) -> ToolResult<String> {
+            self.execute_count.fetch_add(1, Ordering::SeqCst);
+            Ok("不应执行".to_string())
+        }
+
+        fn check_permissions(
+            &self,
+            _params: &Value,
+            _ctx: &permissions::PermissionContext,
+        ) -> permissions::PermissionDecision {
+            permissions::PermissionDecision::Deny("registry deny".to_string())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_registry_execute_respects_deny_permission() {
+        let registry = ToolRegistry::new();
+        let tool = Arc::new(RegistryDenyTool {
+            execute_count: AtomicUsize::new(0),
+        });
+        registry.register(tool.clone());
+
+        let result = registry.execute("registry_deny", json!({})).await;
+
+        assert!(matches!(result, Err(ToolError::SecurityViolation(_))));
+        assert_eq!(tool.execute_count.load(Ordering::SeqCst), 0);
+    }
+
+    #[derive(Debug)]
+    struct RegistryAskTool;
+
+    #[async_trait]
+    impl Tool for RegistryAskTool {
+        fn name(&self) -> &str {
+            "registry_ask"
+        }
+
+        fn description(&self) -> &str {
+            "注册表权限确认测试工具"
+        }
+
+        fn parameters_schema(&self) -> Value {
+            json!({"type": "object", "properties": {}})
+        }
+
+        async fn execute(&self, _params: Value) -> ToolResult<String> {
+            Ok("不应执行".to_string())
+        }
+
+        fn check_permissions(
+            &self,
+            _params: &Value,
+            _ctx: &permissions::PermissionContext,
+        ) -> permissions::PermissionDecision {
+            permissions::PermissionDecision::Ask("需要确认".to_string())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_registry_execute_blocks_ask_permission() {
+        let registry = ToolRegistry::new();
+        registry.register(Arc::new(RegistryAskTool));
+
+        let result = registry.execute("registry_ask", json!({})).await;
+
+        assert!(matches!(result, Err(ToolError::SecurityViolation(_))));
     }
 
     /// 测试默认注册表包含所有内置工具

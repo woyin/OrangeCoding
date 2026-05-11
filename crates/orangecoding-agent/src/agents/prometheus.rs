@@ -5,7 +5,6 @@
 //! 创建和修改 Markdown 文件），但可以委派分析任务给 Metis 和 Momus。
 
 use super::{AgentDefinition, AgentKind};
-use std::collections::HashSet;
 
 /// 系统提示词常量 — 描述 Prometheus 的角色和行为准则
 const SYSTEM_PROMPT: &str = "\

@@ -2,6 +2,8 @@
 //!
 //! 实现 `orangecoding init` 子命令，用于初始化项目的 OrangeCoding 配置。
 
+use anyhow::{Context, Result};
+use clap::Args;
 use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
@@ -12,17 +14,22 @@ use std::path::{Path, PathBuf};
 pub struct InitCommand;
 
 /// 初始化选项
-#[derive(Clone, Debug)]
+#[derive(Args, Clone, Debug)]
 pub struct InitOptions {
     /// 项目根目录
+    #[arg(long, default_value = ".")]
     pub project_dir: PathBuf,
     /// 是否创建 config.toml
+    #[arg(long, default_value_t = true)]
     pub create_config: bool,
     /// 是否创建 AGENTS.md
+    #[arg(long, default_value_t = true)]
     pub create_agents_md: bool,
     /// 是否创建 .orangecoding/commands 目录
+    #[arg(long, default_value_t = true)]
     pub create_commands_dir: bool,
     /// AI 提供商（可选）
+    #[arg(long)]
     pub provider: Option<String>,
 }
 
@@ -143,6 +150,34 @@ max_entries = 1000
             .join("config.toml")
             .exists()
     }
+}
+
+/// 执行项目初始化
+pub async fn execute(options: InitOptions) -> Result<()> {
+    if InitCommand::is_initialized(&options.project_dir) {
+        println!("项目已初始化: {}", options.project_dir.display());
+        return Ok(());
+    }
+
+    for (path, content) in InitCommand::files_to_create(&options) {
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .with_context(|| format!("创建目录失败: {}", parent.display()))?;
+        }
+
+        if path.exists() {
+            println!("跳过已存在文件: {}", path.display());
+            continue;
+        }
+
+        tokio::fs::write(&path, content)
+            .await
+            .with_context(|| format!("写入文件失败: {}", path.display()))?;
+        println!("已创建: {}", path.display());
+    }
+
+    Ok(())
 }
 
 // ===========================================================================

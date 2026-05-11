@@ -836,8 +836,8 @@ genesis(000...0)  SHA-256(hash₁+data₂)  SHA-256(hash₂+data₃)
 | 不变量定义 | `orangecoding-invariant/rules.rs` | `InvariantRule` (18 条) | ✅ 已完成 |
 | 运行时检查 | `orangecoding-invariant/checker.rs` | `InvariantChecker` | ✅ 已完成 |
 | 违规报告 | `orangecoding-invariant/report.rs` | `ViolationReport` | ✅ 已完成 |
-| 预检门控 | `orangecoding-invariant/gate.rs` | `PreCheckGate` | ✅ 已完成 |
-| 运行时守卫 | `orangecoding-invariant/runtime_guard.rs` | `RuntimeGuard` | ✅ 已完成 |
+| 预检门控 | `orangecoding-invariant/gate.rs` | `PreCheckGate` | ✅ 已集成到 executor |
+| 运行时守卫 | `orangecoding-invariant/runtime_guard.rs` | `RuntimeGuard` | ✅ 已集成到 executor |
 | 自动回滚 | `orangecoding-invariant/rollback.rs` | `AutoRollback` | ✅ 已完成 |
 | 验证代理 | `orangecoding-invariant/verification.rs` | `VerificationAgent` | ✅ 已完成 |
 | 自我修复 | `orangecoding-invariant/healing.rs` | `SelfHealer` | ✅ 已完成 |

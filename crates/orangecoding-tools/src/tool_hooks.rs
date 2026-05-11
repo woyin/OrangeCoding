@@ -184,13 +184,13 @@ impl OutputTruncationHook {
 
 impl PostToolHook for OutputTruncationHook {
     fn on_tool_complete(&self, ctx: &HookContext) -> HookResult {
-        if ctx.output.len() > self.max_chars {
-            let truncated: String = ctx.output.chars().take(self.max_chars).collect();
+        let original_chars = ctx.output.chars().count();
+        if original_chars > self.max_chars {
+            let truncated_content: String = ctx.output.chars().take(self.max_chars).collect();
+            let truncated_chars = truncated_content.chars().count();
             let truncated = format!(
                 "{}...\n[输出已截断: {} -> {} 字符]",
-                truncated,
-                ctx.output.len(),
-                truncated.chars().count()
+                truncated_content, original_chars, truncated_chars
             );
             HookResult::ModifyOutput(truncated)
         } else {

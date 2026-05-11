@@ -5,7 +5,6 @@
 //! 可以委派子任务，并以精确、深入的方式完成工作。
 
 use super::{AgentDefinition, AgentKind};
-use std::collections::HashSet;
 
 /// 系统提示词常量 — 描述 Hephaestus 的角色和行为准则
 const SYSTEM_PROMPT: &str = "\

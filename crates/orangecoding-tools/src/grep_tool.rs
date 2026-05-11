@@ -426,7 +426,7 @@ mod tests {
         let dir = setup_test_dir();
 
         // 创建包含 null 字节的二进制文件
-        let mut binary_content = b"match_this\x00binary data".to_vec();
+        let binary_content = b"match_this\x00binary data".to_vec();
         fs::write(dir.path().join("binary.bin"), &binary_content).unwrap();
 
         let tool = GrepTool::new();

@@ -324,7 +324,7 @@ mod tests {
 
     #[test]
     fn test_empty_summary() {
-        let mut summary = ToolUsageSummary::new();
+        let summary = ToolUsageSummary::new();
         assert_eq!(summary.total_calls(), 0);
         assert_eq!(summary.total_failures(), 0);
         assert_eq!(summary.overall_success_rate(), 1.0);

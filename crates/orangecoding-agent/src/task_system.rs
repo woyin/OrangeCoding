@@ -10,7 +10,6 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use dashmap::DashMap;
@@ -648,7 +647,6 @@ mod tests {
         registry.register(TaskState::new(id1, "任务1"));
 
         let id2 = TaskId::new(TaskKind::Agent);
-        let id2_str = id2.as_str().to_string();
         registry.register(TaskState::new(id2, "任务2"));
 
         // 转换第一个任务为 Running

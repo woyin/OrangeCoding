@@ -117,3 +117,4 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 orangecoding-control-protocol = { path = "crates/orangecoding-control-protocol" }
 orangecoding-control-server = { path = "crates/orangecoding-control-server" }
 orangecoding-worker = { path = "crates/orangecoding-worker" }
+orangecoding-invariant = { path = "crates/orangecoding-invariant" }

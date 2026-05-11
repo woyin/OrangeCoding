@@ -13,7 +13,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::prometheus::{PlanDocument, PlanTask};
+use super::prometheus::PlanDocument;
 
 // ============================================================
 // 智慧积累
@@ -326,6 +326,7 @@ impl Default for AtlasOrchestrator {
 
 #[cfg(test)]
 mod tests {
+    use super::super::prometheus::PlanTask;
     use super::*;
 
     /// 辅助函数：创建包含依赖关系的测试计划

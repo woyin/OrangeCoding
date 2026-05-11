@@ -795,8 +795,7 @@ mod tests {
             "stream_chunk"
         );
         assert_eq!(
-            AgentEvent::goal_phase_changed(aid.clone(), sid.clone(), "planning", 1)
-                .event_kind(),
+            AgentEvent::goal_phase_changed(aid.clone(), sid.clone(), "planning", 1).event_kind(),
             "goal_phase_changed"
         );
         assert_eq!(

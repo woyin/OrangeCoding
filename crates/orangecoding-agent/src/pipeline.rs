@@ -132,6 +132,11 @@ impl AgentPipeline {
     pub fn step_count(&self) -> usize {
         self.steps.len()
     }
+
+    /// 获取管道配置
+    pub fn config(&self) -> &super::agent_config::AgentConfig {
+        &self.config
+    }
 }
 
 // ===========================================================================

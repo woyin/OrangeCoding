@@ -7,10 +7,15 @@
 //! - 单个工具执行的超时控制
 //! - 执行错误的安全包装
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use orangecoding_core::message::{ToolCall, ToolResult};
+use orangecoding_invariant::gate::{GateDecision, GateReport, PreCheckGate};
+use orangecoding_invariant::runtime_guard::{
+    GuardAction, RiskLevel, RuntimeGuard, ToolCallContext,
+};
 use orangecoding_tools::permissions::PermissionContext;
 use orangecoding_tools::ToolRegistry;
 use tracing::{debug, error, info, warn};
@@ -23,6 +28,56 @@ use tracing::{debug, error, info, warn};
 const DEFAULT_TOOL_TIMEOUT: Duration = Duration::from_secs(30);
 
 // ---------------------------------------------------------------------------
+// Pre-Check Gate 类型
+// ---------------------------------------------------------------------------
+
+/// Pre-check gate 配置，仅自主模式启用
+#[derive(Debug, Clone)]
+pub struct GateCheckConfig {
+    /// 工作目录，用于运行 git diff
+    pub working_directory: PathBuf,
+}
+
+/// Gate 检查结果
+enum GateOutcome {
+    Allow,
+    Warn(GateReport),
+    Block(GateReport),
+}
+
+/// Diff 获取抽象，便于测试替换
+pub trait DiffProvider: Send + Sync {
+    fn get_diff(&self, working_dir: &PathBuf) -> String;
+}
+
+/// 生产环境使用 git 命令获取 diff
+pub struct GitDiffProvider;
+
+impl DiffProvider for GitDiffProvider {
+    fn get_diff(&self, working_dir: &PathBuf) -> String {
+        let output = std::process::Command::new("git")
+            .args(["diff", "--cached"])
+            .current_dir(working_dir)
+            .output();
+
+        match output {
+            Ok(o) if !o.stdout.is_empty() => String::from_utf8_lossy(&o.stdout).to_string(),
+            Ok(_) => {
+                let output2 = std::process::Command::new("git")
+                    .args(["diff", "HEAD"])
+                    .current_dir(working_dir)
+                    .output();
+                match output2 {
+                    Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
+                    Err(_) => String::new(),
+                }
+            }
+            Err(_) => String::new(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 工具执行器
 // ---------------------------------------------------------------------------
 
@@ -33,7 +88,6 @@ const DEFAULT_TOOL_TIMEOUT: Duration = Duration::from_secs(30);
 /// - 将工具执行结果转换为 `ToolResult`（可回传给 AI）
 /// - 支持并行批量执行
 /// - 每个工具调用的超时保护
-#[derive(Debug, Clone)]
 pub struct ToolExecutor {
     /// 工具注册表，存储所有可用工具
     registry: Arc<ToolRegistry>,
@@ -41,6 +95,12 @@ pub struct ToolExecutor {
     timeout: Duration,
     /// 权限上下文（用于 check_permissions）
     permission_ctx: Option<PermissionContext>,
+    /// Pre-check gate 配置（仅自主模式启用）
+    gate_config: Option<GateCheckConfig>,
+    /// Diff 获取提供者（默认 GitDiffProvider，测试可替换）
+    diff_provider: Arc<dyn DiffProvider>,
+    /// 运行时守卫（仅自主模式启用）
+    runtime_guard: Option<RuntimeGuard>,
 }
 
 impl ToolExecutor {
@@ -53,6 +113,9 @@ impl ToolExecutor {
             registry,
             timeout: DEFAULT_TOOL_TIMEOUT,
             permission_ctx: None,
+            gate_config: None,
+            diff_provider: Arc::new(GitDiffProvider),
+            runtime_guard: None,
         }
     }
 
@@ -68,6 +131,24 @@ impl ToolExecutor {
     /// 设置权限上下文
     pub fn with_permission_context(mut self, ctx: PermissionContext) -> Self {
         self.permission_ctx = Some(ctx);
+        self
+    }
+
+    /// 启用 pre-check gate（自主模式）
+    pub fn with_gate_check(mut self, config: GateCheckConfig) -> Self {
+        self.gate_config = Some(config);
+        self
+    }
+
+    /// 替换 diff 提供者（测试用）
+    pub fn with_diff_provider(mut self, provider: Arc<dyn DiffProvider>) -> Self {
+        self.diff_provider = provider;
+        self
+    }
+
+    /// 启用运行时守卫（自主模式）
+    pub fn with_runtime_guard(mut self) -> Self {
+        self.runtime_guard = Some(RuntimeGuard::new());
         self
     }
 
@@ -100,6 +181,14 @@ impl ToolExecutor {
             }
         };
 
+        if let Err(err) = tool.validate_input(&tool_call.arguments) {
+            warn!(
+                "工具 {} 参数验证失败: {} (ID: {})",
+                tool_name, err, tool_call_id
+            );
+            return ToolResult::error(tool_call_id, format!("参数验证失败: {}", err));
+        }
+
         // 权限检查
         if let Some(ref ctx) = self.permission_ctx {
             use orangecoding_tools::permissions::PermissionDecision;
@@ -120,6 +209,51 @@ impl ToolExecutor {
                     );
                     return ToolResult::error(tool_call_id, format!("需要用户确认: {}", prompt));
                 }
+            }
+        }
+
+        // Pre-check gate: 自主模式下拦截 git commit
+        if let Some(ref gate_cfg) = self.gate_config {
+            if is_git_commit_call(tool_name, &tool_call.arguments) {
+                match self.run_gate_check(&gate_cfg.working_directory) {
+                    GateOutcome::Block(report) => {
+                        warn!("Pre-check gate 阻止提交: {}", report.reason);
+                        return ToolResult::error(
+                            tool_call_id,
+                            format!(
+                                "Pre-check gate BLOCKED commit:\n{}\n\n请先解决不变量违规后再提交。",
+                                report.to_markdown()
+                            ),
+                        );
+                    }
+                    GateOutcome::Warn(report) => {
+                        warn!("Pre-check gate 警告: {}", report.reason);
+                    }
+                    GateOutcome::Allow => {}
+                }
+            }
+        }
+
+        // Runtime guard: 自主模式下拦截高危工具调用
+        if let Some(ref guard) = self.runtime_guard {
+            let risk = determine_risk_level(tool_name, &tool_call.arguments);
+            let ctx = ToolCallContext {
+                tool_name: tool_name.to_string(),
+                session_id: String::new(),
+                authenticated: true,
+                risk_level: risk,
+            };
+            match guard.check_tool_call(&ctx) {
+                GuardAction::Deny(reason) => {
+                    warn!("Runtime guard 拦截: {}", reason);
+                    return ToolResult::error(tool_call_id, format!("Runtime guard 拒绝: {}", reason));
+                }
+                GuardAction::RequireApproval(reason) => {
+                    warn!("Runtime guard 需要审批: {}", reason);
+                    // 在自主模式中，审批需求被视为警告，但继续执行
+                    // 因为自主模式没有交互式审批通道
+                }
+                GuardAction::Allow => {}
             }
         }
 
@@ -184,13 +318,15 @@ impl ToolExecutor {
 
         let call_infos: Vec<ToolCallInfo> = tool_calls
             .iter()
-            .map(|tc| {
+            .enumerate()
+            .map(|(idx, tc)| {
                 let is_concurrency_safe = self
                     .registry
                     .get(&tc.function_name)
                     .map(|t| t.metadata().is_concurrency_safe)
                     .unwrap_or(false);
                 ToolCallInfo {
+                    original_index: idx,
                     tool_name: tc.function_name.clone(),
                     call_id: tc.id.clone(),
                     is_concurrency_safe,
@@ -208,10 +344,7 @@ impl ToolExecutor {
                     .calls
                     .iter()
                     .map(|info| {
-                        let idx = tool_calls
-                            .iter()
-                            .position(|tc| tc.id == info.call_id)
-                            .unwrap();
+                        let idx = info.original_index;
                         async move { (idx, self.execute_tool_call(&tool_calls[idx]).await) }
                     })
                     .collect();
@@ -219,10 +352,7 @@ impl ToolExecutor {
                 indexed_results.extend(batch_results);
             } else {
                 for info in &batch.calls {
-                    let idx = tool_calls
-                        .iter()
-                        .position(|tc| tc.id == info.call_id)
-                        .unwrap();
+                    let idx = info.original_index;
                     let result = self.execute_tool_call(&tool_calls[idx]).await;
                     indexed_results.push((idx, result));
                 }
@@ -243,6 +373,18 @@ impl ToolExecutor {
         results
     }
 
+    /// 执行 pre-check gate 分析
+    fn run_gate_check(&self, working_dir: &PathBuf) -> GateOutcome {
+        let diff = self.diff_provider.get_diff(working_dir);
+        let gate = PreCheckGate::with_system_rules();
+        let report = gate.analyze_diff(&diff);
+        match report.decision {
+            GateDecision::Block => GateOutcome::Block(report),
+            GateDecision::Warn => GateOutcome::Warn(report),
+            GateDecision::Allow => GateOutcome::Allow,
+        }
+    }
+
     /// 获取工具注册表的引用
     pub fn registry(&self) -> &ToolRegistry {
         &self.registry
@@ -251,6 +393,38 @@ impl ToolExecutor {
     /// 获取当前超时设置
     pub fn timeout(&self) -> Duration {
         self.timeout
+    }
+}
+
+/// 检测工具调用是否为 bash 中的 git commit 命令
+fn is_git_commit_call(tool_name: &str, args: &serde_json::Value) -> bool {
+    if tool_name != "bash" && tool_name != "Bash" {
+        return false;
+    }
+    let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+    let lower = command.to_lowercase();
+    lower.contains("git") && lower.contains("commit")
+}
+
+/// 根据工具名称和参数确定风险级别
+fn determine_risk_level(tool_name: &str, args: &serde_json::Value) -> RiskLevel {
+    let high_risk: &[&str] = &["bash", "edit", "delete", "ssh", "web_fetch"];
+    if high_risk.contains(&tool_name) {
+        if tool_name == "bash" {
+            let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+            let lower = command.to_lowercase();
+            if lower.contains("rm ") || lower.contains("format") || lower.contains("mkfs") {
+                return RiskLevel::Critical;
+            }
+            if lower.contains("sudo") || lower.contains("chmod") || lower.contains("chown") {
+                return RiskLevel::High;
+            }
+        }
+        RiskLevel::High
+    } else if tool_name == "read" || tool_name == "grep" || tool_name == "find" {
+        RiskLevel::Safe
+    } else {
+        RiskLevel::Medium
     }
 }
 
@@ -388,6 +562,43 @@ mod tests {
 
         assert!(result.is_error);
         assert!(result.content.contains("未注册"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_tool_call_validates_input() {
+        #[derive(Debug)]
+        struct RequiredParamTool;
+
+        #[async_trait]
+        impl Tool for RequiredParamTool {
+            fn name(&self) -> &str {
+                "required_param"
+            }
+            fn description(&self) -> &str {
+                "需要参数的测试工具"
+            }
+            fn parameters_schema(&self) -> Value {
+                json!({
+                    "type": "object",
+                    "properties": {"message": {"type": "string"}},
+                    "required": ["message"]
+                })
+            }
+            async fn execute(&self, _params: Value) -> orangecoding_tools::ToolResult<String> {
+                Ok("不应执行".to_string())
+            }
+        }
+
+        let registry = ToolRegistry::new();
+        registry.register(Arc::new(RequiredParamTool));
+        let executor = ToolExecutor::new(Arc::new(registry));
+
+        let result = executor
+            .execute_tool_call(&ToolCall::new("invalid", "required_param", json!({})))
+            .await;
+
+        assert!(result.is_error);
+        assert!(result.content.contains("参数验证失败"));
     }
 
     /// 测试工具执行超时
@@ -654,6 +865,49 @@ mod tests {
         assert!(!results[3].is_error);
     }
 
+    #[tokio::test]
+    async fn test_execute_batch_duplicate_call_ids_use_original_index() {
+        #[derive(Debug)]
+        struct EchoArgTool;
+
+        #[async_trait]
+        impl Tool for EchoArgTool {
+            fn name(&self) -> &str {
+                "echo_arg"
+            }
+            fn description(&self) -> &str {
+                "回显参数"
+            }
+            fn parameters_schema(&self) -> Value {
+                json!({
+                    "type": "object",
+                    "properties": {"value": {"type": "string"}},
+                    "required": ["value"]
+                })
+            }
+            fn metadata(&self) -> orangecoding_tools::ToolMetadata {
+                orangecoding_tools::ToolMetadata::read_only()
+            }
+            async fn execute(&self, params: Value) -> orangecoding_tools::ToolResult<String> {
+                Ok(params["value"].as_str().unwrap_or_default().to_string())
+            }
+        }
+
+        let registry = ToolRegistry::new();
+        registry.register(Arc::new(EchoArgTool));
+        let executor = ToolExecutor::new(Arc::new(registry));
+        let calls = vec![
+            ToolCall::new("dup", "echo_arg", json!({"value": "first"})),
+            ToolCall::new("dup", "echo_arg", json!({"value": "second"})),
+        ];
+
+        let results = executor.execute_batch(&calls).await;
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].content, "first");
+        assert_eq!(results[1].content, "second");
+    }
+
     /// 测试所有 unsafe 工具应串行执行（不并发）
     ///
     /// 使用带延迟的 unsafe 工具，如果并发执行则执行时间 ~200ms，
@@ -706,5 +960,221 @@ mod tests {
             "unsafe 工具应串行执行，实际耗时 {:?}（并发执行约 100ms，串行应 >250ms）",
             elapsed
         );
+    }
+
+    // --- Pre-Check Gate 测试 ---
+
+    /// Mock diff provider for testing
+    struct MockDiffProvider {
+        diff: String,
+    }
+
+    impl DiffProvider for MockDiffProvider {
+        fn get_diff(&self, _working_dir: &PathBuf) -> String {
+            self.diff.clone()
+        }
+    }
+
+    #[test]
+    fn test_is_git_commit_call_detects_commit() {
+        assert!(is_git_commit_call(
+            "bash",
+            &json!({"command": "git commit -m 'feat: add feature'"})
+        ));
+        assert!(is_git_commit_call(
+            "Bash",
+            &json!({"command": "git add -A && git commit -m 'fix: bug'"})
+        ));
+        assert!(is_git_commit_call(
+            "bash",
+            &json!({"command": "GIT COMMIT -m 'uppercase'"})
+        ));
+    }
+
+    #[test]
+    fn test_is_git_commit_call_ignores_non_commit() {
+        assert!(!is_git_commit_call(
+            "bash",
+            &json!({"command": "git status"})
+        ));
+        assert!(!is_git_commit_call(
+            "bash",
+            &json!({"command": "git log --oneline"})
+        ));
+        assert!(!is_git_commit_call("read", &json!({})));
+        assert!(!is_git_commit_call(
+            "bash",
+            &json!({"command": "ls -la"})
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_gate_disabled_when_no_config() {
+        #[derive(Debug)]
+        struct CommitTool;
+
+        #[async_trait]
+        impl Tool for CommitTool {
+            fn name(&self) -> &str {
+                "bash"
+            }
+            fn description(&self) -> &str {
+                "bash tool"
+            }
+            fn parameters_schema(&self) -> Value {
+                json!({"type": "object", "properties": {"command": {"type": "string"}}})
+            }
+            async fn execute(&self, _params: Value) -> orangecoding_tools::ToolResult<String> {
+                Ok("committed".to_string())
+            }
+        }
+
+        let registry = ToolRegistry::new();
+        registry.register(Arc::new(CommitTool));
+        let executor = ToolExecutor::new(Arc::new(registry));
+        let call = ToolCall::new("c1", "bash", json!({"command": "git commit -m 'test'"}));
+
+        let result = executor.execute_tool_call(&call).await;
+        assert!(!result.is_error, "无 gate_config 时不应拦截");
+    }
+
+    #[tokio::test]
+    async fn test_gate_allows_unrelated_change() {
+        #[derive(Debug)]
+        struct CommitTool;
+
+        #[async_trait]
+        impl Tool for CommitTool {
+            fn name(&self) -> &str {
+                "bash"
+            }
+            fn description(&self) -> &str {
+                "bash tool"
+            }
+            fn parameters_schema(&self) -> Value {
+                json!({"type": "object", "properties": {"command": {"type": "string"}}})
+            }
+            async fn execute(&self, _params: Value) -> orangecoding_tools::ToolResult<String> {
+                Ok("committed".to_string())
+            }
+        }
+
+        let diff = "\
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1,2 +1,3 @@
++updated docs
+";
+
+        let registry = ToolRegistry::new();
+        registry.register(Arc::new(CommitTool));
+        let executor = ToolExecutor::new(Arc::new(registry))
+            .with_gate_check(GateCheckConfig {
+                working_directory: PathBuf::from("/tmp"),
+            })
+            .with_diff_provider(Arc::new(MockDiffProvider {
+                diff: diff.to_string(),
+            }));
+
+        let call = ToolCall::new("c2", "bash", json!({"command": "git commit -m 'docs: update'"}));
+        let result = executor.execute_tool_call(&call).await;
+        assert!(!result.is_error, "无关文件变更应 Allow");
+    }
+
+    #[tokio::test]
+    async fn test_gate_blocks_critical_auth_change() {
+        #[derive(Debug)]
+        struct CommitTool;
+
+        #[async_trait]
+        impl Tool for CommitTool {
+            fn name(&self) -> &str {
+                "bash"
+            }
+            fn description(&self) -> &str {
+                "bash tool"
+            }
+            fn parameters_schema(&self) -> Value {
+                json!({"type": "object", "properties": {"command": {"type": "string"}}})
+            }
+            async fn execute(&self, _params: Value) -> orangecoding_tools::ToolResult<String> {
+                Ok("should not reach".to_string())
+            }
+        }
+
+        let diff = "\
+diff --git a/crates/orangecoding-control-server/src/auth.rs b/crates/orangecoding-control-server/src/auth.rs
+--- a/crates/orangecoding-control-server/src/auth.rs
++++ b/crates/orangecoding-control-server/src/auth.rs
+@@ -10,3 +10,5 @@
++added line 1
++added line 2
+";
+
+        let registry = ToolRegistry::new();
+        registry.register(Arc::new(CommitTool));
+        let executor = ToolExecutor::new(Arc::new(registry))
+            .with_gate_check(GateCheckConfig {
+                working_directory: PathBuf::from("/tmp"),
+            })
+            .with_diff_provider(Arc::new(MockDiffProvider {
+                diff: diff.to_string(),
+            }));
+
+        let call = ToolCall::new("c3", "bash", json!({"command": "git commit -m 'auth change'"}));
+        let result = executor.execute_tool_call(&call).await;
+        assert!(result.is_error, "Auth 文件变更应 Block");
+        assert!(
+            result.content.contains("BLOCKED"),
+            "错误信息应包含 BLOCKED，实际: {}",
+            result.content
+        );
+    }
+
+    #[tokio::test]
+    async fn test_gate_warns_session_change() {
+        #[derive(Debug)]
+        struct CommitTool;
+
+        #[async_trait]
+        impl Tool for CommitTool {
+            fn name(&self) -> &str {
+                "bash"
+            }
+            fn description(&self) -> &str {
+                "bash tool"
+            }
+            fn parameters_schema(&self) -> Value {
+                json!({"type": "object", "properties": {"command": {"type": "string"}}})
+            }
+            async fn execute(&self, _params: Value) -> orangecoding_tools::ToolResult<String> {
+                Ok("committed".to_string())
+            }
+        }
+
+        let diff = "\
+diff --git a/src/session.rs b/src/session.rs
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -1,3 +1,4 @@
++new session logic
+-old session logic
+";
+
+        let registry = ToolRegistry::new();
+        registry.register(Arc::new(CommitTool));
+        let executor = ToolExecutor::new(Arc::new(registry))
+            .with_gate_check(GateCheckConfig {
+                working_directory: PathBuf::from("/tmp"),
+            })
+            .with_diff_provider(Arc::new(MockDiffProvider {
+                diff: diff.to_string(),
+            }));
+
+        let call =
+            ToolCall::new("c4", "bash", json!({"command": "git commit -m 'session change'"}));
+        let result = executor.execute_tool_call(&call).await;
+        assert!(!result.is_error, "Session 文件变更应 Warn 但不阻止");
     }
 }

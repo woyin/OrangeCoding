@@ -1,4 +1,5 @@
 //! # OrangeCoding CLI 主入口
+#![allow(non_snake_case)]
 //!
 //! OrangeCoding AI 编程助手的命令行入口模块。
 //! 负责命令行参数解析、日志初始化、配置加载和子命令分发。
@@ -51,6 +52,9 @@ struct Cli {
 enum Commands {
     /// 启动 AI 智能体（交互模式或单次任务模式）
     Launch(commands::launch::LaunchArgs),
+
+    /// 初始化项目 OrangeCoding 配置
+    Init(commands::init::InitOptions),
 
     /// 管理配置项（查看、设置、初始化）
     Config(commands::config::ConfigArgs),
@@ -176,6 +180,7 @@ async fn dispatch_command(
 ) -> Result<()> {
     match command {
         Commands::Launch(args) => commands::launch::execute(args, config).await,
+        Commands::Init(args) => commands::init::execute(args).await,
         Commands::Config(args) => commands::config::execute(args, config_manager).await,
         Commands::Status(args) => commands::status::execute(args, config).await,
         Commands::Serve(args) => commands::serve::execute(args, config).await,
