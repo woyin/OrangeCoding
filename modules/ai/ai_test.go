@@ -18,15 +18,15 @@ import (
 
 func TestAiErrorKindString(t *testing.T) {
 	cases := map[AiErrorKind]string{
-		AiErrNetwork:            "network",
-		AiErrApi:                "api",
-		AiErrAuth:               "auth",
-		AiErrParse:              "parse",
-		AiErrStream:             "stream",
-		AiErrConfig:             "config",
+		AiErrNetwork:             "network",
+		AiErrApi:                 "api",
+		AiErrAuth:                "auth",
+		AiErrParse:               "parse",
+		AiErrStream:              "stream",
+		AiErrConfig:              "config",
 		AiErrUnsupportedProvider: "unsupported-provider",
-		AiErrRateLimit:          "rate-limit",
-		AiErrTimeout:            "timeout",
+		AiErrRateLimit:           "rate-limit",
+		AiErrTimeout:             "timeout",
 	}
 	for kind, expected := range cases {
 		if got := kind.String(); got != expected {
@@ -200,23 +200,23 @@ func TestProviderFactoryKnownNames(t *testing.T) {
 	config := ProviderConfig{APIKey: "test-key"}
 
 	names := map[string]string{
-		"openai":        "openai",
-		"OpenAI":        "openai",
-		"zai":           "openai",
-		"z.ai":          "openai",
-		"zen":           "openai",
-		"opencode-zen":  "openai",
-		"anthropic":     "anthropic",
-		"claude":        "anthropic",
-		"CLAUDE":        "anthropic",
-		"deepseek":      "deepseek",
-		"DeepSeek":      "deepseek",
-		"qianwen":       "qianwen",
-		"tongyi":        "qianwen",
-		"dashscope":     "qianwen",
-		"wenxin":        "wenxin",
-		"ernie":         "wenxin",
-		"baidu":         "wenxin",
+		"openai":       "openai",
+		"OpenAI":       "openai",
+		"zai":          "openai",
+		"z.ai":         "openai",
+		"zen":          "openai",
+		"opencode-zen": "openai",
+		"anthropic":    "anthropic",
+		"claude":       "anthropic",
+		"CLAUDE":       "anthropic",
+		"deepseek":     "deepseek",
+		"DeepSeek":     "deepseek",
+		"qianwen":      "qianwen",
+		"tongyi":       "qianwen",
+		"dashscope":    "qianwen",
+		"wenxin":       "wenxin",
+		"ernie":        "wenxin",
+		"baidu":        "wenxin",
 	}
 
 	for name, expectedProvider := range names {
@@ -262,9 +262,9 @@ func TestModelRouterRouting(t *testing.T) {
 	router := NewModelRouter(rules)
 
 	tests := []struct {
-		category       ModelCategory
-		wantProvider   string
-		wantModel      string
+		category     ModelCategory
+		wantProvider string
+		wantModel    string
 	}{
 		{CategoryCoding, "openai", "gpt-4"},
 		{CategoryPlanning, "anthropic", "claude-3"},
@@ -526,6 +526,44 @@ func TestOpenAIProviderWithMockServer(t *testing.T) {
 	}
 }
 
+func TestOpenAIProviderIncludesReasoningEffort(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody openAIRequest
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Errorf("failed to decode request: %v", err)
+			http.Error(w, "bad request", 400)
+			return
+		}
+
+		if reqBody.ReasoningEffort != "high" {
+			t.Errorf("reasoning_effort = %q, want %q", reqBody.ReasoningEffort, "high")
+		}
+
+		resp := openAIResponse{
+			ID:    "chatcmpl-reasoning",
+			Model: "gpt-5",
+			Choices: []openAIChoice{
+				{Message: openAIMsg{Role: "assistant", Content: "ok"}, FinishReason: "stop"},
+			},
+			Usage: openAIUsage{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	})
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	provider := NewOpenAIProvider(ProviderConfig{APIKey: "test-key", BaseURL: server.URL})
+	_, err := provider.ChatCompletion(context.Background(), nil, nil, ChatOptions{
+		Model:           "gpt-5",
+		ReasoningEffort: "high",
+	})
+	if err != nil {
+		t.Fatalf("ChatCompletion: unexpected error: %v", err)
+	}
+}
+
 func TestOpenAIProviderWithToolCalls(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := openAIResponse{
@@ -745,6 +783,55 @@ func TestAnthropicProviderWithMockServer(t *testing.T) {
 	}
 	if resp.Usage.PromptTokens != 15 || resp.Usage.CompletionTokens != 10 || resp.Usage.TotalTokens != 25 {
 		t.Errorf("Usage = %+v", resp.Usage)
+	}
+}
+
+func TestAnthropicProviderIncludesThinkingBudget(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody anthropicRequest
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Errorf("failed to decode request: %v", err)
+			http.Error(w, "bad request", 400)
+			return
+		}
+
+		if reqBody.Thinking == nil {
+			t.Fatal("expected thinking options")
+		}
+		if reqBody.Thinking.Type != "enabled" {
+			t.Errorf("thinking.type = %q, want enabled", reqBody.Thinking.Type)
+		}
+		if reqBody.Thinking.BudgetTokens != 4096 {
+			t.Errorf("thinking.budget_tokens = %d, want 4096", reqBody.Thinking.BudgetTokens)
+		}
+		if reqBody.MaxTokens <= reqBody.Thinking.BudgetTokens {
+			t.Errorf("max_tokens = %d, want greater than thinking budget %d", reqBody.MaxTokens, reqBody.Thinking.BudgetTokens)
+		}
+
+		resp := anthropicResponse{
+			ID:         "msg-thinking",
+			Type:       "message",
+			Role:       "assistant",
+			Content:    []anthropicContent{{Type: "text", Text: "ok"}},
+			Model:      "claude-4",
+			StopReason: "end_turn",
+			Usage:      anthropicUsage{InputTokens: 1, OutputTokens: 1},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	})
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	provider := NewAnthropicProvider(ProviderConfig{APIKey: "test-key", BaseURL: server.URL})
+	budget := uint32(4096)
+	_, err := provider.ChatCompletion(context.Background(), nil, nil, ChatOptions{
+		Model:                 "claude-4",
+		ReasoningBudgetTokens: &budget,
+	})
+	if err != nil {
+		t.Fatalf("ChatCompletion: unexpected error: %v", err)
 	}
 }
 

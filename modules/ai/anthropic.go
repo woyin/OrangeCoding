@@ -19,8 +19,8 @@ const anthropicVersion = "2023-06-01"
 
 // AnthropicProvider implements AiProvider for the Anthropic (Claude) API.
 type AnthropicProvider struct {
-	config ProviderConfig
-	client *http.Client
+	config  ProviderConfig
+	client  *http.Client
 	baseURL string
 }
 
@@ -45,15 +45,21 @@ func (p *AnthropicProvider) Name() string { return "anthropic" }
 // ---------------------------------------------------------------------------
 
 type anthropicRequest struct {
-	Model     string              `json:"model"`
-	Messages  []ChatMessage       `json:"messages"`
-	System    string              `json:"system,omitempty"`
-	MaxTokens uint32              `json:"max_tokens"`
-	Tools     []anthropicTool     `json:"tools,omitempty"`
-	Stream    bool                `json:"stream,omitempty"`
-	Temperature *float64          `json:"temperature,omitempty"`
-	TopP      *float64            `json:"top_p,omitempty"`
-	StopSequences []string        `json:"stop_sequences,omitempty"`
+	Model         string             `json:"model"`
+	Messages      []ChatMessage      `json:"messages"`
+	System        string             `json:"system,omitempty"`
+	MaxTokens     uint32             `json:"max_tokens"`
+	Tools         []anthropicTool    `json:"tools,omitempty"`
+	Stream        bool               `json:"stream,omitempty"`
+	Temperature   *float64           `json:"temperature,omitempty"`
+	TopP          *float64           `json:"top_p,omitempty"`
+	StopSequences []string           `json:"stop_sequences,omitempty"`
+	Thinking      *anthropicThinking `json:"thinking,omitempty"`
+}
+
+type anthropicThinking struct {
+	Type         string `json:"type"`
+	BudgetTokens uint32 `json:"budget_tokens"`
 }
 
 type anthropicTool struct {
@@ -63,20 +69,20 @@ type anthropicTool struct {
 }
 
 type anthropicResponse struct {
-	ID           string             `json:"id"`
-	Type         string             `json:"type"`
-	Role         string             `json:"role"`
-	Content      []anthropicContent `json:"content"`
-	Model        string             `json:"model"`
-	StopReason   string             `json:"stop_reason"`
-	Usage        anthropicUsage     `json:"usage"`
+	ID         string             `json:"id"`
+	Type       string             `json:"type"`
+	Role       string             `json:"role"`
+	Content    []anthropicContent `json:"content"`
+	Model      string             `json:"model"`
+	StopReason string             `json:"stop_reason"`
+	Usage      anthropicUsage     `json:"usage"`
 }
 
 type anthropicContent struct {
-	Type  string       `json:"type"`
-	Text  string       `json:"text,omitempty"`
-	ID    string       `json:"id,omitempty"`
-	Name  string       `json:"name,omitempty"`
+	Type  string          `json:"type"`
+	Text  string          `json:"text,omitempty"`
+	ID    string          `json:"id,omitempty"`
+	Name  string          `json:"name,omitempty"`
 	Input json.RawMessage `json:"input,omitempty"`
 }
 
@@ -87,26 +93,26 @@ type anthropicUsage struct {
 
 // Streaming wire types
 type anthropicStreamEvent struct {
-	Type         string                `json:"type"`
-	Index        int                   `json:"index,omitempty"`
+	Type         string                 `json:"type"`
+	Index        int                    `json:"index,omitempty"`
 	ContentBlock *anthropicContentBlock `json:"content_block,omitempty"`
-	Delta        *anthropicDelta       `json:"delta,omitempty"`
-	Message      *anthropicMsgDelta    `json:"message,omitempty"`
+	Delta        *anthropicDelta        `json:"delta,omitempty"`
+	Message      *anthropicMsgDelta     `json:"message,omitempty"`
 }
 
 type anthropicContentBlock struct {
-	Type  string `json:"type"`
-	ID    string `json:"id,omitempty"`
-	Name  string `json:"name,omitempty"`
+	Type  string          `json:"type"`
+	ID    string          `json:"id,omitempty"`
+	Name  string          `json:"name,omitempty"`
 	Input json.RawMessage `json:"input,omitempty"`
-	Text  string `json:"text,omitempty"`
+	Text  string          `json:"text,omitempty"`
 }
 
 type anthropicDelta struct {
-	Type           string          `json:"type,omitempty"`
-	Text           string          `json:"text,omitempty"`
-	PartialJSON    string          `json:"partial_json,omitempty"`
-	StopReason     string          `json:"stop_reason,omitempty"`
+	Type        string `json:"type,omitempty"`
+	Text        string `json:"text,omitempty"`
+	PartialJSON string `json:"partial_json,omitempty"`
+	StopReason  string `json:"stop_reason,omitempty"`
 }
 
 type anthropicMsgDelta struct {
@@ -132,15 +138,19 @@ func (p *AnthropicProvider) ChatCompletion(ctx context.Context, messages []ChatM
 	if opts.MaxTokens != nil {
 		maxTokens = *opts.MaxTokens
 	}
+	maxTokens = ensureAnthropicThinkingRoom(maxTokens, opts.ReasoningBudgetTokens)
 
 	reqBody := anthropicRequest{
-		Model:        model,
-		Messages:     filtered,
-		System:       systemPrompt,
-		MaxTokens:    maxTokens,
-		Temperature:  opts.Temperature,
-		TopP:         opts.TopP,
+		Model:         model,
+		Messages:      filtered,
+		System:        systemPrompt,
+		MaxTokens:     maxTokens,
+		Temperature:   opts.Temperature,
+		TopP:          opts.TopP,
 		StopSequences: opts.StopSequences,
+	}
+	if opts.ReasoningBudgetTokens != nil && *opts.ReasoningBudgetTokens > 0 {
+		reqBody.Thinking = &anthropicThinking{Type: "enabled", BudgetTokens: *opts.ReasoningBudgetTokens}
 	}
 
 	// Convert tools to Anthropic format (input_schema instead of parameters)
@@ -200,6 +210,7 @@ func (p *AnthropicProvider) ChatCompletionStream(ctx context.Context, messages [
 	if opts.MaxTokens != nil {
 		maxTokens = *opts.MaxTokens
 	}
+	maxTokens = ensureAnthropicThinkingRoom(maxTokens, opts.ReasoningBudgetTokens)
 
 	reqBody := anthropicRequest{
 		Model:         model,
@@ -210,6 +221,9 @@ func (p *AnthropicProvider) ChatCompletionStream(ctx context.Context, messages [
 		Temperature:   opts.Temperature,
 		TopP:          opts.TopP,
 		StopSequences: opts.StopSequences,
+	}
+	if opts.ReasoningBudgetTokens != nil && *opts.ReasoningBudgetTokens > 0 {
+		reqBody.Thinking = &anthropicThinking{Type: "enabled", BudgetTokens: *opts.ReasoningBudgetTokens}
 	}
 
 	if len(tools) > 0 {
@@ -251,6 +265,16 @@ func (p *AnthropicProvider) ChatCompletionStream(ctx context.Context, messages [
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+func ensureAnthropicThinkingRoom(maxTokens uint32, thinkingBudget *uint32) uint32 {
+	if thinkingBudget == nil || *thinkingBudget == 0 {
+		return maxTokens
+	}
+	if maxTokens > *thinkingBudget {
+		return maxTokens
+	}
+	return *thinkingBudget + 1024
+}
 
 func (p *AnthropicProvider) setHeaders(req *http.Request) {
 	req.Header.Set("Content-Type", "application/json")

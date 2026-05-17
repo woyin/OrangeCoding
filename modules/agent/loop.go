@@ -16,14 +16,21 @@ type AgentLoopConfig struct {
 	MaxIterations    uint32
 	Timeout          time.Duration
 	AutoApproveTools bool
+	Language         OutputLanguage
+	LongTask         LongTaskPolicy
+	Reasoning        ReasoningPolicy
 }
 
-// DefaultLoopConfig returns a config with MaxIterations=20 and Timeout=300s.
+// DefaultLoopConfig returns a long-task-friendly config.
 func DefaultLoopConfig() AgentLoopConfig {
+	profile := DefaultHarnessProfile()
 	return AgentLoopConfig{
-		MaxIterations:    20,
+		MaxIterations:    60,
 		Timeout:          300 * time.Second,
 		AutoApproveTools: true,
+		Language:         profile.Language,
+		LongTask:         profile.LongTask,
+		Reasoning:        profile.Reasoning,
 	}
 }
 
@@ -32,6 +39,8 @@ type AgentLoopResult struct {
 	ToolCallsMade uint32
 	TokensUsed    core.TokenUsage
 	Duration      time.Duration
+	StopReason    StopReason
+	Progress      []ProgressSnapshot
 }
 
 // AgentLoop is the core event loop that drives agent behavior. It repeatedly:
@@ -105,6 +114,13 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 	result := &AgentLoopResult{}
 
 	sid := l.context.SessionID()
+	profile := HarnessProfile{
+		Language:  l.config.Language,
+		LongTask:  l.config.LongTask,
+		Reasoning: l.config.Reasoning,
+	}.normalized()
+	l.context.ApplyHarnessProfile(profile)
+	chatOpts = profile.ApplyToChatOptions(chatOpts)
 
 	// Apply overall timeout
 	loopCtx, cancel := context.WithTimeout(ctx, l.config.Timeout)
@@ -114,7 +130,16 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 		// Check context
 		if loopCtx.Err() != nil {
 			result.Duration = time.Since(start)
+			result.StopReason = StopReasonCanceled
 			return result, fmt.Errorf("agent loop canceled: %w", loopCtx.Err())
+		}
+
+		if profile.LongTask.Enabled && profile.LongTask.CompactionMaxTokens > 0 {
+			compactor := NewCompactor(profile.LongTask.CompactionMaxTokens)
+			if err := compactor.Compact(l.context.Conversation()); err != nil {
+				result.Duration = time.Since(start)
+				return result, fmt.Errorf("compact conversation: %w", err)
+			}
 		}
 
 		// Emit started event on first iteration
@@ -129,6 +154,7 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 		streamCh, err := l.provider.ChatCompletionStream(loopCtx, aiMessages, l.tools, chatOpts)
 		if err != nil {
 			result.Duration = time.Since(start)
+			result.StopReason = StopReasonProviderError
 			if eventCh != nil {
 				eventCh <- core.NewErrorEvent(l.id, sid, err.Error())
 			}
@@ -212,6 +238,8 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 		// If no tool calls, we're done
 		if len(coreToolCalls) == 0 {
 			result.Duration = time.Since(start)
+			result.StopReason = StopReasonCompleted
+			l.recordProgress(result, iteration, "completed")
 			if eventCh != nil {
 				eventCh <- core.NewCompletedEvent(l.id, sid, content)
 			}
@@ -219,7 +247,14 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 		}
 
 		// Execute tool calls
-		result.ToolCallsMade += uint32(len(coreToolCalls))
+		nextToolCount := result.ToolCallsMade + uint32(len(coreToolCalls))
+		if profile.LongTask.Enabled && profile.LongTask.MaxToolCalls > 0 && nextToolCount > profile.LongTask.MaxToolCalls {
+			result.Duration = time.Since(start)
+			result.StopReason = StopReasonToolBudget
+			l.recordProgress(result, iteration, "tool budget exceeded")
+			return result, fmt.Errorf("agent loop: tool budget exceeded (%d > %d)", nextToolCount, profile.LongTask.MaxToolCalls)
+		}
+		result.ToolCallsMade = nextToolCount
 
 		// Emit tool call requested events
 		for _, tc := range coreToolCalls {
@@ -247,10 +282,24 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 				)
 			}
 		}
+		if profile.ShouldRecordProgress(result.ToolCallsMade) {
+			l.recordProgress(result, iteration, "tool batch completed")
+		}
 	}
 
 	result.Duration = time.Since(start)
+	result.StopReason = StopReasonMaxIterations
 	return result, fmt.Errorf("agent loop: max iterations (%d) exceeded", l.config.MaxIterations)
+}
+
+func (l *AgentLoop) recordProgress(result *AgentLoopResult, iteration uint32, reason string) {
+	result.Progress = append(result.Progress, ProgressSnapshot{
+		Iteration:     iteration,
+		ToolCallsMade: result.ToolCallsMade,
+		TokensUsed:    result.TokensUsed,
+		Reason:        reason,
+		CreatedAt:     time.Now().UTC(),
+	})
 }
 
 // conversationToAIMessages converts a core.Conversation to a slice of ai.ChatMessage.

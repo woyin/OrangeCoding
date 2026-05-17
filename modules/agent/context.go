@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"strings"
+
 	"github.com/woyin/OrangeCoding/modules/core"
 )
 
@@ -45,6 +47,20 @@ func (c *AgentContext) SetSystemPrompt(prompt string) {
 		}
 		c.conversation = newConv
 	}
+}
+
+// ApplyHarnessProfile appends harness guidance to the system prompt once.
+func (c *AgentContext) ApplyHarnessProfile(profile HarnessProfile) {
+	addendum := profile.systemPromptAddendum()
+	current := c.conversation.SystemPrompt()
+	if current == nil {
+		c.SetSystemPrompt(strings.TrimSpace(addendum))
+		return
+	}
+	if strings.Contains(*current, "[OrangeCoding Harness]") {
+		return
+	}
+	c.SetSystemPrompt(*current + addendum)
 }
 
 // AddUserMessage appends a user message to the conversation.

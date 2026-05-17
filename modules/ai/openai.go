@@ -44,28 +44,29 @@ func (p *OpenAIProvider) Name() string { return "openai" }
 // ---------------------------------------------------------------------------
 
 type openAIRequest struct {
-	Model       string            `json:"model"`
-	Messages    []ChatMessage     `json:"messages"`
-	Tools       []ToolDefinition  `json:"tools,omitempty"`
-	Stream      bool              `json:"stream,omitempty"`
-	Temperature *float64          `json:"temperature,omitempty"`
-	MaxTokens   *uint32           `json:"max_tokens,omitempty"`
-	TopP        *float64          `json:"top_p,omitempty"`
-	Stop        []string          `json:"stop,omitempty"`
+	Model           string           `json:"model"`
+	Messages        []ChatMessage    `json:"messages"`
+	Tools           []ToolDefinition `json:"tools,omitempty"`
+	Stream          bool             `json:"stream,omitempty"`
+	Temperature     *float64         `json:"temperature,omitempty"`
+	MaxTokens       *uint32          `json:"max_tokens,omitempty"`
+	TopP            *float64         `json:"top_p,omitempty"`
+	Stop            []string         `json:"stop,omitempty"`
+	ReasoningEffort string           `json:"reasoning_effort,omitempty"`
 }
 
 type openAIResponse struct {
-	ID      string          `json:"id"`
-	Object  string          `json:"object"`
-	Model   string          `json:"model"`
-	Choices []openAIChoice  `json:"choices"`
-	Usage   openAIUsage     `json:"usage"`
+	ID      string         `json:"id"`
+	Object  string         `json:"object"`
+	Model   string         `json:"model"`
+	Choices []openAIChoice `json:"choices"`
+	Usage   openAIUsage    `json:"usage"`
 }
 
 type openAIChoice struct {
-	Index        int          `json:"index"`
-	Message      openAIMsg    `json:"message"`
-	FinishReason string       `json:"finish_reason"`
+	Index        int       `json:"index"`
+	Message      openAIMsg `json:"message"`
+	FinishReason string    `json:"finish_reason"`
 }
 
 type openAIMsg struct {
@@ -82,15 +83,15 @@ type openAIUsage struct {
 
 // Streaming wire types
 type openAIStreamChunk struct {
-	ID      string            `json:"id"`
-	Object  string            `json:"object"`
+	ID      string              `json:"id"`
+	Object  string              `json:"object"`
 	Choices []openAIDeltaChoice `json:"choices"`
 }
 
 type openAIDeltaChoice struct {
-	Index        int          `json:"index"`
-	Delta        openAIDelta  `json:"delta"`
-	FinishReason *string      `json:"finish_reason"`
+	Index        int         `json:"index"`
+	Delta        openAIDelta `json:"delta"`
+	FinishReason *string     `json:"finish_reason"`
 }
 
 type openAIDelta struct {
@@ -100,9 +101,9 @@ type openAIDelta struct {
 }
 
 type openAIToolDelta struct {
-	Index    int             `json:"index"`
-	ID       string          `json:"id,omitempty"`
-	Type     string          `json:"type,omitempty"`
+	Index    int              `json:"index"`
+	ID       string           `json:"id,omitempty"`
+	Type     string           `json:"type,omitempty"`
 	Function *openAIFuncDelta `json:"function,omitempty"`
 }
 
@@ -123,13 +124,14 @@ func (p *OpenAIProvider) ChatCompletion(ctx context.Context, messages []ChatMess
 	}
 
 	reqBody := openAIRequest{
-		Model:       model,
-		Messages:    messages,
-		Tools:       tools,
-		Temperature: opts.Temperature,
-		MaxTokens:   opts.MaxTokens,
-		TopP:        opts.TopP,
-		Stop:        opts.StopSequences,
+		Model:           model,
+		Messages:        messages,
+		Tools:           tools,
+		Temperature:     opts.Temperature,
+		MaxTokens:       opts.MaxTokens,
+		TopP:            opts.TopP,
+		Stop:            opts.StopSequences,
+		ReasoningEffort: opts.ReasoningEffort,
 	}
 
 	body, err := json.Marshal(reqBody)
@@ -179,14 +181,15 @@ func (p *OpenAIProvider) ChatCompletionStream(ctx context.Context, messages []Ch
 	}
 
 	reqBody := openAIRequest{
-		Model:       model,
-		Messages:    messages,
-		Tools:       tools,
-		Stream:      true,
-		Temperature: opts.Temperature,
-		MaxTokens:   opts.MaxTokens,
-		TopP:        opts.TopP,
-		Stop:        opts.StopSequences,
+		Model:           model,
+		Messages:        messages,
+		Tools:           tools,
+		Stream:          true,
+		Temperature:     opts.Temperature,
+		MaxTokens:       opts.MaxTokens,
+		TopP:            opts.TopP,
+		Stop:            opts.StopSequences,
+		ReasoningEffort: opts.ReasoningEffort,
 	}
 
 	body, err := json.Marshal(reqBody)

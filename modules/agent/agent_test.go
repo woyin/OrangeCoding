@@ -54,6 +54,42 @@ func TestAgentContext_SetSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestAgentContext_ApplyHarnessProfileAppendsChineseLongTaskGuidance(t *testing.T) {
+	sid := core.NewSessionId()
+	ctx := NewAgentContext(sid, "/tmp/work")
+	ctx.SetSystemPrompt("base prompt")
+
+	profile := HarnessProfile{
+		Language: OutputLanguageChinese,
+		LongTask: LongTaskPolicy{
+			Enabled:             true,
+			ProgressEveryNCalls: 3,
+			MaxToolCalls:        12,
+			CompactionMaxTokens: 2048,
+		},
+		Reasoning: ReasoningPolicy{
+			Effort:       ReasoningEffortHigh,
+			BudgetTokens: 4096,
+		},
+	}
+
+	ctx.ApplyHarnessProfile(profile)
+
+	prompt := *ctx.Conversation().SystemPrompt()
+	if !strings.Contains(prompt, "base prompt") {
+		t.Fatalf("base prompt was not preserved: %s", prompt)
+	}
+	if !strings.Contains(prompt, "默认使用简体中文回答") {
+		t.Errorf("missing Chinese output guidance: %s", prompt)
+	}
+	if !strings.Contains(prompt, "长任务") {
+		t.Errorf("missing long-task guidance: %s", prompt)
+	}
+	if !strings.Contains(prompt, "不要输出隐藏推理链") {
+		t.Errorf("missing reasoning-summary guidance: %s", prompt)
+	}
+}
+
 func TestAgentContext_AddUserMessage(t *testing.T) {
 	sid := core.NewSessionId()
 	ctx := NewAgentContext(sid, "/tmp/work")
@@ -118,10 +154,10 @@ type mockTool struct {
 	execute func(ctx context.Context, input json.RawMessage) (string, error)
 }
 
-func (m *mockTool) Name() string                       { return m.name }
-func (m *mockTool) Description() string                { return "mock tool" }
-func (m *mockTool) Parameters() json.RawMessage        { return json.RawMessage(`{}`) }
-func (m *mockTool) Metadata() tools.ToolMetadata       { return tools.DefaultMetadata() }
+func (m *mockTool) Name() string                 { return m.name }
+func (m *mockTool) Description() string          { return "mock tool" }
+func (m *mockTool) Parameters() json.RawMessage  { return json.RawMessage(`{}`) }
+func (m *mockTool) Metadata() tools.ToolMetadata { return tools.DefaultMetadata() }
 func (m *mockTool) Execute(ctx context.Context, input json.RawMessage) (string, error) {
 	if m.execute != nil {
 		return m.execute(ctx, input)
@@ -369,6 +405,62 @@ func TestAgentLoop_MaxIterations(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "max iterations") {
 		t.Errorf("expected max iterations error, got: %v", err)
+	}
+}
+
+func TestAgentLoop_StopsWhenLongTaskToolBudgetExceeded(t *testing.T) {
+	toolCallResponse := []ai.StreamEvent{
+		{Type: "tool_call_delta", ToolCallID: "tc-1", ToolCallName: "echo", Arguments: `{}`},
+		{Type: "usage", Usage: &ai.TokenUsage{PromptTokens: 10, CompletionTokens: 10, TotalTokens: 20}},
+	}
+	provider := &mockStreamProvider{
+		responses: [][]ai.StreamEvent{
+			toolCallResponse,
+			toolCallResponse,
+		},
+	}
+
+	registry := tools.NewToolRegistry()
+	registry.Register(&mockTool{name: "echo", result: "ok"})
+	executor := NewToolExecutor(registry)
+
+	sid := core.NewSessionId()
+	agentCtx := NewAgentContext(sid, "/tmp/work")
+	agentCtx.AddUserMessage("test")
+
+	config := DefaultLoopConfig()
+	config.MaxIterations = 10
+	config.LongTask = LongTaskPolicy{Enabled: true, MaxToolCalls: 1}
+
+	loop := NewAgentLoop(core.NewAgentId(), provider, executor, agentCtx, config, []ai.ToolDefinition{
+		{
+			Type: "function",
+			Function: ai.FunctionDefinition{
+				Name:        "echo",
+				Description: "echo tool",
+				Parameters:  ai.ToolParameter{Type: "object"},
+			},
+		},
+	})
+
+	eventCh := make(chan core.AgentEvent, 100)
+	result, err := loop.Run(context.Background(), ai.ChatOptions{}, eventCh)
+	close(eventCh)
+
+	if err == nil {
+		t.Fatal("expected budget error")
+	}
+	if !strings.Contains(err.Error(), "tool budget") {
+		t.Fatalf("expected tool budget error, got %v", err)
+	}
+	if result.StopReason != StopReasonToolBudget {
+		t.Fatalf("StopReason = %q, want %q", result.StopReason, StopReasonToolBudget)
+	}
+	if result.ToolCallsMade != 1 {
+		t.Fatalf("ToolCallsMade = %d, want 1", result.ToolCallsMade)
+	}
+	if len(result.Progress) == 0 {
+		t.Fatal("expected progress snapshots")
 	}
 }
 
@@ -783,10 +875,19 @@ func TestConversationToAIMessages_ToolResult(t *testing.T) {
 
 func TestDefaultLoopConfig(t *testing.T) {
 	config := DefaultLoopConfig()
-	if config.MaxIterations != 20 {
-		t.Errorf("expected MaxIterations=20, got %d", config.MaxIterations)
+	if config.MaxIterations != 60 {
+		t.Errorf("expected MaxIterations=60, got %d", config.MaxIterations)
 	}
 	if config.Timeout != 300*time.Second {
 		t.Errorf("expected Timeout=300s, got %v", config.Timeout)
+	}
+	if !config.LongTask.Enabled {
+		t.Error("expected long-task policy to be enabled by default")
+	}
+	if config.Language != OutputLanguageChinese {
+		t.Errorf("expected Chinese output language, got %q", config.Language)
+	}
+	if config.Reasoning.Effort != ReasoningEffortHigh {
+		t.Errorf("expected high reasoning effort, got %q", config.Reasoning.Effort)
 	}
 }

@@ -70,6 +70,7 @@ go test ./modules/core ./modules/ai ./modules/audit ./modules/config \
 - Rust 版本的源代码保留在 `rust-dev` 分支的 `crates/`。
 - `go.work` 是 Go 版本的 workspace 入口。
 - 新功能应优先补齐 Go 模块，并保持模块间依赖单向、清晰。
+- Harness 长任务、长推理和中文表达策略见 `docs/harness_engineering_go.md`。
 
 ## 许可证
 

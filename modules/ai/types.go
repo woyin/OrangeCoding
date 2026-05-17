@@ -81,11 +81,13 @@ type ToolParameter struct {
 
 // ChatOptions configures a chat completion request.
 type ChatOptions struct {
-	Model         string    `json:"model"`
-	Temperature   *float64  `json:"temperature,omitempty"`
-	MaxTokens     *uint32   `json:"max_tokens,omitempty"`
-	TopP          *float64  `json:"top_p,omitempty"`
-	StopSequences []string  `json:"stop_sequences,omitempty"`
+	Model                 string   `json:"model"`
+	Temperature           *float64 `json:"temperature,omitempty"`
+	MaxTokens             *uint32  `json:"max_tokens,omitempty"`
+	TopP                  *float64 `json:"top_p,omitempty"`
+	StopSequences         []string `json:"stop_sequences,omitempty"`
+	ReasoningEffort       string   `json:"reasoning_effort,omitempty"`
+	ReasoningBudgetTokens *uint32  `json:"reasoning_budget_tokens,omitempty"`
 }
 
 // TokenUsage tracks token consumption for a single AI call.
