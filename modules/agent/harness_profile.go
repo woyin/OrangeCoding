@@ -56,6 +56,7 @@ const (
 	StopReasonCanceled      StopReason = "canceled"
 	StopReasonProviderError StopReason = "provider_error"
 	StopReasonToolBudget    StopReason = "tool_budget"
+	StopReasonGuardrail     StopReason = "guardrail"
 )
 
 // ProgressSnapshot records coarse agent progress without leaking hidden reasoning.

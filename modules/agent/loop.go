@@ -19,6 +19,10 @@ type AgentLoopConfig struct {
 	Language         OutputLanguage
 	LongTask         LongTaskPolicy
 	Reasoning        ReasoningPolicy
+	CheckpointStore  CheckpointStore
+	ContextBuilder   *HarnessContextBuilder
+	MemoryManager    *HarnessMemoryManager
+	Guardrails       *GuardrailPipeline
 }
 
 // DefaultLoopConfig returns a long-task-friendly config.
@@ -50,12 +54,13 @@ type AgentLoopResult struct {
 //  4. Feeds tool results back into the conversation
 //  5. Repeats until the AI returns a text-only response or max iterations is reached
 type AgentLoop struct {
-	id       core.AgentId
-	provider ai.AiProvider
-	executor *ToolExecutor
-	context  *AgentContext
-	config   AgentLoopConfig
-	tools    []ai.ToolDefinition
+	id           core.AgentId
+	provider     ai.AiProvider
+	executor     *ToolExecutor
+	context      *AgentContext
+	config       AgentLoopConfig
+	tools        []ai.ToolDefinition
+	harnessRunID string
 }
 
 // NewAgentLoop creates a new AgentLoop.
@@ -102,6 +107,11 @@ func (l *AgentLoop) ToolDefs() []ai.ToolDefinition {
 	return l.tools
 }
 
+// HarnessRunID returns the checkpoint run ID used by the last Run call.
+func (l *AgentLoop) HarnessRunID() string {
+	return l.harnessRunID
+}
+
 // AgentID returns the agent ID.
 func (l *AgentLoop) AgentID() core.AgentId {
 	return l.id
@@ -121,16 +131,48 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 	}.normalized()
 	l.context.ApplyHarnessProfile(profile)
 	chatOpts = profile.ApplyToChatOptions(chatOpts)
+	checkpointStore := l.config.CheckpointStore
+	if checkpointStore == nil {
+		checkpointStore = NewMemoryCheckpointStore()
+	}
+	contextBuilder := l.config.ContextBuilder
+	if contextBuilder == nil {
+		contextBuilder = NewHarnessContextBuilder(HarnessContextConfig{
+			MaxTokens:      profile.LongTask.CompactionMaxTokens,
+			RecentMessages: 8,
+		})
+	}
+	guardrails := l.config.Guardrails
+	if guardrails == nil {
+		guardrails = NewGuardrailPipeline(NewDangerousToolGuardrail(), NewRepeatedToolGuardrail(3))
+	}
+	task := l.currentTask()
+	l.harnessRunID = fmt.Sprintf("%s-%s", sid.String(), l.id.String())
+	harness := NewHarnessEngine(HarnessEngineConfig{
+		RunID:           l.harnessRunID,
+		SessionID:       sid,
+		CheckpointStore: checkpointStore,
+	})
+	if _, err := harness.Start(ctx, task); err != nil {
+		return result, err
+	}
 
 	// Apply overall timeout
 	loopCtx, cancel := context.WithTimeout(ctx, l.config.Timeout)
 	defer cancel()
 
 	for iteration := uint32(0); iteration < l.config.MaxIterations; iteration++ {
+		if iteration > 0 {
+			if _, err := harness.Transition(loopCtx, HarnessStateBuildContext, "next iteration"); err != nil {
+				result.Duration = time.Since(start)
+				return result, err
+			}
+		}
 		// Check context
 		if loopCtx.Err() != nil {
 			result.Duration = time.Since(start)
 			result.StopReason = StopReasonCanceled
+			_, _ = harness.Transition(context.Background(), HarnessStateStopped, "context canceled")
 			return result, fmt.Errorf("agent loop canceled: %w", loopCtx.Err())
 		}
 
@@ -142,6 +184,25 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 			}
 		}
 
+		blocks, err := contextBuilder.Build(loopCtx, HarnessContextInput{
+			SystemPrompt:  l.context.Conversation().Messages()[0].Content,
+			Task:          task,
+			Conversation:  l.context.Conversation(),
+			MemoryManager: l.config.MemoryManager,
+		})
+		if err != nil {
+			result.Duration = time.Since(start)
+			result.StopReason = StopReasonProviderError
+			_, _ = harness.Transition(context.Background(), HarnessStateFailed, err.Error())
+			return result, fmt.Errorf("build harness context: %w", err)
+		}
+		_, _ = harness.Update(loopCtx, func(cp *HarnessCheckpoint) {
+			cp.ContextBlocks = blocks
+			cp.Iteration = iteration
+			cp.ToolCallsMade = result.ToolCallsMade
+			cp.TokenUsage = result.TokensUsed
+		})
+
 		// Emit started event on first iteration
 		if iteration == 0 && eventCh != nil {
 			eventCh <- core.NewStartedEvent(l.id, sid)
@@ -149,12 +210,18 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 
 		// Convert conversation to AI messages
 		aiMessages := conversationToAIMessages(l.context.Conversation())
+		aiMessages = prependHarnessContextMessages(aiMessages, blocks)
 
 		// Call provider with streaming
+		if _, err := harness.Transition(loopCtx, HarnessStateModelCall, "call provider"); err != nil {
+			result.Duration = time.Since(start)
+			return result, err
+		}
 		streamCh, err := l.provider.ChatCompletionStream(loopCtx, aiMessages, l.tools, chatOpts)
 		if err != nil {
 			result.Duration = time.Since(start)
 			result.StopReason = StopReasonProviderError
+			_, _ = harness.Transition(context.Background(), HarnessStateFailed, err.Error())
 			if eventCh != nil {
 				eventCh <- core.NewErrorEvent(l.id, sid, err.Error())
 			}
@@ -225,6 +292,9 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 		} else {
 			l.context.Conversation().AddMessage(core.NewAssistantMessage(content))
 		}
+		if l.config.MemoryManager != nil {
+			_ = l.config.MemoryManager.LearnObservation(loopCtx, content)
+		}
 
 		// Update token usage
 		if usage != nil {
@@ -240,6 +310,8 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 			result.Duration = time.Since(start)
 			result.StopReason = StopReasonCompleted
 			l.recordProgress(result, iteration, "completed")
+			_, _ = harness.Transition(loopCtx, HarnessStateGuardrailCheck, "no tool calls")
+			_, _ = harness.Transition(loopCtx, HarnessStateCompleted, "completed")
 			if eventCh != nil {
 				eventCh <- core.NewCompletedEvent(l.id, sid, content)
 			}
@@ -252,9 +324,36 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 			result.Duration = time.Since(start)
 			result.StopReason = StopReasonToolBudget
 			l.recordProgress(result, iteration, "tool budget exceeded")
+			_, _ = harness.Transition(context.Background(), HarnessStateGuardrailCheck, "tool budget exceeded")
+			_, _ = harness.Transition(context.Background(), HarnessStateStopped, "tool budget exceeded")
 			return result, fmt.Errorf("agent loop: tool budget exceeded (%d > %d)", nextToolCount, profile.LongTask.MaxToolCalls)
 		}
 		result.ToolCallsMade = nextToolCount
+
+		if _, err := harness.Transition(loopCtx, HarnessStateGuardrailCheck, "check tool calls"); err != nil {
+			result.Duration = time.Since(start)
+			return result, err
+		}
+		for _, tc := range coreToolCalls {
+			guardrailResult := guardrails.Check(loopCtx, GuardrailContext{
+				Phase:          GuardrailPhasePreTool,
+				ToolCall:       &tc,
+				RecentToolKeys: l.recentToolKeys(),
+			})
+			if guardrailResult.Decision == GuardrailDeny {
+				result.Duration = time.Since(start)
+				result.StopReason = StopReasonGuardrail
+				l.recordProgress(result, iteration, guardrailResult.Reason)
+				_, _ = harness.Update(context.Background(), func(cp *HarnessCheckpoint) {
+					cp.StopReason = StopReasonGuardrail
+					cp.LastErrorMessage = guardrailResult.Reason
+					cp.ToolCallsMade = result.ToolCallsMade
+					cp.TokenUsage = result.TokensUsed
+				})
+				_, _ = harness.Transition(context.Background(), HarnessStateStopped, "guardrail denied tool call")
+				return result, fmt.Errorf("agent loop: guardrail %s denied tool call %s: %s", guardrailResult.Name, tc.FunctionName, guardrailResult.Reason)
+			}
+		}
 
 		// Emit tool call requested events
 		for _, tc := range coreToolCalls {
@@ -263,11 +362,22 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 			}
 		}
 
+		if _, err := harness.Transition(loopCtx, HarnessStateToolDispatch, "execute tools"); err != nil {
+			result.Duration = time.Since(start)
+			return result, err
+		}
 		execResults := l.executor.ExecuteBatch(loopCtx, coreToolCalls)
+		if _, err := harness.Transition(loopCtx, HarnessStateObserve, "observe tool results"); err != nil {
+			result.Duration = time.Since(start)
+			return result, err
+		}
 
 		// Add tool results to conversation and emit completion events
 		for _, er := range execResults {
 			l.context.Conversation().AddMessage(core.NewToolResultMessage(er.ToolCallID, er.Content, er.IsError))
+			if l.config.MemoryManager != nil {
+				_ = l.config.MemoryManager.LearnObservation(loopCtx, er.Content)
+			}
 			if eventCh != nil {
 				// Find tool name for the event
 				toolName := ""
@@ -285,10 +395,20 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 		if profile.ShouldRecordProgress(result.ToolCallsMade) {
 			l.recordProgress(result, iteration, "tool batch completed")
 		}
+		_, _ = harness.Transition(loopCtx, HarnessStateMemoryUpdate, "memory updated")
+		_, _ = harness.Update(loopCtx, func(cp *HarnessCheckpoint) {
+			cp.Iteration = iteration
+			cp.ToolCallsMade = result.ToolCallsMade
+			cp.TokenUsage = result.TokensUsed
+			cp.RecentToolKeys = l.recentToolKeys()
+		})
+		_, _ = harness.Transition(loopCtx, HarnessStateCheckpoint, "checkpoint saved")
+		_, _ = harness.Transition(loopCtx, HarnessStateDecideNext, "continue")
 	}
 
 	result.Duration = time.Since(start)
 	result.StopReason = StopReasonMaxIterations
+	_, _ = harness.Transition(context.Background(), HarnessStateStopped, "max iterations")
 	return result, fmt.Errorf("agent loop: max iterations (%d) exceeded", l.config.MaxIterations)
 }
 
@@ -300,6 +420,41 @@ func (l *AgentLoop) recordProgress(result *AgentLoopResult, iteration uint32, re
 		Reason:        reason,
 		CreatedAt:     time.Now().UTC(),
 	})
+}
+
+func (l *AgentLoop) currentTask() string {
+	msgs := l.context.Conversation().Messages()
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == core.RoleUser {
+			return msgs[i].Content
+		}
+	}
+	return ""
+}
+
+func (l *AgentLoop) recentToolKeys() []string {
+	var keys []string
+	msgs := l.context.Conversation().Messages()
+	for _, msg := range msgs {
+		for _, call := range msg.ToolCalls {
+			keys = append(keys, ToolCallKey(call))
+		}
+	}
+	return keys
+}
+
+func prependHarnessContextMessages(messages []ai.ChatMessage, blocks []ContextBlock) []ai.ChatMessage {
+	var prefix []ai.ChatMessage
+	for _, block := range blocks {
+		if block.Kind == ContextBlockConversation {
+			continue
+		}
+		if block.Content == "" {
+			continue
+		}
+		prefix = append(prefix, ai.SystemMsg(block.Content))
+	}
+	return append(prefix, messages...)
 }
 
 // conversationToAIMessages converts a core.Conversation to a slice of ai.ChatMessage.

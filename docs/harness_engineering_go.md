@@ -21,6 +21,19 @@
 
 ## 已落地能力
 
+### Harness runtime
+
+`modules/agent` 现在包含真正的 harness runtime 骨架：
+
+- `harness_state.go` 定义显式状态机、trace event、checkpoint 和 checkpoint store 接口。
+- `harness_engine.go` 提供 `HarnessEngine`，负责合法状态迁移、trace 记录和 checkpoint 保存。
+- `harness_context.go` 提供 `HarnessContextBuilder`，把模型上下文拆成 system、task、memory、conversation 等可预算 block。
+- `harness_memory.go` 提供 `HarnessMemoryManager`，负责 recall 和从 `FACT:` 观察中学习稳定事实。
+- `harness_guardrail.go` 提供 guardrail pipeline，并内置危险 shell 命令和重复工具调用检查。
+- `harness_checkpoint_file.go` 提供 JSON 文件持久化 checkpoint store；`MemoryCheckpointStore` 提供内存版。
+
+`AgentLoop.Run` 已接入这些能力：每次运行都会创建 harness run ID、启动 checkpoint、构建上下文 block、执行 pre-tool guardrail、学习 FACT 记忆，并在状态迁移时记录 trace。
+
 ### 长任务
 
 `modules/agent/harness_profile.go` 新增 `LongTaskPolicy`：
@@ -30,6 +43,7 @@
 - 增加 `MaxToolCalls`，防止 agent 在工具循环中无界运行。
 - 增加 `ProgressSnapshot` 和 `StopReason`，让调用方能区分完成、取消、provider 错误、迭代上限和工具预算耗尽。
 - 每轮模型调用前按 `CompactionMaxTokens` 压缩旧上下文。
+- checkpoint 可使用内存版或文件版，文件版保存为 `<checkpoint_dir>/<run_id>.json`。
 
 ### 长推理
 
@@ -56,6 +70,12 @@
 - `TestDefaultLoopConfig`
 - `TestOpenAIProviderIncludesReasoningEffort`
 - `TestAnthropicProviderIncludesThinkingBudget`
+- `TestHarnessEngine_InMemoryStateMachineRecordsTraceAndCheckpoint`
+- `TestHarnessContextBuilder_BuildsStableMemoryAndRecentBlocksWithinBudget`
+- `TestHarnessMemoryManager_RecallAndLearnFacts`
+- `TestHarnessGuardrailPipeline_BlocksDangerousAndRepeatedToolCalls`
+- `TestFileCheckpointStore_RoundTrip`
+- `TestAgentLoop_UsesHarnessGuardrailCheckpointAndMemory`
 
 全量 Go 模块测试命令：
 
