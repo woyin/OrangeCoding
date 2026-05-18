@@ -27,6 +27,18 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Providers == nil {
 		t.Error("DefaultConfig Providers is nil, want non-nil map")
 	}
+	if cfg.Harness.CheckpointStore != "memory" {
+		t.Errorf("DefaultConfig Harness.CheckpointStore = %q, want memory", cfg.Harness.CheckpointStore)
+	}
+	if cfg.Harness.CheckpointDir != "checkpoints" {
+		t.Errorf("DefaultConfig Harness.CheckpointDir = %q, want checkpoints", cfg.Harness.CheckpointDir)
+	}
+	if cfg.Harness.ReasoningEffort != "high" {
+		t.Errorf("DefaultConfig Harness.ReasoningEffort = %q, want high", cfg.Harness.ReasoningEffort)
+	}
+	if cfg.Harness.ReasoningBudgetTokens != 4096 {
+		t.Errorf("DefaultConfig Harness.ReasoningBudgetTokens = %d, want 4096", cfg.Harness.ReasoningBudgetTokens)
+	}
 }
 
 // --- ConfigManager Load/Save round-trip ---
@@ -102,6 +114,34 @@ func TestConfigManagerLoadJSONC(t *testing.T) {
 	}
 }
 
+func TestConfigManagerExpandsProviderEnvironmentVariables(t *testing.T) {
+	t.Setenv("ORANGECODING_TEST_OPENAI_KEY", "sk-from-env")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.jsonc")
+
+	content := `{
+		"default_provider": "openai",
+		"providers": {
+			"openai": {
+				"api_key": "${ORANGECODING_TEST_OPENAI_KEY}",
+				"base_url": "https://api.openai.com/v1"
+			}
+		}
+	}`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	mgr := NewConfigManager()
+	cfg, err := mgr.Load(path)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Providers["openai"].APIKey != "sk-from-env" {
+		t.Fatalf("APIKey = %q, want sk-from-env", cfg.Providers["openai"].APIKey)
+	}
+}
+
 // --- ConfigManager Set/Get ---
 
 func TestConfigManagerSetGet(t *testing.T) {
@@ -149,6 +189,41 @@ func TestConfigManagerSetGet(t *testing.T) {
 	}
 	if numVal != 5000 {
 		t.Errorf("Get control_port = %v, want %v", numVal, 5000)
+	}
+}
+
+func TestConfigManagerSetGetNestedHarnessField(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.jsonc")
+
+	mgr := NewConfigManager()
+
+	cfg := DefaultConfig()
+	if err := mgr.Save(path, &cfg); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	if err := mgr.Set(path, "harness.checkpoint_store", "file"); err != nil {
+		t.Fatalf("Set harness.checkpoint_store failed: %v", err)
+	}
+	if err := mgr.Set(path, "harness.checkpoint_dir", "runtime-checkpoints"); err != nil {
+		t.Fatalf("Set harness.checkpoint_dir failed: %v", err)
+	}
+
+	store, err := mgr.Get(path, "harness.checkpoint_store")
+	if err != nil {
+		t.Fatalf("Get harness.checkpoint_store failed: %v", err)
+	}
+	if store != "file" {
+		t.Errorf("harness.checkpoint_store = %v, want file", store)
+	}
+
+	checkpointDir, err := mgr.Get(path, "harness.checkpoint_dir")
+	if err != nil {
+		t.Fatalf("Get harness.checkpoint_dir failed: %v", err)
+	}
+	if checkpointDir != "runtime-checkpoints" {
+		t.Errorf("harness.checkpoint_dir = %v, want runtime-checkpoints", checkpointDir)
 	}
 }
 

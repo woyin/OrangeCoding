@@ -99,9 +99,9 @@ func TestBatchExecution(t *testing.T) {
 	r := NewToolRegistry()
 
 	echo := &mockTool{
-		name:   "echo",
-		desc:   "echoes input",
-		meta:   ReadOnlyMetadata(),
+		name: "echo",
+		desc: "echoes input",
+		meta: ReadOnlyMetadata(),
 		execute: func(ctx context.Context, input json.RawMessage) (string, error) {
 			var args struct {
 				Msg string `json:"msg"`
@@ -576,6 +576,26 @@ func TestTaskTool(t *testing.T) {
 	}
 }
 
+func TestTaskToolDelegateActionBuildsSubAgentBrief(t *testing.T) {
+	tool := NewTaskTool()
+
+	out, err := tool.Execute(context.Background(), json.RawMessage(`{
+		"action":"delegate",
+		"description":"review auth module",
+		"subagent_type":"reviewer",
+		"scope":"modules/auth",
+		"expected_output":"risks and patch suggestions"
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Sub-agent delegation", "reviewer", "modules/auth", "risks and patch suggestions"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("delegate output = %q, want to contain %q", out, want)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // TestStubTools
 // ---------------------------------------------------------------------------
@@ -608,10 +628,10 @@ type mockTool struct {
 	execute func(ctx context.Context, input json.RawMessage) (string, error)
 }
 
-func (m *mockTool) Name() string                       { return m.name }
-func (m *mockTool) Description() string                 { return m.desc }
-func (m *mockTool) Parameters() json.RawMessage         { return json.RawMessage(`{}`) }
-func (m *mockTool) Metadata() ToolMetadata              { return m.meta }
+func (m *mockTool) Name() string                { return m.name }
+func (m *mockTool) Description() string         { return m.desc }
+func (m *mockTool) Parameters() json.RawMessage { return json.RawMessage(`{}`) }
+func (m *mockTool) Metadata() ToolMetadata      { return m.meta }
 func (m *mockTool) Execute(ctx context.Context, input json.RawMessage) (string, error) {
 	if m.execute != nil {
 		return m.execute(ctx, input)

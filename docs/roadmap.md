@@ -238,3 +238,87 @@ Phase 5: invariant checker (orangecoding-invariant crate) ◄─────┘
 3. 不变量检查通过 (Phase 5 之后)
 4. Verification Agent 验证 (Phase 9 之后)
 5. 代码审查 (3 轮)
+
+---
+
+## Phase 13-17: Harness 演进路线（2026 Q2+）
+
+> 详细的行业调研和差距分析见 `docs/harness_research_2026Q2.md`。
+> 以下 Phase 在 Phase 12 (Agent OS 文档) 完成之后执行。
+
+### Phase 13: Guardrail 全面激活
+
+**依赖**: Phase 7 (Runtime Guard)
+
+**目标**: 将所有 guardrail phase 接入 agent loop，从"只有 pre_tool"升级到完整的 4-phase pipeline。
+
+**交付物**:
+- `loop.go` 中增加 `GuardrailPhasePreModel` 检查（在模型调用前评估用户输入）
+- `loop.go` 中增加 `GuardrailPhasePostTool` 检查（在工具返回后评估结果安全性）
+- `loop.go` 中增加 `GuardrailPhaseFinalOutput` 检查（在最终输出前做安全审查）
+- `GuardrailResult.Warn` 处理逻辑（日志记录 + 可选用户确认）
+- LLM-based guardrail 接口（用轻量模型评估输出安全性）
+- 测试覆盖：4 个 phase × (happy path / violation / boundary)
+
+### Phase 14: Checkpoint 生产化
+
+**依赖**: Phase 13
+
+**目标**: Checkpoint 存储达到生产级质量，支持 resume 和管理。
+
+**交付物**:
+- 原子文件写入（write-to-temp + rename）
+- `CheckpointStore` 增加 `List(prefix) []CheckpointSummary` 方法
+- `CheckpointStore` 增加 `Delete(runID) error` 方法
+- TTL-based 自动清理（配置项：`harness.checkpoint_ttl`）
+- 可选 SQLite 后端
+- CLI 命令：`orangecoding runs list` / `runs show <id>` / `runs delete <id>`
+
+### Phase 15: Trace 与可观测性
+
+**依赖**: Phase 14
+
+**目标**: 结构化 trace 存储，支持查询、调试和 OpenTelemetry 导出。
+
+**交付物**:
+- 独立 `TraceStore` 接口（从 Checkpoint 中分离）
+- 按 run_id / session_id / time_range / state 查询
+- CLI 命令：`orangecoding trace list` / `trace show <run_id>`
+- OpenTelemetry span 导出适配器
+- Trace schema 版本化（向后兼容）
+
+### Phase 16: Agent Handoff 与编排
+
+**依赖**: Phase 15
+
+**目标**: 类型安全的 agent handoff，per-tool 预算，per-agent 模型配置。
+
+**交付物**:
+- `HandoffRequest` / `HandoffResult` 类型定义
+- Agent 间上下文传递（对话历史 + 任务状态 + 已用工具列表）
+- `ToolMetadata.MaxUses` 字段 + per-tool 调用计数器
+- `AgentConfig.ModelSettings` 字段（独立 model/temperature/reasoning）
+- Orchestrator agent 基础骨架（任务分解 + 委派 + 汇总）
+
+### Phase 17: 智能记忆
+
+**依赖**: Phase 16
+
+**目标**: 从关键词记忆升级到语义记忆系统。
+
+**交付物**:
+- `EmbeddingProvider` 接口（支持 OpenAI / 本地模型）
+- 向量相似度 + 关键词混合检索
+- 记忆去重（相似度阈值过滤）
+- 记忆过期和容量限制
+- 跨会话知识迁移
+
+---
+
+### 质量保证（延续 Phase 1-12 的标准）
+
+每个 Phase 完成后:
+1. Go 模块全量测试通过
+2. 新增测试覆盖新功能
+3. `docs/harness_engineering_go.md` 同步更新
+4. `docs/harness_research_2026Q2.md` 中对应的差距标记为已解决

@@ -2,14 +2,21 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/woyin/OrangeCoding/modules/agent"
+	"github.com/woyin/OrangeCoding/modules/config"
+	"github.com/woyin/OrangeCoding/modules/core"
 )
 
 // --- Helper ---
@@ -203,5 +210,149 @@ func TestConfigSubcommands(t *testing.T) {
 		if !found {
 			t.Errorf("config command missing subcommand %q", name)
 		}
+	}
+}
+
+func TestAgentLoopConfigFromCLIConfigDefaultsToInMemoryCheckpoints(t *testing.T) {
+	cfg := config.DefaultConfig()
+	loopCfg, err := agentLoopConfigFromCLIConfig(filepath.Join(t.TempDir(), ".orangecoding", "config.json"), &cfg)
+	if err != nil {
+		t.Fatalf("agentLoopConfigFromCLIConfig failed: %v", err)
+	}
+	if loopCfg.CheckpointStore != nil {
+		t.Fatalf("CheckpointStore = %T, want nil so AgentLoop keeps its in-memory default", loopCfg.CheckpointStore)
+	}
+}
+
+func TestAgentLoopConfigFromCLIConfigUsesConfigSiblingCheckpointDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".orangecoding", "config.json")
+	cfg := config.DefaultConfig()
+	cfg.Harness.CheckpointStore = "file"
+
+	loopCfg, err := agentLoopConfigFromCLIConfig(configPath, &cfg)
+	if err != nil {
+		t.Fatalf("agentLoopConfigFromCLIConfig failed: %v", err)
+	}
+	if loopCfg.CheckpointStore == nil {
+		t.Fatal("CheckpointStore is nil, want file-backed store")
+	}
+
+	err = loopCfg.CheckpointStore.Save(context.Background(), agent.HarnessCheckpoint{
+		RunID:     "run-cli-file",
+		SessionID: core.NewSessionId(),
+		Task:      "cli checkpoint wiring",
+		State:     agent.HarnessStateCheckpoint,
+	})
+	if err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	checkpointPath := filepath.Join(tmpDir, ".orangecoding", "checkpoints", "run-cli-file.json")
+	if _, err := os.Stat(checkpointPath); err != nil {
+		t.Fatalf("expected checkpoint at %s: %v", checkpointPath, err)
+	}
+}
+
+func TestAgentLoopConfigFromCLIConfigAppliesReasoningDepth(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Harness.ReasoningEffort = "medium"
+	cfg.Harness.ReasoningBudgetTokens = 8192
+
+	loopCfg, err := agentLoopConfigFromCLIConfig(filepath.Join(t.TempDir(), ".orangecoding", "config.json"), &cfg)
+	if err != nil {
+		t.Fatalf("agentLoopConfigFromCLIConfig failed: %v", err)
+	}
+	if loopCfg.Reasoning.Effort != agent.ReasoningEffortMedium {
+		t.Fatalf("Reasoning.Effort = %q, want %q", loopCfg.Reasoning.Effort, agent.ReasoningEffortMedium)
+	}
+	if loopCfg.Reasoning.BudgetTokens != 8192 {
+		t.Fatalf("Reasoning.BudgetTokens = %d, want 8192", loopCfg.Reasoning.BudgetTokens)
+	}
+}
+
+func TestAIProviderConfigFromCLIConfigUsesCanonicalProviderAlias(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.DefaultModel = ""
+	cfg.Providers["anthropic"] = config.ProviderConfig{APIKey: "anthropic-key"}
+	cfg.Providers["openai"] = config.ProviderConfig{APIKey: "openai-key"}
+
+	opusCfg := aiProviderConfigFromCLIConfig("opus", &cfg)
+	if opusCfg.APIKey != "anthropic-key" {
+		t.Fatalf("opus APIKey = %q, want anthropic-key", opusCfg.APIKey)
+	}
+	if opusCfg.DefaultModel != "claude-opus-4-7" {
+		t.Fatalf("opus DefaultModel = %q, want claude-opus-4-7", opusCfg.DefaultModel)
+	}
+
+	gptCfg := aiProviderConfigFromCLIConfig("gpt", &cfg)
+	if gptCfg.APIKey != "openai-key" {
+		t.Fatalf("gpt APIKey = %q, want openai-key", gptCfg.APIKey)
+	}
+	if gptCfg.DefaultModel != "gpt-5.1" {
+		t.Fatalf("gpt DefaultModel = %q, want gpt-5.1", gptCfg.DefaultModel)
+	}
+}
+
+func TestRunSingleShotExecutesAgentLoopWithConfiguredOpenAIProvider(t *testing.T) {
+	var requestModel string
+	var requestReasoning string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("path = %q, want /chat/completions", r.URL.Path)
+		}
+		var body struct {
+			Model           string `json:"model"`
+			ReasoningEffort string `json:"reasoning_effort"`
+			Stream          bool   `json:"stream"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		requestModel = body.Model
+		requestReasoning = body.ReasoningEffort
+		if !body.Stream {
+			t.Fatal("stream = false, want true")
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintln(w, `data: {"choices":[{"delta":{"content":"mock agent answer"},"finish_reason":null}]}`)
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, `data: {"choices":[{"delta":{},"finish_reason":"stop"}]}`)
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, `data: [DONE]`)
+	}))
+	defer server.Close()
+
+	cfg := config.DefaultConfig()
+	cfg.DefaultProvider = "openai"
+	cfg.DefaultModel = "gpt-5.1"
+	cfg.Providers["openai"] = config.ProviderConfig{
+		APIKey:  "test-key",
+		BaseURL: server.URL,
+	}
+	cfg.Harness.ReasoningEffort = "low"
+	cfg.Harness.ReasoningBudgetTokens = 1024
+
+	loopCfg, err := agentLoopConfigFromCLIConfig(filepath.Join(t.TempDir(), ".orangecoding", "config.json"), &cfg)
+	if err != nil {
+		t.Fatalf("agentLoopConfigFromCLIConfig failed: %v", err)
+	}
+
+	cmd := &cobra.Command{}
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	if err := runSingleShot(cmd, &cfg, loopCfg, "say hello"); err != nil {
+		t.Fatalf("runSingleShot failed: %v", err)
+	}
+
+	if requestModel != "gpt-5.1" {
+		t.Fatalf("request model = %q, want gpt-5.1", requestModel)
+	}
+	if requestReasoning != "low" {
+		t.Fatalf("request reasoning_effort = %q, want low", requestReasoning)
+	}
+	if !strings.Contains(buf.String(), "mock agent answer") {
+		t.Fatalf("output = %q, want final assistant answer", buf.String())
 	}
 }

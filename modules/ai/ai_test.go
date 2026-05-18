@@ -206,9 +206,16 @@ func TestProviderFactoryKnownNames(t *testing.T) {
 		"z.ai":         "openai",
 		"zen":          "openai",
 		"opencode-zen": "openai",
+		"gpt":          "openai",
+		"kimi":         "openai",
+		"moonshot":     "openai",
+		"glm":          "openai",
+		"bigmodel":     "openai",
+		"zhipu":        "openai",
 		"anthropic":    "anthropic",
 		"claude":       "anthropic",
 		"CLAUDE":       "anthropic",
+		"opus":         "anthropic",
 		"deepseek":     "deepseek",
 		"DeepSeek":     "deepseek",
 		"qianwen":      "qianwen",
@@ -228,6 +235,31 @@ func TestProviderFactoryKnownNames(t *testing.T) {
 		if provider.Name() != expectedProvider {
 			t.Errorf("CreateProvider(%q).Name() = %q, want %q", name, provider.Name(), expectedProvider)
 		}
+	}
+}
+
+func TestProviderFactoryCommonAliasDefaults(t *testing.T) {
+	cases := []struct {
+		name      string
+		wantModel string
+		wantBase  string
+	}{
+		{name: "gpt", wantModel: "gpt-5.1"},
+		{name: "opus", wantModel: "claude-opus-4-7"},
+		{name: "kimi", wantModel: "kimi-k2.6", wantBase: "https://api.moonshot.ai/v1"},
+		{name: "glm", wantModel: "glm-5.1", wantBase: "https://api.z.ai/api/paas/v4"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := NormalizeProviderConfig(tc.name, ProviderConfig{APIKey: "test-key"})
+			if got.DefaultModel != tc.wantModel {
+				t.Fatalf("DefaultModel = %q, want %q", got.DefaultModel, tc.wantModel)
+			}
+			if got.BaseURL != tc.wantBase {
+				t.Fatalf("BaseURL = %q, want %q", got.BaseURL, tc.wantBase)
+			}
+		})
 	}
 }
 
@@ -561,6 +593,41 @@ func TestOpenAIProviderIncludesReasoningEffort(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("ChatCompletion: unexpected error: %v", err)
+	}
+}
+
+func TestOpenAIProviderThinkingFormatUsesThinkingPayload(t *testing.T) {
+	var reqBody struct {
+		ReasoningEffort string `json:"reasoning_effort"`
+		Thinking        *struct {
+			Type string `json:"type"`
+		} `json:"thinking"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"id":"1","model":"glm-5.1","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{}}`)
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProvider(NormalizeProviderConfig("glm", ProviderConfig{
+		APIKey:  "test-key",
+		BaseURL: server.URL,
+	}))
+	_, err := provider.ChatCompletion(context.Background(), nil, nil, ChatOptions{
+		Model:           "glm-5.1",
+		ReasoningEffort: "high",
+	})
+	if err != nil {
+		t.Fatalf("ChatCompletion failed: %v", err)
+	}
+	if reqBody.ReasoningEffort != "" {
+		t.Fatalf("reasoning_effort = %q, want omitted", reqBody.ReasoningEffort)
+	}
+	if reqBody.Thinking == nil || reqBody.Thinking.Type != "enabled" {
+		t.Fatalf("thinking = %+v, want enabled thinking payload", reqBody.Thinking)
 	}
 }
 

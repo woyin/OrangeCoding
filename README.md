@@ -10,10 +10,11 @@ OrangeCoding Go 是 OrangeCoding 的 Go 语言实现。这个分支以 Go worksp
 - CLI：基于 Cobra，入口为 `modules/cli`
 - 控制服务：Gin HTTP API + Gorilla WebSocket
 - Agent runtime：支持会话生命周期、工具调用循环、事件流
-- AI provider：OpenAI、Anthropic、DeepSeek、通义千问、文心一言
+- Harness：内建长任务推进、真实工具 schema 暴露、sub-agent delegation brief
+- AI provider：OpenAI/兼容格式、Anthropic/兼容格式、DeepSeek、通义千问、文心一言；内置 GPT、Opus、Kimi K2.6、GLM-5.1 常用别名
 - 测试：Go 模块测试已通过
 
-部分用户界面和真实单次 Agent 执行仍在接线中：`launch --text`、默认 TUI 模式、若干高级工具当前是 stub。
+部分用户界面仍在接线中：`launch --text`、默认 TUI 模式、若干高级工具当前是 stub。`launch -p` 已可运行单次 Agent 任务。
 
 ## 模块结构
 
@@ -44,7 +45,7 @@ go run ./modules/cli --help
 # 初始化配置
 go run ./modules/cli init
 
-# 单次任务模式（当前会验证配置并输出接线状态）
+# 单次任务模式
 go run ./modules/cli launch -p "explain this repository"
 
 # 启动控制服务
@@ -53,6 +54,8 @@ go run ./modules/cli serve --addr 127.0.0.1:3200
 
 默认配置路径为 `~/.orangecoding/config.json`。
 
+常见模型可以通过配置切换，例如 `default_provider` 使用 `gpt`、`opus`、`kimi` 或 `glm`；`harness.reasoning_effort` 和 `harness.reasoning_budget_tokens` 控制思考深度。
+
 ## 测试
 
 仓库根目录不是单独的 Go module，不能直接使用 `go test ./...`。请按 workspace module 显式测试：
@@ -60,7 +63,7 @@ go run ./modules/cli serve --addr 127.0.0.1:3200
 ```bash
 go test ./modules/core ./modules/ai ./modules/audit ./modules/config \
   ./modules/control-protocol ./modules/session ./modules/tools \
-  ./modules/agent ./modules/mesh ./modules/mcp ./modules/tui \
+  ./modules/agent/... ./modules/mesh ./modules/mcp ./modules/tui \
   ./modules/worker ./modules/control-server ./modules/cli ./modules/invariant
 ```
 

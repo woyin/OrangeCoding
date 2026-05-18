@@ -15,23 +15,8 @@ func NewSisyphus(provider ai.AiProvider, registry *tools.ToolRegistry, workDir s
 	agentCtx.SetSystemPrompt("You are Sisyphus, a general-purpose coding agent. You write, debug, review, and refactor code. You are thorough, methodical, and never give up on a task.")
 
 	executor := agent.NewToolExecutor(registry)
-	toolDefs := buildToolDefs(registry)
+	toolDefs := agent.BuildToolDefinitions(registry)
 	loop := agent.NewAgentLoop(core.NewAgentId(), provider, executor, agentCtx, agent.DefaultLoopConfig(), toolDefs)
 
 	return NewBaseAgent(core.RoleCoder, loop)
-}
-
-func buildToolDefs(registry *tools.ToolRegistry) []ai.ToolDefinition {
-	var defs []ai.ToolDefinition
-	for _, t := range registry.List() {
-		defs = append(defs, ai.ToolDefinition{
-			Type: "function",
-			Function: ai.FunctionDefinition{
-				Name:        t.Name(),
-				Description: t.Description(),
-				Parameters:  ai.ToolParameter{Type: "object", Properties: make(map[string]interface{})},
-			},
-		})
-	}
-	return defs
 }

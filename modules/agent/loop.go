@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/woyin/OrangeCoding/modules/ai"
@@ -23,6 +22,7 @@ type AgentLoopConfig struct {
 	ContextBuilder   *HarnessContextBuilder
 	MemoryManager    *HarnessMemoryManager
 	Guardrails       *GuardrailPipeline
+	GuardrailLogger  *GuardrailLogger
 }
 
 // DefaultLoopConfig returns a long-task-friendly config.
@@ -83,38 +83,37 @@ func NewAgentLoop(
 }
 
 // Context returns the agent context.
-func (l *AgentLoop) Context() *AgentContext {
-	return l.context
-}
+func (l *AgentLoop) Context() *AgentContext { return l.context }
 
 // Executor returns the tool executor.
-func (l *AgentLoop) Executor() *ToolExecutor {
-	return l.executor
-}
+func (l *AgentLoop) Executor() *ToolExecutor { return l.executor }
 
 // Provider returns the AI provider.
-func (l *AgentLoop) Provider() ai.AiProvider {
-	return l.provider
-}
+func (l *AgentLoop) Provider() ai.AiProvider { return l.provider }
 
 // Config returns the loop configuration.
-func (l *AgentLoop) Config() AgentLoopConfig {
-	return l.config
-}
+func (l *AgentLoop) Config() AgentLoopConfig { return l.config }
 
 // ToolDefs returns the tool definitions.
-func (l *AgentLoop) ToolDefs() []ai.ToolDefinition {
-	return l.tools
-}
+func (l *AgentLoop) ToolDefs() []ai.ToolDefinition { return l.tools }
 
 // HarnessRunID returns the checkpoint run ID used by the last Run call.
-func (l *AgentLoop) HarnessRunID() string {
-	return l.harnessRunID
-}
+func (l *AgentLoop) HarnessRunID() string { return l.harnessRunID }
 
 // AgentID returns the agent ID.
-func (l *AgentLoop) AgentID() core.AgentId {
-	return l.id
+func (l *AgentLoop) AgentID() core.AgentId { return l.id }
+
+// logGuardrail logs a guardrail result if a logger is configured.
+func (l *AgentLoop) logGuardrail(name string, decision GuardrailDecision, reason string, phase GuardrailPhase) {
+	if l.config.GuardrailLogger != nil {
+		l.config.GuardrailLogger.Log(GuardrailLogEntry{
+			Name:      name,
+			Decision:  decision,
+			Reason:    reason,
+			Phase:     phase,
+			Timestamp: time.Now().UTC(),
+		})
+	}
 }
 
 // Run executes the agent loop. It streams events to eventCh for each step
@@ -176,107 +175,90 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 			return result, fmt.Errorf("agent loop canceled: %w", loopCtx.Err())
 		}
 
-		if profile.LongTask.Enabled && profile.LongTask.CompactionMaxTokens > 0 {
-			compactor := NewCompactor(profile.LongTask.CompactionMaxTokens)
-			if err := compactor.Compact(l.context.Conversation()); err != nil {
-				result.Duration = time.Since(start)
-				return result, fmt.Errorf("compact conversation: %w", err)
-			}
-		}
-
-		blocks, err := contextBuilder.Build(loopCtx, HarnessContextInput{
-			SystemPrompt:  l.context.Conversation().Messages()[0].Content,
+		// Build harness context blocks
+		memoryManager := l.config.MemoryManager
+		harnessInput := HarnessContextInput{
+			SystemPrompt:  systemPromptFromContext(l.context),
 			Task:          task,
 			Conversation:  l.context.Conversation(),
-			MemoryManager: l.config.MemoryManager,
-		})
+			MemoryManager: memoryManager,
+		}
+		contextBlocks, err := contextBuilder.Build(loopCtx, harnessInput)
 		if err != nil {
 			result.Duration = time.Since(start)
-			result.StopReason = StopReasonProviderError
-			_, _ = harness.Transition(context.Background(), HarnessStateFailed, err.Error())
-			return result, fmt.Errorf("build harness context: %w", err)
-		}
-		_, _ = harness.Update(loopCtx, func(cp *HarnessCheckpoint) {
-			cp.ContextBlocks = blocks
-			cp.Iteration = iteration
-			cp.ToolCallsMade = result.ToolCallsMade
-			cp.TokenUsage = result.TokensUsed
-		})
-
-		// Emit started event on first iteration
-		if iteration == 0 && eventCh != nil {
-			eventCh <- core.NewStartedEvent(l.id, sid)
+			return result, fmt.Errorf("agent loop: context build failed: %w", err)
 		}
 
-		// Convert conversation to AI messages
+		// Build messages for the AI provider
 		aiMessages := conversationToAIMessages(l.context.Conversation())
-		aiMessages = prependHarnessContextMessages(aiMessages, blocks)
+		aiMessages = prependHarnessContextMessages(aiMessages, contextBlocks)
 
-		// Call provider with streaming
-		if _, err := harness.Transition(loopCtx, HarnessStateModelCall, "call provider"); err != nil {
+		// Phase 13: Pre-model guardrail
+		preModelResult := guardrails.Check(loopCtx, GuardrailContext{
+			Phase: GuardrailPhasePreModel,
+		})
+		l.logGuardrail(preModelResult.Name, preModelResult.Decision, preModelResult.Reason, GuardrailPhasePreModel)
+		if preModelResult.Decision == GuardrailDeny {
+			result.Duration = time.Since(start)
+			result.StopReason = StopReasonGuardrail
+			_, _ = harness.Update(context.Background(), func(cp *HarnessCheckpoint) {
+				cp.LastErrorMessage = preModelResult.Reason
+			})
+			_, _ = harness.Transition(context.Background(), HarnessStateStopped, "pre-model guardrail denied")
+			return result, fmt.Errorf("agent loop: pre-model guardrail %s denied: %s", preModelResult.Name, preModelResult.Reason)
+		}
+
+		// Transition to model call state
+		if _, err := harness.Transition(loopCtx, HarnessStateModelCall, "call model"); err != nil {
 			result.Duration = time.Since(start)
 			return result, err
 		}
+
+		// Call the AI provider
 		streamCh, err := l.provider.ChatCompletionStream(loopCtx, aiMessages, l.tools, chatOpts)
 		if err != nil {
 			result.Duration = time.Since(start)
 			result.StopReason = StopReasonProviderError
-			_, _ = harness.Transition(context.Background(), HarnessStateFailed, err.Error())
-			if eventCh != nil {
-				eventCh <- core.NewErrorEvent(l.id, sid, err.Error())
-			}
-			return result, fmt.Errorf("provider stream failed: %w", err)
+			_, _ = harness.Update(context.Background(), func(cp *HarnessCheckpoint) {
+				cp.LastErrorMessage = err.Error()
+			})
+			_, _ = harness.Transition(context.Background(), HarnessStateFailed, "provider error")
+			return result, fmt.Errorf("agent loop: provider error: %w", err)
 		}
 
-		// Collect stream events
-		var contentBuilder strings.Builder
+		// Accumulate streaming response
+		var content string
 		var toolCalls []aiToolCallAccumulator
 		var usage *ai.TokenUsage
-
-		for ev := range streamCh {
-			switch ev.Type {
+		for event := range streamCh {
+			switch event.Type {
 			case "content_delta":
-				contentBuilder.WriteString(ev.Content)
+				content += event.Content
 				if eventCh != nil {
-					eventCh <- core.NewStreamChunkEvent(l.id, sid, ev.Content)
+					eventCh <- core.NewStreamChunkEvent(l.id, sid, event.Content)
 				}
-
 			case "tool_call_delta":
-				tcID := ev.ToolCallID
-				tcName := ev.ToolCallName
-				tcArgs := ev.Arguments
-
-				// Find or create accumulator for this tool call
 				found := false
 				for i := range toolCalls {
-					if toolCalls[i].id == tcID {
-						toolCalls[i].arguments += tcArgs
-						if tcName != "" {
-							toolCalls[i].name = tcName
+					if toolCalls[i].id == event.ToolCallID {
+						toolCalls[i].arguments += event.Arguments
+						if event.ToolCallName != "" {
+							toolCalls[i].name = event.ToolCallName
 						}
 						found = true
 						break
 					}
 				}
 				if !found {
-					toolCalls = append(toolCalls, aiToolCallAccumulator{
-						id:        tcID,
-						name:      tcName,
-						arguments: tcArgs,
-					})
+					tc := aiToolCallAccumulator{id: event.ToolCallID, name: event.ToolCallName, arguments: event.Arguments}
+					toolCalls = append(toolCalls, tc)
 				}
-
 			case "usage":
-				usage = ev.Usage
-
-			case "done":
-				// Stream complete
+				usage = event.Usage
 			}
 		}
 
-		content := contentBuilder.String()
-
-		// Convert accumulated tool calls to core.ToolCall slice
+		// Convert tool calls
 		var coreToolCalls []core.ToolCall
 		for _, tc := range toolCalls {
 			coreToolCalls = append(coreToolCalls, core.ToolCall{
@@ -307,6 +289,22 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 
 		// If no tool calls, we're done
 		if len(coreToolCalls) == 0 {
+			// Phase 13: Final output guardrail
+			finalResult := guardrails.Check(loopCtx, GuardrailContext{
+				Phase:  GuardrailPhaseFinalOutput,
+				Output: content,
+			})
+			l.logGuardrail(finalResult.Name, finalResult.Decision, finalResult.Reason, GuardrailPhaseFinalOutput)
+			if finalResult.Decision == GuardrailDeny {
+				result.Duration = time.Since(start)
+				result.StopReason = StopReasonGuardrail
+				_, _ = harness.Update(context.Background(), func(cp *HarnessCheckpoint) {
+					cp.LastErrorMessage = finalResult.Reason
+				})
+				_, _ = harness.Transition(context.Background(), HarnessStateStopped, "final-output guardrail denied")
+				return result, fmt.Errorf("agent loop: final-output guardrail %s denied: %s", finalResult.Name, finalResult.Reason)
+			}
+
 			result.Duration = time.Since(start)
 			result.StopReason = StopReasonCompleted
 			l.recordProgress(result, iteration, "completed")
@@ -318,34 +316,37 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 			return result, nil
 		}
 
-		// Execute tool calls
-		nextToolCount := result.ToolCallsMade + uint32(len(coreToolCalls))
-		if profile.LongTask.Enabled && profile.LongTask.MaxToolCalls > 0 && nextToolCount > profile.LongTask.MaxToolCalls {
+		// Track tool calls
+		result.ToolCallsMade += uint32(len(coreToolCalls))
+
+		// Check tool budget
+		if profile.LongTask.Enabled && profile.LongTask.MaxToolCalls > 0 && result.ToolCallsMade >= profile.LongTask.MaxToolCalls {
 			result.Duration = time.Since(start)
 			result.StopReason = StopReasonToolBudget
 			l.recordProgress(result, iteration, "tool budget exceeded")
-			_, _ = harness.Transition(context.Background(), HarnessStateGuardrailCheck, "tool budget exceeded")
 			_, _ = harness.Transition(context.Background(), HarnessStateStopped, "tool budget exceeded")
-			return result, fmt.Errorf("agent loop: tool budget exceeded (%d > %d)", nextToolCount, profile.LongTask.MaxToolCalls)
+			return result, fmt.Errorf("agent loop: tool budget (%d) exceeded", profile.LongTask.MaxToolCalls)
 		}
-		result.ToolCallsMade = nextToolCount
 
-		if _, err := harness.Transition(loopCtx, HarnessStateGuardrailCheck, "check tool calls"); err != nil {
+		// Transition to guardrail check state
+		if _, err := harness.Transition(loopCtx, HarnessStateGuardrailCheck, "check guardrails"); err != nil {
 			result.Duration = time.Since(start)
 			return result, err
 		}
+
+		// Phase 13: Pre-tool guardrail (original + logging)
 		for _, tc := range coreToolCalls {
 			guardrailResult := guardrails.Check(loopCtx, GuardrailContext{
 				Phase:          GuardrailPhasePreTool,
 				ToolCall:       &tc,
 				RecentToolKeys: l.recentToolKeys(),
 			})
+			l.logGuardrail(guardrailResult.Name, guardrailResult.Decision, guardrailResult.Reason, GuardrailPhasePreTool)
 			if guardrailResult.Decision == GuardrailDeny {
 				result.Duration = time.Since(start)
 				result.StopReason = StopReasonGuardrail
 				l.recordProgress(result, iteration, guardrailResult.Reason)
 				_, _ = harness.Update(context.Background(), func(cp *HarnessCheckpoint) {
-					cp.StopReason = StopReasonGuardrail
 					cp.LastErrorMessage = guardrailResult.Reason
 					cp.ToolCallsMade = result.ToolCallsMade
 					cp.TokenUsage = result.TokensUsed
@@ -379,7 +380,6 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 				_ = l.config.MemoryManager.LearnObservation(loopCtx, er.Content)
 			}
 			if eventCh != nil {
-				// Find tool name for the event
 				toolName := ""
 				for _, tc := range coreToolCalls {
 					if tc.ID == er.ToolCallID {
@@ -392,6 +392,25 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 				)
 			}
 		}
+
+		// Phase 13: Post-tool guardrail
+		for _, er := range execResults {
+			postToolResult := guardrails.Check(loopCtx, GuardrailContext{
+				Phase:  GuardrailPhasePostTool,
+				Output: er.Content,
+			})
+			l.logGuardrail(postToolResult.Name, postToolResult.Decision, postToolResult.Reason, GuardrailPhasePostTool)
+			if postToolResult.Decision == GuardrailDeny {
+				result.Duration = time.Since(start)
+				result.StopReason = StopReasonGuardrail
+				_, _ = harness.Update(context.Background(), func(cp *HarnessCheckpoint) {
+					cp.LastErrorMessage = postToolResult.Reason
+				})
+				_, _ = harness.Transition(context.Background(), HarnessStateStopped, "post-tool guardrail denied")
+				return result, fmt.Errorf("agent loop: post-tool guardrail %s denied: %s", postToolResult.Name, postToolResult.Reason)
+			}
+		}
+
 		if profile.ShouldRecordProgress(result.ToolCallsMade) {
 			l.recordProgress(result, iteration, "tool batch completed")
 		}
@@ -470,7 +489,6 @@ func conversationToAIMessages(conv *core.Conversation) []ai.ChatMessage {
 			aiMsgs = append(aiMsgs, ai.UserMsg(m.Content))
 		case core.RoleAssistant:
 			if len(m.ToolCalls) > 0 {
-				// Convert core.ToolCall to ai.ToolCall
 				aiToolCalls := make([]ai.ToolCall, len(m.ToolCalls))
 				for i, tc := range m.ToolCalls {
 					aiToolCalls[i] = ai.ToolCall{
@@ -483,7 +501,6 @@ func conversationToAIMessages(conv *core.Conversation) []ai.ChatMessage {
 					}
 				}
 				aiMsgs = append(aiMsgs, ai.AssistantMsgWithTools(aiToolCalls))
-				// Also set content if present
 				aiMsgs[len(aiMsgs)-1].Content = m.Content
 			} else {
 				aiMsgs = append(aiMsgs, ai.AssistantMsg(m.Content))
@@ -501,6 +518,15 @@ type aiToolCallAccumulator struct {
 	id        string
 	name      string
 	arguments string
+}
+
+// systemPromptFromContext extracts the system prompt from the agent context.
+func systemPromptFromContext(ctx *AgentContext) string {
+	sp := ctx.Conversation().SystemPrompt()
+	if sp != nil {
+		return *sp
+	}
+	return ""
 }
 
 // Type aliases used by fork.go and other files within this package.

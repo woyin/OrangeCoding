@@ -41,10 +41,10 @@ func NewFetchTool() *FetchTool {
 	}
 }
 
-func (t *FetchTool) Name() string                        { return "fetch" }
-func (t *FetchTool) Description() string                  { return "Fetch content from a URL." }
-func (t *FetchTool) Parameters() json.RawMessage          { return t.params }
-func (t *FetchTool) Metadata() ToolMetadata               { return ReadOnlyMetadata() }
+func (t *FetchTool) Name() string                { return "fetch" }
+func (t *FetchTool) Description() string         { return "Fetch content from a URL." }
+func (t *FetchTool) Parameters() json.RawMessage { return t.params }
+func (t *FetchTool) Metadata() ToolMetadata      { return ReadOnlyMetadata() }
 
 const maxFetchSize = 100 * 1024 // 100KB
 
@@ -109,10 +109,10 @@ func NewPythonTool() *PythonTool {
 	}
 }
 
-func (t *PythonTool) Name() string                        { return "python" }
-func (t *PythonTool) Description() string                  { return "Execute Python code." }
-func (t *PythonTool) Parameters() json.RawMessage          { return t.params }
-func (t *PythonTool) Metadata() ToolMetadata               { return DefaultMetadata() }
+func (t *PythonTool) Name() string                { return "python" }
+func (t *PythonTool) Description() string         { return "Execute Python code." }
+func (t *PythonTool) Parameters() json.RawMessage { return t.params }
+func (t *PythonTool) Metadata() ToolMetadata      { return DefaultMetadata() }
 
 func (t *PythonTool) Execute(ctx context.Context, input json.RawMessage) (string, error) {
 	var args struct {
@@ -177,10 +177,10 @@ func NewCalcTool() *CalcTool {
 	}
 }
 
-func (t *CalcTool) Name() string                        { return "calc" }
-func (t *CalcTool) Description() string                  { return "Evaluate an arithmetic expression." }
-func (t *CalcTool) Parameters() json.RawMessage          { return t.params }
-func (t *CalcTool) Metadata() ToolMetadata               { return ReadOnlyMetadata() }
+func (t *CalcTool) Name() string                { return "calc" }
+func (t *CalcTool) Description() string         { return "Evaluate an arithmetic expression." }
+func (t *CalcTool) Parameters() json.RawMessage { return t.params }
+func (t *CalcTool) Metadata() ToolMetadata      { return ReadOnlyMetadata() }
 
 func (t *CalcTool) Execute(ctx context.Context, input json.RawMessage) (string, error) {
 	var args struct {
@@ -376,7 +376,10 @@ func NewTaskTool() *TaskTool {
 			"properties": {
 				"action": {"type": "string"},
 				"id": {"type": "string"},
-				"description": {"type": "string"}
+				"description": {"type": "string"},
+				"subagent_type": {"type": "string", "description": "Suggested sub-agent role such as explorer, reviewer, implementer, verifier, or documenter."},
+				"scope": {"type": "string", "description": "Files, modules, or problem boundary the sub-agent should own."},
+				"expected_output": {"type": "string", "description": "Concrete artifact or answer the sub-agent should return."}
 			},
 			"required": ["action"]
 		}`),
@@ -384,16 +387,19 @@ func NewTaskTool() *TaskTool {
 	}
 }
 
-func (t *TaskTool) Name() string                        { return "task" }
-func (t *TaskTool) Description() string                  { return "Manage an in-memory task list." }
-func (t *TaskTool) Parameters() json.RawMessage          { return t.params }
-func (t *TaskTool) Metadata() ToolMetadata               { return ReadOnlyMetadata() }
+func (t *TaskTool) Name() string                { return "task" }
+func (t *TaskTool) Description() string         { return "Manage an in-memory task list." }
+func (t *TaskTool) Parameters() json.RawMessage { return t.params }
+func (t *TaskTool) Metadata() ToolMetadata      { return ReadOnlyMetadata() }
 
 func (t *TaskTool) Execute(ctx context.Context, input json.RawMessage) (string, error) {
 	var args struct {
-		Action      string `json:"action"`
-		ID          string `json:"id"`
-		Description string `json:"description"`
+		Action         string `json:"action"`
+		ID             string `json:"id"`
+		Description    string `json:"description"`
+		SubagentType   string `json:"subagent_type"`
+		Scope          string `json:"scope"`
+		ExpectedOutput string `json:"expected_output"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", &ToolError{Kind: "invalid_params", Message: err.Error()}
@@ -446,6 +452,26 @@ func (t *TaskTool) Execute(ctx context.Context, input json.RawMessage) (string, 
 		delete(t.tasks, args.ID)
 		return fmt.Sprintf("Task deleted: %s", args.ID), nil
 
+	case "delegate":
+		if args.Description == "" {
+			return "", &ToolError{Kind: "invalid_params", Message: "description is required for delegate"}
+		}
+		if args.SubagentType == "" {
+			args.SubagentType = "generalist"
+		}
+		var lines []string
+		lines = append(lines, "Sub-agent delegation")
+		lines = append(lines, "type: "+args.SubagentType)
+		lines = append(lines, "task: "+args.Description)
+		if args.Scope != "" {
+			lines = append(lines, "scope: "+args.Scope)
+		}
+		if args.ExpectedOutput != "" {
+			lines = append(lines, "expected_output: "+args.ExpectedOutput)
+		}
+		lines = append(lines, "coordination: keep ownership narrow, return evidence, changed files, verification commands, and unresolved risks.")
+		return strings.Join(lines, "\n"), nil
+
 	default:
 		return "", &ToolError{Kind: "invalid_params", Message: "unknown action: " + args.Action}
 	}
@@ -470,10 +496,10 @@ func newStubTool(name, desc string) *StubTool {
 	}
 }
 
-func (t *StubTool) Name() string                        { return t.name }
-func (t *StubTool) Description() string                  { return t.desc }
-func (t *StubTool) Parameters() json.RawMessage          { return t.params }
-func (t *StubTool) Metadata() ToolMetadata               { return DefaultMetadata() }
+func (t *StubTool) Name() string                { return t.name }
+func (t *StubTool) Description() string         { return t.desc }
+func (t *StubTool) Parameters() json.RawMessage { return t.params }
+func (t *StubTool) Metadata() ToolMetadata      { return DefaultMetadata() }
 
 func (t *StubTool) Execute(ctx context.Context, input json.RawMessage) (string, error) {
 	return "", &ToolError{Kind: "execution_error", Message: t.name + " tool is not yet implemented"}

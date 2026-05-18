@@ -4,6 +4,7 @@ package workflows
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/woyin/OrangeCoding/modules/agent"
 	"github.com/woyin/OrangeCoding/modules/ai"
@@ -13,8 +14,8 @@ import (
 
 // UltraWork runs an AgentLoop autonomously with a step budget.
 type UltraWork struct {
-	loop        *agent.AgentLoop
-	stepBudget  uint32
+	loop       *agent.AgentLoop
+	stepBudget uint32
 }
 
 // NewUltraWork creates a new UltraWork workflow.
@@ -25,11 +26,10 @@ func NewUltraWork(provider ai.AiProvider, registry *tools.ToolRegistry, workDir 
 
 	executor := agent.NewToolExecutor(registry)
 	toolDefs := buildWorkflowToolDefs(registry)
-	config := agent.AgentLoopConfig{
-		MaxIterations:    stepBudget,
-		Timeout:          600 * 1e9, // 10 minutes
-		AutoApproveTools: true,
-	}
+	config := agent.DefaultLoopConfig()
+	config.MaxIterations = stepBudget
+	config.Timeout = 10 * time.Minute
+	config.AutoApproveTools = true
 	loop := agent.NewAgentLoop(core.NewAgentId(), provider, executor, agentCtx, config, toolDefs)
 
 	return &UltraWork{
@@ -58,16 +58,5 @@ func (uw *UltraWork) Run(ctx context.Context, task string) (*agent.AgentLoopResu
 }
 
 func buildWorkflowToolDefs(registry *tools.ToolRegistry) []ai.ToolDefinition {
-	var defs []ai.ToolDefinition
-	for _, t := range registry.List() {
-		defs = append(defs, ai.ToolDefinition{
-			Type: "function",
-			Function: ai.FunctionDefinition{
-				Name:        t.Name(),
-				Description: t.Description(),
-				Parameters:  ai.ToolParameter{Type: "object", Properties: make(map[string]interface{})},
-			},
-		})
-	}
-	return defs
+	return agent.BuildToolDefinitions(registry)
 }

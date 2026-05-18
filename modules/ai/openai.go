@@ -53,6 +53,11 @@ type openAIRequest struct {
 	TopP            *float64         `json:"top_p,omitempty"`
 	Stop            []string         `json:"stop,omitempty"`
 	ReasoningEffort string           `json:"reasoning_effort,omitempty"`
+	Thinking        *openAIThinking  `json:"thinking,omitempty"`
+}
+
+type openAIThinking struct {
+	Type string `json:"type"`
 }
 
 type openAIResponse struct {
@@ -123,16 +128,8 @@ func (p *OpenAIProvider) ChatCompletion(ctx context.Context, messages []ChatMess
 		model = p.config.DefaultModel
 	}
 
-	reqBody := openAIRequest{
-		Model:           model,
-		Messages:        messages,
-		Tools:           tools,
-		Temperature:     opts.Temperature,
-		MaxTokens:       opts.MaxTokens,
-		TopP:            opts.TopP,
-		Stop:            opts.StopSequences,
-		ReasoningEffort: opts.ReasoningEffort,
-	}
+	reqBody := p.newOpenAIRequest(model, messages, tools, opts)
+	reqBody.Stream = false
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {
@@ -169,6 +166,24 @@ func (p *OpenAIProvider) ChatCompletion(ctx context.Context, messages []ChatMess
 	return p.convertResponse(&result), nil
 }
 
+func (p *OpenAIProvider) newOpenAIRequest(model string, messages []ChatMessage, tools []ToolDefinition, opts ChatOptions) openAIRequest {
+	reqBody := openAIRequest{
+		Model:           model,
+		Messages:        messages,
+		Tools:           tools,
+		Temperature:     opts.Temperature,
+		MaxTokens:       opts.MaxTokens,
+		TopP:            opts.TopP,
+		Stop:            opts.StopSequences,
+		ReasoningEffort: opts.ReasoningEffort,
+	}
+	if p.config.Extra["reasoning_format"] == "thinking" && opts.ReasoningEffort != "" && opts.ReasoningEffort != "none" {
+		reqBody.ReasoningEffort = ""
+		reqBody.Thinking = &openAIThinking{Type: "enabled"}
+	}
+	return reqBody
+}
+
 // ---------------------------------------------------------------------------
 // ChatCompletionStream (streaming)
 // ---------------------------------------------------------------------------
@@ -180,17 +195,8 @@ func (p *OpenAIProvider) ChatCompletionStream(ctx context.Context, messages []Ch
 		model = p.config.DefaultModel
 	}
 
-	reqBody := openAIRequest{
-		Model:           model,
-		Messages:        messages,
-		Tools:           tools,
-		Stream:          true,
-		Temperature:     opts.Temperature,
-		MaxTokens:       opts.MaxTokens,
-		TopP:            opts.TopP,
-		Stop:            opts.StopSequences,
-		ReasoningEffort: opts.ReasoningEffort,
-	}
+	reqBody := p.newOpenAIRequest(model, messages, tools, opts)
+	reqBody.Stream = true
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {

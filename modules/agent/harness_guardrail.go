@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/woyin/OrangeCoding/modules/core"
 )
@@ -51,13 +53,13 @@ type Guardrail interface {
 }
 
 // GuardrailPipeline runs guardrails in order and stops on deny.
-type GuardrailPipeline struct {
-	guardrails []Guardrail
-}
-
-// NewGuardrailPipeline creates an ordered pipeline.
 func NewGuardrailPipeline(guardrails ...Guardrail) *GuardrailPipeline {
 	return &GuardrailPipeline{guardrails: guardrails}
+}
+
+// GuardrailPipeline runs guardrails in order and stops on deny or warn.
+type GuardrailPipeline struct {
+	guardrails []Guardrail
 }
 
 // Check runs the guardrail pipeline.
@@ -76,6 +78,173 @@ func (p *GuardrailPipeline) Check(ctx context.Context, input GuardrailContext) G
 	}
 	return GuardrailResult{Decision: GuardrailAllow, Name: "pipeline"}
 }
+
+// --- Phase 13: Additional guardrails and infrastructure ---
+
+// TokenBudgetGuardrail warns when approaching token budget limits.
+type TokenBudgetGuardrail struct{}
+
+// NewTokenBudgetGuardrail creates a guardrail that warns on token budget approach.
+func NewTokenBudgetGuardrail() Guardrail {
+	return TokenBudgetGuardrail{}
+}
+
+func (g TokenBudgetGuardrail) Name() string { return "token_budget" }
+
+func (g TokenBudgetGuardrail) Check(ctx context.Context, input GuardrailContext) GuardrailResult {
+	if input.Phase != GuardrailPhasePreModel && input.Phase != GuardrailPhaseFinalOutput {
+		return GuardrailResult{Decision: GuardrailAllow, Name: g.Name()}
+	}
+	if input.MaxTokens > 0 && input.TokenEstimate > input.MaxTokens {
+		return GuardrailResult{
+			Decision: GuardrailWarn,
+			Reason:   "approaching token budget",
+			Name:     g.Name(),
+		}
+	}
+	return GuardrailResult{Decision: GuardrailAllow, Name: g.Name()}
+}
+
+// OutputLengthGuardrail warns when output exceeds recommended length.
+type OutputLengthGuardrail struct {
+	maxLength int
+}
+
+// NewOutputLengthGuardrail creates a guardrail that warns on long outputs.
+func NewOutputLengthGuardrail() Guardrail {
+	return OutputLengthGuardrail{maxLength: 50000}
+}
+
+// NewOutputLengthGuardrailWithLimit creates a guardrail with a custom max length.
+func NewOutputLengthGuardrailWithLimit(maxLen int) Guardrail {
+	return OutputLengthGuardrail{maxLength: maxLen}
+}
+
+func (g OutputLengthGuardrail) Name() string { return "output_length" }
+
+func (g OutputLengthGuardrail) Check(ctx context.Context, input GuardrailContext) GuardrailResult {
+	if input.Phase != GuardrailPhaseFinalOutput {
+		return GuardrailResult{Decision: GuardrailAllow, Name: g.Name()}
+	}
+	if len(input.Output) > g.maxLength {
+		return GuardrailResult{
+			Decision: GuardrailWarn,
+			Reason:   "output exceeds recommended length",
+			Name:     g.Name(),
+		}
+	}
+	return GuardrailResult{Decision: GuardrailAllow, Name: g.Name()}
+}
+
+// GuardrailLogEntry records a single guardrail decision for audit.
+type GuardrailLogEntry struct {
+	Name      string
+	Decision  GuardrailDecision
+	Reason    string
+	Phase     GuardrailPhase
+	Timestamp time.Time
+}
+
+// GuardrailLogger collects guardrail decisions for observability.
+type GuardrailLogger struct {
+	mu      sync.RWMutex
+	entries []GuardrailLogEntry
+}
+
+// NewGuardrailLogger creates a new guardrail logger.
+func NewGuardrailLogger() *GuardrailLogger {
+	return &GuardrailLogger{}
+}
+
+// Log appends a guardrail log entry.
+func (l *GuardrailLogger) Log(entry GuardrailLogEntry) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.entries = append(l.entries, entry)
+}
+
+// Recent returns the last n log entries (or all if n exceeds length).
+func (l *GuardrailLogger) Recent(n int) []GuardrailLogEntry {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if n >= len(l.entries) {
+		return append([]GuardrailLogEntry(nil), l.entries...)
+	}
+	return append([]GuardrailLogEntry(nil), l.entries[len(l.entries)-n:]...)
+}
+
+// Warnings returns only entries with warn decision.
+func (l *GuardrailLogger) Warnings() []GuardrailLogEntry {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	var warns []GuardrailLogEntry
+	for _, e := range l.entries {
+		if e.Decision == GuardrailWarn {
+			warns = append(warns, e)
+		}
+	}
+	return warns
+}
+
+// Len returns the total number of logged entries.
+func (l *GuardrailLogger) Len() int {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return len(l.entries)
+}
+
+// LLMGuardrailConfig configures an LLM-based guardrail.
+type LLMGuardrailConfig struct {
+	Phase    GuardrailPhase
+	Prompt   string
+	Provider func(ctx context.Context, prompt, content string) (bool, error)
+}
+
+// LLMGuardrail uses an external LLM to evaluate content safety.
+type LLMGuardrail struct {
+	config LLMGuardrailConfig
+}
+
+// NewLLMGuardrail creates an LLM-based guardrail.
+func NewLLMGuardrail(config LLMGuardrailConfig) Guardrail {
+	return &LLMGuardrail{config: config}
+}
+
+func (g *LLMGuardrail) Name() string { return "llm_guardrail" }
+
+func (g *LLMGuardrail) Check(ctx context.Context, input GuardrailContext) GuardrailResult {
+	if input.Phase != g.config.Phase {
+		return GuardrailResult{Decision: GuardrailAllow, Name: g.Name()}
+	}
+	if g.config.Provider == nil {
+		return GuardrailResult{Decision: GuardrailAllow, Name: g.Name()}
+	}
+	content := input.Output
+	if content == "" && input.ToolCall != nil {
+		content = string(input.ToolCall.Arguments)
+	}
+	if content == "" {
+		return GuardrailResult{Decision: GuardrailAllow, Name: g.Name()}
+	}
+	safe, err := g.config.Provider(ctx, g.config.Prompt, content)
+	if err != nil {
+		return GuardrailResult{
+			Decision: GuardrailDeny,
+			Reason:   "llm guardrail evaluation failed: " + err.Error(),
+			Name:     g.Name(),
+		}
+	}
+	if !safe {
+		return GuardrailResult{
+			Decision: GuardrailDeny,
+			Reason:   "llm guardrail rejected content",
+			Name:     g.Name(),
+		}
+	}
+	return GuardrailResult{Decision: GuardrailAllow, Name: g.Name()}
+}
+
+// --- Original guardrails below (unchanged) ---
 
 type dangerousToolGuardrail struct{}
 

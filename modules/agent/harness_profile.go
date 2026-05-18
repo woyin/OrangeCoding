@@ -121,7 +121,10 @@ func (p HarnessProfile) systemPromptAddendum() string {
 	if p.LongTask.Enabled {
 		b.WriteString("- 长任务要持续推进：维护简短的阶段目标，定期报告可验证进度，遇到阻塞时说明阻塞事实和下一步。\n")
 		b.WriteString("- 长任务不要反复重读无关上下文；优先保留当前目标、关键决策、待验证假设和最近工具结果。\n")
+		b.WriteString("- 长任务要把工作拆成可检查的阶段；每个阶段结束时记录结果、剩余风险和下一步验证。\n")
 	}
+	b.WriteString("- 工具调用前先选择最窄可用工具，严格按工具 JSON schema 填写参数；不确定参数时先读取上下文或列目录。\n")
+	b.WriteString("- 适合并行探索、评审、验证或文档整理的工作，应通过 task 工具的 delegate 动作形成 sub-agent brief，并明确 scope、expected_output 和验收证据。\n")
 	b.WriteString("- 使用充分的内部推理来处理复杂任务，但不要输出隐藏推理链；输出可审计的摘要、证据和决策理由。\n")
 	return b.String()
 }

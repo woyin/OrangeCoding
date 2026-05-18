@@ -18,6 +18,7 @@ type OrangeConfig struct {
 	Providers       map[string]ProviderConfig `json:"providers"`
 	Hooks           HooksConfig               `json:"hooks"`
 	Permissions     PermissionsConfig         `json:"permissions"`
+	Harness         HarnessConfig             `json:"harness"`
 }
 
 // ProviderConfig holds provider-specific credentials and settings.
@@ -45,6 +46,14 @@ type PermissionsConfig struct {
 	Execute string `json:"execute,omitempty"`
 }
 
+// HarnessConfig defines first-version harness runtime persistence settings.
+type HarnessConfig struct {
+	CheckpointStore       string `json:"checkpoint_store"`
+	CheckpointDir         string `json:"checkpoint_dir"`
+	ReasoningEffort       string `json:"reasoning_effort"`
+	ReasoningBudgetTokens uint32 `json:"reasoning_budget_tokens"`
+}
+
 // DefaultConfig returns an OrangeConfig with sensible defaults.
 func DefaultConfig() OrangeConfig {
 	return OrangeConfig{
@@ -52,6 +61,12 @@ func DefaultConfig() OrangeConfig {
 		DefaultProvider: "openai",
 		ControlPort:     3200,
 		Providers:       make(map[string]ProviderConfig),
+		Harness: HarnessConfig{
+			CheckpointStore:       "memory",
+			CheckpointDir:         "checkpoints",
+			ReasoningEffort:       "high",
+			ReasoningBudgetTokens: 4096,
+		},
 	}
 }
 
@@ -83,6 +98,8 @@ func (m *ConfigManager) Load(path string) (*OrangeConfig, error) {
 	if cfg.Providers == nil {
 		cfg.Providers = make(map[string]ProviderConfig)
 	}
+	normalizeHarnessConfig(&cfg.Harness)
+	expandConfigEnv(&cfg)
 
 	return &cfg, nil
 }
@@ -124,6 +141,30 @@ func fieldByJSONTag(v reflect.Value, key string) (reflect.Value, error) {
 	return reflect.Value{}, fmt.Errorf("unknown config field: %s", key)
 }
 
+func fieldByJSONPath(v reflect.Value, key string) (reflect.Value, error) {
+	current := v
+	for _, part := range strings.Split(key, ".") {
+		if part == "" {
+			return reflect.Value{}, fmt.Errorf("unknown config field: %s", key)
+		}
+		for current.Kind() == reflect.Pointer {
+			if current.IsNil() {
+				current.Set(reflect.New(current.Type().Elem()))
+			}
+			current = current.Elem()
+		}
+		if current.Kind() != reflect.Struct {
+			return reflect.Value{}, fmt.Errorf("config field %s is not a struct", part)
+		}
+		next, err := fieldByJSONTag(current, part)
+		if err != nil {
+			return reflect.Value{}, err
+		}
+		current = next
+	}
+	return current, nil
+}
+
 // Get loads the config file and returns the value of the named field.
 func (m *ConfigManager) Get(path, key string) (interface{}, error) {
 	cfg, err := m.Load(path)
@@ -132,7 +173,7 @@ func (m *ConfigManager) Get(path, key string) (interface{}, error) {
 	}
 
 	v := reflect.ValueOf(*cfg)
-	field, err := fieldByJSONTag(v, key)
+	field, err := fieldByJSONPath(v, key)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +189,7 @@ func (m *ConfigManager) Set(path, key string, value interface{}) error {
 	}
 
 	v := reflect.ValueOf(cfg).Elem()
-	field, err := fieldByJSONTag(v, key)
+	field, err := fieldByJSONPath(v, key)
 	if err != nil {
 		return err
 	}
@@ -171,4 +212,51 @@ func (m *ConfigManager) Set(path, key string, value interface{}) error {
 
 	field.Set(val)
 	return m.Save(path, cfg)
+}
+
+func normalizeHarnessConfig(cfg *HarnessConfig) {
+	if cfg.CheckpointStore == "" {
+		cfg.CheckpointStore = "memory"
+	}
+	if cfg.CheckpointDir == "" {
+		cfg.CheckpointDir = "checkpoints"
+	}
+	if cfg.ReasoningEffort == "" {
+		cfg.ReasoningEffort = "high"
+	}
+	if cfg.ReasoningBudgetTokens == 0 {
+		cfg.ReasoningBudgetTokens = 4096
+	}
+}
+
+func expandConfigEnv(cfg *OrangeConfig) {
+	cfg.LogLevel = os.ExpandEnv(cfg.LogLevel)
+	cfg.DefaultProvider = os.ExpandEnv(cfg.DefaultProvider)
+	cfg.DefaultModel = os.ExpandEnv(cfg.DefaultModel)
+
+	for name, provider := range cfg.Providers {
+		provider.APIKey = os.ExpandEnv(provider.APIKey)
+		provider.APISecret = os.ExpandEnv(provider.APISecret)
+		provider.BaseURL = os.ExpandEnv(provider.BaseURL)
+		provider.DefaultModel = os.ExpandEnv(provider.DefaultModel)
+		for key, value := range provider.Extra {
+			provider.Extra[key] = os.ExpandEnv(value)
+		}
+		cfg.Providers[name] = provider
+	}
+
+	cfg.Hooks.PreToolCall = expandStringSliceEnv(cfg.Hooks.PreToolCall)
+	cfg.Hooks.PostToolCall = expandStringSliceEnv(cfg.Hooks.PostToolCall)
+	cfg.Permissions.Bash = os.ExpandEnv(cfg.Permissions.Bash)
+	cfg.Permissions.Write = os.ExpandEnv(cfg.Permissions.Write)
+	cfg.Permissions.Edit = os.ExpandEnv(cfg.Permissions.Edit)
+	cfg.Permissions.Read = os.ExpandEnv(cfg.Permissions.Read)
+	cfg.Permissions.Execute = os.ExpandEnv(cfg.Permissions.Execute)
+}
+
+func expandStringSliceEnv(values []string) []string {
+	for i, value := range values {
+		values[i] = os.ExpandEnv(value)
+	}
+	return values
 }

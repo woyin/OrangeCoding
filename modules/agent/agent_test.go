@@ -85,6 +85,12 @@ func TestAgentContext_ApplyHarnessProfileAppendsChineseLongTaskGuidance(t *testi
 	if !strings.Contains(prompt, "长任务") {
 		t.Errorf("missing long-task guidance: %s", prompt)
 	}
+	if !strings.Contains(prompt, "工具调用") {
+		t.Errorf("missing tool-call accuracy guidance: %s", prompt)
+	}
+	if !strings.Contains(prompt, "sub-agent") {
+		t.Errorf("missing sub-agent collaboration guidance: %s", prompt)
+	}
 	if !strings.Contains(prompt, "不要输出隐藏推理链") {
 		t.Errorf("missing reasoning-summary guidance: %s", prompt)
 	}
@@ -149,20 +155,53 @@ func TestAgentContext_AddToolResult(t *testing.T) {
 // mockTool implements tools.Tool for testing.
 type mockTool struct {
 	name    string
+	params  json.RawMessage
 	result  string
 	err     error
 	execute func(ctx context.Context, input json.RawMessage) (string, error)
 }
 
-func (m *mockTool) Name() string                 { return m.name }
-func (m *mockTool) Description() string          { return "mock tool" }
-func (m *mockTool) Parameters() json.RawMessage  { return json.RawMessage(`{}`) }
+func (m *mockTool) Name() string        { return m.name }
+func (m *mockTool) Description() string { return "mock tool" }
+func (m *mockTool) Parameters() json.RawMessage {
+	if len(m.params) > 0 {
+		return m.params
+	}
+	return json.RawMessage(`{}`)
+}
 func (m *mockTool) Metadata() tools.ToolMetadata { return tools.DefaultMetadata() }
 func (m *mockTool) Execute(ctx context.Context, input json.RawMessage) (string, error) {
 	if m.execute != nil {
 		return m.execute(ctx, input)
 	}
 	return m.result, m.err
+}
+
+func TestBuildToolDefinitionsPreservesToolParameterSchema(t *testing.T) {
+	registry := tools.NewToolRegistry()
+	registry.Register(&mockTool{
+		name: "schema_tool",
+		params: json.RawMessage(`{
+			"type":"object",
+			"properties":{"path":{"type":"string"}},
+			"required":["path"]
+		}`),
+	})
+
+	defs := BuildToolDefinitions(registry)
+	if len(defs) != 1 {
+		t.Fatalf("tool definitions = %d, want 1", len(defs))
+	}
+	params := defs[0].Function.Parameters
+	if params.Type != "object" {
+		t.Fatalf("parameter type = %q, want object", params.Type)
+	}
+	if _, ok := params.Properties["path"]; !ok {
+		t.Fatalf("parameter properties = %+v, want path schema", params.Properties)
+	}
+	if len(params.Required) != 1 || params.Required[0] != "path" {
+		t.Fatalf("required = %+v, want [path]", params.Required)
+	}
 }
 
 func TestToolExecutor_Execute(t *testing.T) {

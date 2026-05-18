@@ -23,7 +23,7 @@ func newFilteredAgent(
 
 	filteredRegistry := agent.FilteredRegistry(registry, allowedTools)
 	executor := agent.NewToolExecutor(filteredRegistry)
-	toolDefs := buildToolDefs(filteredRegistry)
+	toolDefs := agent.BuildToolDefinitions(filteredRegistry)
 	loop := agent.NewAgentLoop(core.NewAgentId(), provider, executor, agentCtx, agent.DefaultLoopConfig(), toolDefs)
 
 	return NewBaseAgent(role, loop)
