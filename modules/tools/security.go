@@ -33,7 +33,6 @@ func (v *PathValidator) Validate(path string) error {
 
 	// Check for traversal sequences in the original path.
 	if strings.Contains(path, "..") {
-		// After cleaning, verify the resolved path is still within allowed dirs.
 		cleaned := filepath.Clean(path)
 		absCleaned, _ := filepath.Abs(cleaned)
 		if absCleaned != abs {
@@ -49,33 +48,100 @@ func (v *PathValidator) Validate(path string) error {
 	return fmt.Errorf("path %q is outside allowed directories", path)
 }
 
+// DefaultBlockedCommands is the default list of dangerous command names.
+var DefaultBlockedCommands = []string{
+	"rm", "rmdir", "mkfs", "dd", "format", "fdisk",
+	"shutdown", "reboot", "halt", "poweroff",
+	"kill", "killall", "pkill",
+	"chmod", "chown", "chgrp",
+	"iptables", "ip", "nft",
+	"useradd", "userdel", "usermod", "groupadd", "groupdel",
+	"mount", "umount",
+	"curl", "wget", // use fetch tool instead
+}
+
 // SecurityPolicy defines which commands are blocked from execution.
 type SecurityPolicy struct {
-	BlockedCommands []string // exact command names (first token) that are denied
+	BlockedCommands []string
+	blockMap        map[string]bool
 }
 
 // NewSecurityPolicy creates a SecurityPolicy that blocks the given command names.
 func NewSecurityPolicy(blocked []string) *SecurityPolicy {
-	return &SecurityPolicy{BlockedCommands: blocked}
+	m := make(map[string]bool, len(blocked))
+	for _, b := range blocked {
+		m[b] = true
+	}
+	return &SecurityPolicy{BlockedCommands: blocked, blockMap: m}
 }
 
-// IsAllowed returns true if the command is not in the blocked list.
-// It extracts the first token of the command for comparison.
-func (p *SecurityPolicy) IsAllowed(command string) bool {
-	// Extract the base command name.
-	cmd := strings.TrimSpace(command)
-	if idx := strings.Index(cmd, " "); idx >= 0 {
-		cmd = cmd[:idx]
-	}
-	// Get just the binary name (handle paths like /usr/bin/rm)
-	cmd = filepath.Base(cmd)
+// DefaultSecurityPolicy returns a SecurityPolicy with sensible defaults.
+func DefaultSecurityPolicy() *SecurityPolicy {
+	return NewSecurityPolicy(DefaultBlockedCommands)
+}
 
-	for _, blocked := range p.BlockedCommands {
-		if cmd == blocked {
-			return false
-		}
+// IsAllowed returns true if the command passes all security checks.
+func (p *SecurityPolicy) IsAllowed(command string) bool {
+	cmd := strings.TrimSpace(command)
+	if cmd == "" {
+		return false
+	}
+
+	// Block shell injection patterns.
+	if containsShellInjection(cmd) {
+		return false
+	}
+
+	// Extract the effective command name.
+	effective := extractCommand(cmd)
+	effective = filepath.Base(effective)
+
+	if p.blockMap[effective] {
+		return false
 	}
 	return true
+}
+
+// extractCommand extracts the first meaningful command token,
+// handling pipes, chains, subshells, and env var prefixes.
+func extractCommand(cmd string) string {
+	// Skip env assignments like FOO=bar cmd ...
+	parts := strings.Fields(cmd)
+	for _, p := range parts {
+		if !strings.Contains(p, "=") {
+			return p
+		}
+	}
+	return cmd
+}
+
+// containsShellInjection detects common injection patterns.
+func containsShellInjection(cmd string) bool {
+	dangerous := []string{
+		"$(", // command substitution
+		"`",  // backtick execution
+		"${", // variable expansion (could be injection)
+		"|",  // pipe
+		"&&", // command chaining
+		"||", // command chaining
+		";",  // command separator
+		"\n", // newline (command separator)
+	}
+	for _, d := range dangerous {
+		if strings.Contains(cmd, d) {
+			return true
+		}
+	}
+	// Check eval/exec as word-boundary matches to avoid false positives
+	// with words like "evaluate", "execute", "retrieval".
+	words := strings.Fields(cmd)
+	for _, w := range words {
+		base := filepath.Base(w)
+		if base == "eval" || base == "exec" {
+			return true
+		}
+	}
+	return false
 }
 
 // lookPath wraps exec.LookPath for use in tool implementations.

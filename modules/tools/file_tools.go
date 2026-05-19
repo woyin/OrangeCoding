@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +16,8 @@ import (
 
 // ReadFileTool reads the contents of a file, with optional offset and limit.
 type ReadFileTool struct {
-	params json.RawMessage
+	params  json.RawMessage
+	pathVal *PathValidator
 }
 
 // NewReadFileTool creates a new ReadFileTool.
@@ -35,6 +35,12 @@ func NewReadFileTool() *ReadFileTool {
 	}
 }
 
+// WithPathValidator sets the path validator for this tool.
+func (t *ReadFileTool) WithPathValidator(pv *PathValidator) *ReadFileTool {
+	t.pathVal = pv
+	return t
+}
+
 func (t *ReadFileTool) Name() string                        { return "read_file" }
 func (t *ReadFileTool) Description() string                  { return "Read the contents of a file." }
 func (t *ReadFileTool) Parameters() json.RawMessage          { return t.params }
@@ -48,6 +54,12 @@ func (t *ReadFileTool) Execute(ctx context.Context, input json.RawMessage) (stri
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", &ToolError{Kind: "invalid_params", Message: err.Error()}
+	}
+
+	if t.pathVal != nil {
+		if err := t.pathVal.Validate(args.Path); err != nil {
+			return "", &ToolError{Kind: "security_violation", Message: err.Error()}
+		}
 	}
 
 	f, err := os.Open(args.Path)
@@ -84,7 +96,8 @@ func (t *ReadFileTool) Execute(ctx context.Context, input json.RawMessage) (stri
 
 // WriteFileTool writes content to a file, creating parent directories as needed.
 type WriteFileTool struct {
-	params json.RawMessage
+	params  json.RawMessage
+	pathVal *PathValidator
 }
 
 // NewWriteFileTool creates a new WriteFileTool.
@@ -99,6 +112,12 @@ func NewWriteFileTool() *WriteFileTool {
 			"required": ["path", "content"]
 		}`),
 	}
+}
+
+// WithPathValidator sets the path validator for this tool.
+func (t *WriteFileTool) WithPathValidator(pv *PathValidator) *WriteFileTool {
+	t.pathVal = pv
+	return t
 }
 
 func (t *WriteFileTool) Name() string                        { return "write_file" }
@@ -119,6 +138,12 @@ func (t *WriteFileTool) Execute(ctx context.Context, input json.RawMessage) (str
 		return "", &ToolError{Kind: "invalid_params", Message: "path is required"}
 	}
 
+	if t.pathVal != nil {
+		if err := t.pathVal.Validate(args.Path); err != nil {
+			return "", &ToolError{Kind: "security_violation", Message: err.Error()}
+		}
+	}
+
 	dir := filepath.Dir(args.Path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", &ToolError{Kind: "execution_error", Message: err.Error()}
@@ -137,7 +162,8 @@ func (t *WriteFileTool) Execute(ctx context.Context, input json.RawMessage) (str
 
 // EditFileTool performs string replacement in a file.
 type EditFileTool struct {
-	params json.RawMessage
+	params  json.RawMessage
+	pathVal *PathValidator
 }
 
 // NewEditFileTool creates a new EditFileTool.
@@ -155,6 +181,12 @@ func NewEditFileTool() *EditFileTool {
 	}
 }
 
+// WithPathValidator sets the path validator for this tool.
+func (t *EditFileTool) WithPathValidator(pv *PathValidator) *EditFileTool {
+	t.pathVal = pv
+	return t
+}
+
 func (t *EditFileTool) Name() string                        { return "edit_file" }
 func (t *EditFileTool) Description() string                  { return "Edit a file by replacing old_string with new_string." }
 func (t *EditFileTool) Parameters() json.RawMessage          { return t.params }
@@ -168,6 +200,12 @@ func (t *EditFileTool) Execute(ctx context.Context, input json.RawMessage) (stri
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", &ToolError{Kind: "invalid_params", Message: err.Error()}
+	}
+
+	if t.pathVal != nil {
+		if err := t.pathVal.Validate(args.Path); err != nil {
+			return "", &ToolError{Kind: "security_violation", Message: err.Error()}
+		}
 	}
 
 	data, err := os.ReadFile(args.Path)
@@ -199,7 +237,8 @@ func (t *EditFileTool) Execute(ctx context.Context, input json.RawMessage) (stri
 
 // DeleteFileTool removes a file from the filesystem.
 type DeleteFileTool struct {
-	params json.RawMessage
+	params  json.RawMessage
+	pathVal *PathValidator
 }
 
 // NewDeleteFileTool creates a new DeleteFileTool.
@@ -215,6 +254,12 @@ func NewDeleteFileTool() *DeleteFileTool {
 	}
 }
 
+// WithPathValidator sets the path validator for this tool.
+func (t *DeleteFileTool) WithPathValidator(pv *PathValidator) *DeleteFileTool {
+	t.pathVal = pv
+	return t
+}
+
 func (t *DeleteFileTool) Name() string                        { return "delete_file" }
 func (t *DeleteFileTool) Description() string                  { return "Delete a file." }
 func (t *DeleteFileTool) Parameters() json.RawMessage          { return t.params }
@@ -226,6 +271,12 @@ func (t *DeleteFileTool) Execute(ctx context.Context, input json.RawMessage) (st
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", &ToolError{Kind: "invalid_params", Message: err.Error()}
+	}
+
+	if t.pathVal != nil {
+		if err := t.pathVal.Validate(args.Path); err != nil {
+			return "", &ToolError{Kind: "security_violation", Message: err.Error()}
+		}
 	}
 
 	if err := os.Remove(args.Path); err != nil {
@@ -291,6 +342,3 @@ func (t *ListDirectoryTool) Execute(ctx context.Context, input json.RawMessage) 
 
 	return strings.Join(lines, "\n"), nil
 }
-
-// Ensure fs.FileInfo is used (via the loop above).
-var _ fs.FileInfo = nil

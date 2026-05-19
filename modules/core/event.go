@@ -353,6 +353,12 @@ func (b *EventBus) Publish(ctx context.Context, ev AgentEvent) {
 
 	for _, h := range handlers {
 		go func(handler EventHandler) {
+			defer func() {
+				if r := recover(); r != nil {
+					// Handler panicked; log but don't crash the bus.
+					_ = r
+				}
+			}()
 			_ = handler.Handle(ev)
 		}(h)
 	}

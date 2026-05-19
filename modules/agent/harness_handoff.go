@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/woyin/OrangeCoding/modules/ai"
 	"github.com/woyin/OrangeCoding/modules/core"
@@ -143,6 +144,7 @@ type OrchestratorResult struct {
 
 // Orchestrator decomposes a task and coordinates sub-agents.
 type Orchestrator struct {
+	mu      sync.RWMutex
 	tasks   map[string]OrchestratorTask
 	results map[string]OrchestratorResult
 }
@@ -160,17 +162,23 @@ func (o *Orchestrator) AddTask(task OrchestratorTask) error {
 	if task.ID == "" {
 		return fmt.Errorf("orchestrator: task ID is required")
 	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	o.tasks[task.ID] = task
 	return nil
 }
 
 // RecordResult records the outcome of a task.
 func (o *Orchestrator) RecordResult(result OrchestratorResult) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	o.results[result.TaskID] = result
 }
 
 // ReadyTasks returns tasks whose dependencies are all completed successfully.
 func (o *Orchestrator) ReadyTasks() []OrchestratorTask {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
 	var ready []OrchestratorTask
 	for _, task := range o.tasks {
 		if _, done := o.results[task.ID]; done {
@@ -193,6 +201,8 @@ func (o *Orchestrator) ReadyTasks() []OrchestratorTask {
 
 // AllCompleted returns true if all tasks have results.
 func (o *Orchestrator) AllCompleted() bool {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
 	for _, task := range o.tasks {
 		if _, exists := o.results[task.ID]; !exists {
 			return false
@@ -203,6 +213,8 @@ func (o *Orchestrator) AllCompleted() bool {
 
 // Summary returns a summary of all task results.
 func (o *Orchestrator) Summary() string {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
 	total := len(o.tasks)
 	completed := 0
 	failed := 0

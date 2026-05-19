@@ -26,13 +26,24 @@ type McpClient struct {
 	transport Transport
 	idCounter atomic.Int64
 	pending   sync.Map // map[json.RawMessage]chan Response
+	closed    chan struct{}
+	closeOnce sync.Once
 }
 
 // NewMcpClient creates a new MCP client using the given transport.
 func NewMcpClient(transport Transport) *McpClient {
 	return &McpClient{
 		transport: transport,
+		closed:    make(chan struct{}),
 	}
+}
+
+// Close shuts down the client and unblocks any pending receives.
+func (c *McpClient) Close() error {
+	c.closeOnce.Do(func() {
+		close(c.closed)
+	})
+	return c.transport.Close()
 }
 
 // nextID generates the next request ID as JSON.
@@ -105,6 +116,8 @@ func (c *McpClient) sendRequest(ctx context.Context, method string, params inter
 	select {
 	case <-ctx.Done():
 		return Response{}, ctx.Err()
+	case <-c.closed:
+		return Response{}, fmt.Errorf("client closed")
 	case r := <-ch:
 		return r.resp, r.err
 	}

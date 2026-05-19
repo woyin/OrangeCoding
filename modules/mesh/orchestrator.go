@@ -158,8 +158,3 @@ func (o *TaskOrchestrator) Run(ctx context.Context) error {
 
 	return nil
 }
-
-// newUUID generates a UUID string for internal use.
-func newUUID() string {
-	return uuid.New().String()
-}

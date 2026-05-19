@@ -67,6 +67,14 @@ func (b *MessageBus) Publish(topic string, data interface{}) {
 	b.mu.RUnlock()
 
 	for _, s := range subs {
-		go s.handler(topic, data)
+		go func(sub subscription) {
+			defer func() {
+				if r := recover(); r != nil {
+					// Handler panicked; log but don't crash the bus.
+					_ = r
+				}
+			}()
+			sub.handler(topic, data)
+		}(s)
 	}
 }

@@ -41,16 +41,16 @@ func NewFallbackChain(providers []AiProvider, cooldown time.Duration) *FallbackC
 // ChatCompletion tries providers in order until one succeeds.
 // Providers on cooldown are skipped. On failure, the provider is put on cooldown.
 func (c *FallbackChain) ChatCompletion(ctx context.Context, messages []ChatMessage, tools []ToolDefinition, opts ChatOptions) (*AiResponse, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	var lastErr error
 	for _, entry := range c.entries {
-		if time.Now().Before(entry.coolUntil) {
-			// Carry forward the last error from the provider that is cooling down
-			if entry.lastErr != nil {
-				lastErr = entry.lastErr
-			}
+		// Lock only for cooldown check, release before network I/O.
+		c.mu.Lock()
+		skip := time.Now().Before(entry.coolUntil)
+		if skip && entry.lastErr != nil {
+			lastErr = entry.lastErr
+		}
+		c.mu.Unlock()
+		if skip {
 			continue
 		}
 
@@ -59,9 +59,10 @@ func (c *FallbackChain) ChatCompletion(ctx context.Context, messages []ChatMessa
 			return resp, nil
 		}
 
-		// Set cooldown on failure
+		c.mu.Lock()
 		entry.coolUntil = time.Now().Add(c.cooldown)
 		entry.lastErr = err
+		c.mu.Unlock()
 		lastErr = err
 	}
 
@@ -71,15 +72,15 @@ func (c *FallbackChain) ChatCompletion(ctx context.Context, messages []ChatMessa
 // ChatCompletionStream tries providers in order until one succeeds.
 // Providers on cooldown are skipped. On failure, the provider is put on cooldown.
 func (c *FallbackChain) ChatCompletionStream(ctx context.Context, messages []ChatMessage, tools []ToolDefinition, opts ChatOptions) (<-chan StreamEvent, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	var lastErr error
 	for _, entry := range c.entries {
-		if time.Now().Before(entry.coolUntil) {
-			if entry.lastErr != nil {
-				lastErr = entry.lastErr
-			}
+		c.mu.Lock()
+		skip := time.Now().Before(entry.coolUntil)
+		if skip && entry.lastErr != nil {
+			lastErr = entry.lastErr
+		}
+		c.mu.Unlock()
+		if skip {
 			continue
 		}
 
@@ -88,9 +89,10 @@ func (c *FallbackChain) ChatCompletionStream(ctx context.Context, messages []Cha
 			return ch, nil
 		}
 
-		// Set cooldown on failure
+		c.mu.Lock()
 		entry.coolUntil = time.Now().Add(c.cooldown)
 		entry.lastErr = err
+		c.mu.Unlock()
 		lastErr = err
 	}
 

@@ -63,6 +63,7 @@ func (t *GrepTool) Execute(ctx context.Context, input json.RawMessage) (string, 
 	}
 
 	var matches []string
+	const maxMatches = 1000
 	includeRe := (*regexp.Regexp)(nil)
 	if args.Include != "" {
 		includeRe, err = regexp.Compile(args.Include)
@@ -102,6 +103,9 @@ func (t *GrepTool) Execute(ctx context.Context, input json.RawMessage) (string, 
 					relPath = rel
 				}
 				matches = append(matches, fmt.Sprintf("%s:%d: %s", relPath, lineNum, line))
+				if len(matches) >= maxMatches {
+					return filepath.SkipAll
+				}
 			}
 		}
 		return nil

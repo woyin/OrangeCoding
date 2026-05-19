@@ -83,6 +83,12 @@ func (m *MemoryStore) Recall(query string) ([]string, error) {
 }
 
 // keyPath returns the full file path for a given key.
+// Keys containing path separators or traversal sequences are sanitized.
 func (m *MemoryStore) keyPath(key string) string {
-	return filepath.Join(m.dir, key+".txt")
+	// Sanitize key to prevent path traversal.
+	clean := filepath.Base(key)
+	if clean == "." || clean == ".." {
+		clean = "invalid"
+	}
+	return filepath.Join(m.dir, clean+".txt")
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // ---------------------------------------------------------------------------
@@ -44,9 +46,23 @@ func NewFetchTool() *FetchTool {
 func (t *FetchTool) Name() string                { return "fetch" }
 func (t *FetchTool) Description() string         { return "Fetch content from a URL." }
 func (t *FetchTool) Parameters() json.RawMessage { return t.params }
-func (t *FetchTool) Metadata() ToolMetadata      { return ReadOnlyMetadata() }
+func (t *FetchTool) Metadata() ToolMetadata      { return DefaultMetadata() }
 
 const maxFetchSize = 100 * 1024 // 100KB
+
+// blockedHostPrefixes are host prefixes that FetchTool will refuse to access.
+var blockedHostPrefixes = []string{
+	"169.254.", // cloud metadata
+	"10.",
+	"172.16.", "172.17.", "172.18.", "172.19.",
+	"172.20.", "172.21.", "172.22.", "172.23.",
+	"172.24.", "172.25.", "172.26.", "172.27.",
+	"172.28.", "172.29.", "172.30.", "172.31.",
+	"192.168.",
+	"0.0.0.0",
+	"localhost",
+	"127.",
+}
 
 func (t *FetchTool) Execute(ctx context.Context, input json.RawMessage) (string, error) {
 	var args struct {
@@ -59,6 +75,19 @@ func (t *FetchTool) Execute(ctx context.Context, input json.RawMessage) (string,
 	if args.URL == "" {
 		return "", &ToolError{Kind: "invalid_params", Message: "url is required"}
 	}
+
+	// Block requests to internal/private networks.
+	if !strings.HasPrefix(strings.ToLower(args.URL), "http://") && !strings.HasPrefix(strings.ToLower(args.URL), "https://") {
+		return "", &ToolError{Kind: "security_violation", Message: "only http/https URLs are allowed"}
+	}
+	// Extract host from URL and check against blocked prefixes.
+	host := extractHost(args.URL)
+	for _, prefix := range blockedHostPrefixes {
+		if strings.HasPrefix(host, prefix) {
+			return "", &ToolError{Kind: "security_violation", Message: "access to internal/private network addresses is blocked"}
+		}
+	}
+
 	if args.Method == "" {
 		args.Method = "GET"
 	}
@@ -81,7 +110,12 @@ func (t *FetchTool) Execute(ctx context.Context, input json.RawMessage) (string,
 
 	result := string(body)
 	if len(body) > maxFetchSize {
-		result = result[:maxFetchSize] + "\n... (truncated)"
+		// Find a safe UTF-8 truncation point.
+		truncateAt := maxFetchSize
+		for truncateAt > 0 && !utf8.RuneStart(body[truncateAt]) {
+			truncateAt--
+		}
+		result = string(body[:truncateAt]) + "\n... (truncated)"
 	}
 
 	return result, nil
@@ -116,7 +150,8 @@ func (t *PythonTool) Metadata() ToolMetadata      { return DefaultMetadata() }
 
 func (t *PythonTool) Execute(ctx context.Context, input json.RawMessage) (string, error) {
 	var args struct {
-		Code string `json:"code"`
+		Code    string `json:"code"`
+		Timeout int    `json:"timeout"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", &ToolError{Kind: "invalid_params", Message: err.Error()}
@@ -125,7 +160,14 @@ func (t *PythonTool) Execute(ctx context.Context, input json.RawMessage) (string
 		return "", &ToolError{Kind: "invalid_params", Message: "code is required"}
 	}
 
-	// Write to temp file
+	// Enforce a default timeout of 30 seconds.
+	timeout := 30 * time.Second
+	if args.Timeout > 0 {
+		timeout = time.Duration(args.Timeout) * time.Millisecond
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	tmpFile, err := os.CreateTemp("", "python-*.py")
 	if err != nil {
 		return "", &ToolError{Kind: "execution_error", Message: err.Error()}
@@ -140,8 +182,8 @@ func (t *PythonTool) Execute(ctx context.Context, input json.RawMessage) (string
 
 	cmd := exec.CommandContext(ctx, "python3", tmpFile.Name())
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stdout = &limitedWriter{buf: &stdout, max: 1024 * 1024}
+	cmd.Stderr = &limitedWriter{buf: &stderr, max: 256 * 1024}
 
 	err = cmd.Run()
 	output := stdout.String()
@@ -154,6 +196,8 @@ func (t *PythonTool) Execute(ctx context.Context, input json.RawMessage) (string
 
 	return output, nil
 }
+
+// limitedWriter is defined in bash_tool.go
 
 // ---------------------------------------------------------------------------
 // CalcTool
@@ -528,6 +572,17 @@ func NewWebSearchTool() *StubTool {
 // NewNotebookTool creates a stub NotebookTool.
 func NewNotebookTool() *StubTool {
 	return newStubTool("notebook", "Jupyter notebook operations (not implemented).")
+}
+
+// extractHost extracts the hostname from a URL string.
+func extractHost(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	host := u.Hostname()
+	// Normalize to lowercase for comparison.
+	return strings.ToLower(host)
 }
 
 // Ensure unused imports are referenced.

@@ -56,23 +56,21 @@ func NewSemanticMemoryManager(config SemanticMemoryConfig) *SemanticMemoryManage
 
 // Store saves a memory entry with its embedding.
 func (m *SemanticMemoryManager) Store(ctx context.Context, key, content string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Check capacity
-	if m.config.MaxEntries > 0 && len(m.entries) >= m.config.MaxEntries {
-		m.evictOldest()
-	}
-
-	// Generate embedding if provider available
+	// Generate embedding outside the lock to avoid blocking other operations.
 	var embedding EmbeddingVector
 	if m.config.Provider != nil {
 		var err error
 		embedding, err = m.config.Provider.Embed(ctx, content)
 		if err != nil {
-			// Fall back to no embedding — entry is still stored
 			embedding = nil
 		}
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.config.MaxEntries > 0 && len(m.entries) >= m.config.MaxEntries {
+		m.evictOldest()
 	}
 
 	now := time.Now().UTC()

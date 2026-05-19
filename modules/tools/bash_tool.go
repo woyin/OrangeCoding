@@ -8,6 +8,23 @@ import (
 	"time"
 )
 
+// limitedWriter wraps a bytes.Buffer with a size limit.
+type limitedWriter struct {
+	buf *bytes.Buffer
+	max int
+}
+
+func (w *limitedWriter) Write(p []byte) (int, error) {
+	if w.buf.Len()+len(p) > w.max {
+		remaining := w.max - w.buf.Len()
+		if remaining <= 0 {
+			return len(p), nil // silently drop
+		}
+		return w.buf.Write(p[:remaining])
+	}
+	return w.buf.Write(p)
+}
+
 // BashTool executes shell commands.
 type BashTool struct {
 	policy *SecurityPolicy
@@ -72,8 +89,8 @@ func (t *BashTool) Execute(ctx context.Context, input json.RawMessage) (string, 
 
 	cmd := exec.CommandContext(ctx, "sh", "-c", args.Command)
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stdout = &limitedWriter{buf: &stdout, max: 1024 * 1024} // 1MB limit
+	cmd.Stderr = &limitedWriter{buf: &stderr, max: 256 * 1024}  // 256KB limit
 
 	err := cmd.Run()
 	output := stdout.String()

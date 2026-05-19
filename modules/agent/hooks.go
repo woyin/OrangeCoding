@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -26,6 +27,7 @@ type Hook struct {
 
 // HookManager manages and executes hooks at various lifecycle points.
 type HookManager struct {
+	mu    sync.RWMutex
 	hooks map[HookPoint][]Hook
 }
 
@@ -38,6 +40,8 @@ func NewHookManager() *HookManager {
 
 // Register adds a hook to be executed at the specified hook point.
 func (m *HookManager) Register(hook Hook) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.hooks[hook.Point] = append(m.hooks[hook.Point], hook)
 }
 
@@ -45,9 +49,12 @@ func (m *HookManager) Register(hook Hook) {
 // The data parameter is passed to each hook command via stdin.
 // If any hook fails, execution continues but the first error is returned.
 func (m *HookManager) Run(ctx context.Context, point HookPoint, data string) error {
-	hooks := m.hooks[point]
-	var firstErr error
+	m.mu.RLock()
+	hooks := make([]Hook, len(m.hooks[point]))
+	copy(hooks, m.hooks[point])
+	m.mu.RUnlock()
 
+	var firstErr error
 	for _, hook := range hooks {
 		cmdCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		cmd := exec.CommandContext(cmdCtx, "sh", "-c", hook.Command)

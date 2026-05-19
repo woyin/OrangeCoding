@@ -5,7 +5,7 @@ func CreateDefaultRegistry() *ToolRegistry {
 	r := NewToolRegistry()
 
 	// Shell
-	r.Register(NewBashTool(nil))
+	r.Register(NewBashTool(DefaultSecurityPolicy()))
 
 	// File operations
 	r.Register(NewReadFileTool())

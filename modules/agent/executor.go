@@ -66,16 +66,22 @@ func (e *ToolExecutor) Execute(ctx context.Context, call core.ToolCall) ExecuteR
 	}
 }
 
-// ExecuteBatch runs all tool calls concurrently with a sync.WaitGroup.
+// maxConcurrentTools is the maximum number of tool calls that can execute in parallel.
+const maxConcurrentTools = 8
+
+// ExecuteBatch runs tool calls concurrently with a bounded concurrency limit.
 // Results maintain the same order as the input calls.
 func (e *ToolExecutor) ExecuteBatch(ctx context.Context, calls []core.ToolCall) []ExecuteResult {
 	results := make([]ExecuteResult, len(calls))
 	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxConcurrentTools)
 
 	for i, call := range calls {
 		wg.Add(1)
 		go func(idx int, c core.ToolCall) {
 			defer wg.Done()
+			sem <- struct{}{}        // acquire
+			defer func() { <-sem }() // release
 			results[idx] = e.Execute(ctx, c)
 		}(i, call)
 	}

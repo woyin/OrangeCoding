@@ -28,10 +28,14 @@ func NewStdioTransport(r io.Reader, w io.Writer) *StdioTransport {
 	// Use a larger buffer for the scanner to handle bigger messages.
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	var closer io.Closer
+	if c, ok := w.(io.Closer); ok {
+		closer = c
+	}
 	return &StdioTransport{
 		scanner: scanner,
 		writer:  bufio.NewWriter(w),
-		closer:  w.(io.Closer), // may be nil if w is not io.Closer
+		closer:  closer,
 	}
 }
 

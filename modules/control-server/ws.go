@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -13,11 +14,21 @@ import (
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for development
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // non-browser clients
+		}
+		// Allow same-origin and localhost for development.
+		host := r.Host
+		return strings.HasPrefix(origin, "http://"+host) ||
+			strings.HasPrefix(origin, "https://"+host) ||
+			strings.HasPrefix(origin, "http://localhost") ||
+			strings.HasPrefix(origin, "http://127.0.0.1")
 	},
 }
 
 // handleWebSocket upgrades HTTP to WebSocket and streams ServerEvent messages.
+// Each client gets its own event subscription to avoid losing events.
 func (s *Server) handleWebSocket(c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -26,14 +37,15 @@ func (s *Server) handleWebSocket(c *gin.Context) {
 	}
 	defer conn.Close()
 
-	// Read events from the shared channel and forward to WebSocket.
-	// Since the eventCh is shared across all clients, we consume events
-	// and broadcast them to the connected client.
+	// Create a per-client event channel with buffering.
+	clientCh := make(chan controlprotocol.ServerEvent, 32)
+	unsub := s.subscribeEvents(clientCh)
+	defer unsub()
+
 	for {
 		select {
-		case event, ok := <-s.eventCh:
+		case event, ok := <-clientCh:
 			if !ok {
-				// Channel closed
 				return
 			}
 			if err := writeEvent(conn, event); err != nil {
