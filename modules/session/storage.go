@@ -11,20 +11,18 @@ import (
 	"github.com/woyin/OrangeCoding/modules/core"
 )
 
-// WriteSession writes a session to a JSONL file in the given directory.
-// Each message is written as one JSON line.
-// Metadata, token usage, and timestamps are written as a header line.
+// WriteSession writes a session to a JSONL file atomically (write-to-temp + rename).
 func WriteSession(dir string, s *Session) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("session storage mkdir: %w", err)
 	}
 
 	path := filepath.Join(dir, s.ID.String()+".jsonl")
-	f, err := os.Create(path)
+	tmpPath := path + ".tmp"
+	f, err := os.Create(tmpPath)
 	if err != nil {
 		return fmt.Errorf("session storage create: %w", err)
 	}
-	defer f.Close()
 
 	writer := bufio.NewWriter(f)
 
@@ -62,7 +60,16 @@ func WriteSession(dir string, s *Session) error {
 		}
 	}
 
-	return writer.Flush()
+	if err := writer.Flush(); err != nil {
+		f.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("session storage flush: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("session storage close: %w", err)
+	}
+	return os.Rename(tmpPath, path)
 }
 
 // ReadSession reads a session from a JSONL file in the given directory.

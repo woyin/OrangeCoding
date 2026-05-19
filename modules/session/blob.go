@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 )
+
+// validHexHash matches a valid SHA-256 hex hash (64 lowercase hex chars).
+var validHexHash = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // BlobStore implements content-addressed storage using SHA-256 hashes as keys.
 // Each blob is stored as a file named by its hex-encoded SHA-256 hash.
@@ -44,8 +48,11 @@ func (b *BlobStore) Put(data []byte) (string, error) {
 }
 
 // Get reads a blob by its SHA-256 hex hash.
-// Returns an error if the blob does not exist.
+// Returns an error if the hash is invalid or the blob does not exist.
 func (b *BlobStore) Get(hash string) ([]byte, error) {
+	if !validHexHash.MatchString(hash) {
+		return nil, fmt.Errorf("blob store: invalid hash format %q", hash)
+	}
 	path := filepath.Join(b.dir, hash)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -56,6 +63,9 @@ func (b *BlobStore) Get(hash string) ([]byte, error) {
 
 // Has returns true if a blob with the given hash exists in the store.
 func (b *BlobStore) Has(hash string) bool {
+	if !validHexHash.MatchString(hash) {
+		return false
+	}
 	path := filepath.Join(b.dir, hash)
 	_, err := os.Stat(path)
 	return err == nil

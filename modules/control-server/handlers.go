@@ -20,7 +20,7 @@ func (s *Server) createSession(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(http.StatusCreated, gin.H{
 		"session_id": sessionID,
 		"status":     "running",
 	})

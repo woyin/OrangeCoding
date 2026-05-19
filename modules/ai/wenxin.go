@@ -285,7 +285,7 @@ func (p *WenxinProvider) readStream(resp *http.Response, ch chan<- StreamEvent) 
 	defer close(ch)
 	defer resp.Body.Close()
 
-	payloads := ParseSSEStream(resp.Body)
+	payloads, _ := ParseSSEStream(resp.Body)
 
 	for _, payload := range payloads {
 		// Wenxin streaming returns incremental results

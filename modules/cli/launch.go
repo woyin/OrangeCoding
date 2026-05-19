@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -101,7 +103,18 @@ func runSingleShot(cmd *cobra.Command, cfg *config.OrangeConfig, loopConfig agen
 		fmt.Fprintln(cmd.OutOrStdout(), "Harness checkpoints: memory")
 	}
 
-	_, err = loop.Run(context.Background(), ai.ChatOptions{Model: providerConfig.DefaultModel}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		fmt.Fprintln(cmd.ErrOrStderr(), "\nInterrupted, canceling agent...")
+		cancel()
+	}()
+
+	_, err = loop.Run(ctx, ai.ChatOptions{Model: providerConfig.DefaultModel}, nil)
 	if err != nil {
 		return err
 	}

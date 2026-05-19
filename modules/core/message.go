@@ -197,16 +197,34 @@ func (c *Conversation) PendingToolCalls() []ToolCall {
 	return last.ToolCalls
 }
 
-// Clear removes all messages from the conversation.
+// Clear removes all messages from the conversation and releases memory.
 func (c *Conversation) Clear() {
-	c.messages = c.messages[:0]
+	c.messages = nil
 }
 
-// TokenEstimate returns a rough token estimate based on total characters / 4.
+// TokenEstimate returns a rough token estimate.
+// CJK characters are counted as ~2 tokens each; other characters as ~0.25 tokens each.
 func (c *Conversation) TokenEstimate() int {
-	totalChars := 0
+	cjkCount := 0
+	nonCJKCount := 0
 	for _, m := range c.messages {
-		totalChars += len(m.Content)
+		for _, r := range m.Content {
+			if isCJK(r) {
+				cjkCount++
+			} else {
+				nonCJKCount++
+			}
+		}
 	}
-	return totalChars / 4
+	return cjkCount*2 + nonCJKCount/4
+}
+
+// isCJK returns true if the rune is in common CJK Unicode ranges.
+func isCJK(r rune) bool {
+	return (r >= 0x4E00 && r <= 0x9FFF) || // CJK Unified Ideographs
+		(r >= 0x3400 && r <= 0x4DBF) || // CJK Extension A
+		(r >= 0x3000 && r <= 0x303F) || // CJK Symbols and Punctuation
+		(r >= 0xFF00 && r <= 0xFFEF) || // Fullwidth Forms
+		(r >= 0x3040 && r <= 0x309F) || // Hiragana
+		(r >= 0x30A0 && r <= 0x30FF) // Katakana
 }

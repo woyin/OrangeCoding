@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/woyin/OrangeCoding/modules/ai"
@@ -171,7 +172,7 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 		if loopCtx.Err() != nil {
 			result.Duration = time.Since(start)
 			result.StopReason = StopReasonCanceled
-			_, _ = harness.Transition(context.Background(), HarnessStateStopped, "context canceled")
+			if _, err := harness.Transition(context.Background(), HarnessStateStopped, "context canceled"); err != nil { logHarnessErr(err, "harness transition failed") }
 			return result, fmt.Errorf("agent loop canceled: %w", loopCtx.Err())
 		}
 
@@ -204,7 +205,7 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 			_, _ = harness.Update(context.Background(), func(cp *HarnessCheckpoint) {
 				cp.LastErrorMessage = preModelResult.Reason
 			})
-			_, _ = harness.Transition(context.Background(), HarnessStateStopped, "pre-model guardrail denied")
+			if _, err := harness.Transition(context.Background(), HarnessStateStopped, "pre-model guardrail denied"); err != nil { logHarnessErr(err, "harness transition failed") }
 			return result, fmt.Errorf("agent loop: pre-model guardrail %s denied: %s", preModelResult.Name, preModelResult.Reason)
 		}
 
@@ -222,7 +223,7 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 			_, _ = harness.Update(context.Background(), func(cp *HarnessCheckpoint) {
 				cp.LastErrorMessage = err.Error()
 			})
-			_, _ = harness.Transition(context.Background(), HarnessStateFailed, "provider error")
+			if _, err := harness.Transition(context.Background(), HarnessStateFailed, "provider error"); err != nil { logHarnessErr(err, "harness transition failed") }
 			return result, fmt.Errorf("agent loop: provider error: %w", err)
 		}
 
@@ -301,15 +302,15 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 				_, _ = harness.Update(context.Background(), func(cp *HarnessCheckpoint) {
 					cp.LastErrorMessage = finalResult.Reason
 				})
-				_, _ = harness.Transition(context.Background(), HarnessStateStopped, "final-output guardrail denied")
+				if _, err := harness.Transition(context.Background(), HarnessStateStopped, "final-output guardrail denied"); err != nil { logHarnessErr(err, "harness transition failed") }
 				return result, fmt.Errorf("agent loop: final-output guardrail %s denied: %s", finalResult.Name, finalResult.Reason)
 			}
 
 			result.Duration = time.Since(start)
 			result.StopReason = StopReasonCompleted
 			l.recordProgress(result, iteration, "completed")
-			_, _ = harness.Transition(loopCtx, HarnessStateGuardrailCheck, "no tool calls")
-			_, _ = harness.Transition(loopCtx, HarnessStateCompleted, "completed")
+			if _, err := harness.Transition(loopCtx, HarnessStateGuardrailCheck, "no tool calls"); err != nil { logHarnessErr(err, "harness transition failed") }
+			if _, err := harness.Transition(loopCtx, HarnessStateCompleted, "completed"); err != nil { logHarnessErr(err, "harness transition failed") }
 			if eventCh != nil {
 				eventCh <- core.NewCompletedEvent(l.id, sid, content)
 			}
@@ -324,7 +325,7 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 			result.Duration = time.Since(start)
 			result.StopReason = StopReasonToolBudget
 			l.recordProgress(result, iteration, "tool budget exceeded")
-			_, _ = harness.Transition(context.Background(), HarnessStateStopped, "tool budget exceeded")
+			if _, err := harness.Transition(context.Background(), HarnessStateStopped, "tool budget exceeded"); err != nil { logHarnessErr(err, "harness transition failed") }
 			return result, fmt.Errorf("agent loop: tool budget (%d) exceeded", profile.LongTask.MaxToolCalls)
 		}
 
@@ -351,7 +352,7 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 					cp.ToolCallsMade = result.ToolCallsMade
 					cp.TokenUsage = result.TokensUsed
 				})
-				_, _ = harness.Transition(context.Background(), HarnessStateStopped, "guardrail denied tool call")
+				if _, err := harness.Transition(context.Background(), HarnessStateStopped, "guardrail denied tool call"); err != nil { logHarnessErr(err, "harness transition failed") }
 				return result, fmt.Errorf("agent loop: guardrail %s denied tool call %s: %s", guardrailResult.Name, tc.FunctionName, guardrailResult.Reason)
 			}
 		}
@@ -406,7 +407,7 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 				_, _ = harness.Update(context.Background(), func(cp *HarnessCheckpoint) {
 					cp.LastErrorMessage = postToolResult.Reason
 				})
-				_, _ = harness.Transition(context.Background(), HarnessStateStopped, "post-tool guardrail denied")
+				if _, err := harness.Transition(context.Background(), HarnessStateStopped, "post-tool guardrail denied"); err != nil { logHarnessErr(err, "harness transition failed") }
 				return result, fmt.Errorf("agent loop: post-tool guardrail %s denied: %s", postToolResult.Name, postToolResult.Reason)
 			}
 		}
@@ -414,20 +415,20 @@ func (l *AgentLoop) Run(ctx context.Context, chatOpts ai.ChatOptions, eventCh ch
 		if profile.ShouldRecordProgress(result.ToolCallsMade) {
 			l.recordProgress(result, iteration, "tool batch completed")
 		}
-		_, _ = harness.Transition(loopCtx, HarnessStateMemoryUpdate, "memory updated")
+		if _, err := harness.Transition(loopCtx, HarnessStateMemoryUpdate, "memory updated"); err != nil { logHarnessErr(err, "harness transition failed") }
 		_, _ = harness.Update(loopCtx, func(cp *HarnessCheckpoint) {
 			cp.Iteration = iteration
 			cp.ToolCallsMade = result.ToolCallsMade
 			cp.TokenUsage = result.TokensUsed
 			cp.RecentToolKeys = l.recentToolKeys()
 		})
-		_, _ = harness.Transition(loopCtx, HarnessStateCheckpoint, "checkpoint saved")
-		_, _ = harness.Transition(loopCtx, HarnessStateDecideNext, "continue")
+		if _, err := harness.Transition(loopCtx, HarnessStateCheckpoint, "checkpoint saved"); err != nil { logHarnessErr(err, "harness transition failed") }
+		if _, err := harness.Transition(loopCtx, HarnessStateDecideNext, "continue"); err != nil { logHarnessErr(err, "harness transition failed") }
 	}
 
 	result.Duration = time.Since(start)
 	result.StopReason = StopReasonMaxIterations
-	_, _ = harness.Transition(context.Background(), HarnessStateStopped, "max iterations")
+	if _, err := harness.Transition(context.Background(), HarnessStateStopped, "max iterations"); err != nil { logHarnessErr(err, "harness transition failed") }
 	return result, fmt.Errorf("agent loop: max iterations (%d) exceeded", l.config.MaxIterations)
 }
 
@@ -449,6 +450,13 @@ func (l *AgentLoop) currentTask() string {
 		}
 	}
 	return ""
+}
+
+// logHarnessErr logs a non-critical harness error without aborting.
+func logHarnessErr(err error, msg string, args ...any) {
+	if err != nil {
+		slog.Warn(msg, append(args, "error", err)...)
+	}
 }
 
 func (l *AgentLoop) recentToolKeys() []string {

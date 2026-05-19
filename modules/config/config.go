@@ -19,6 +19,7 @@ type OrangeConfig struct {
 	Hooks           HooksConfig               `json:"hooks"`
 	Permissions     PermissionsConfig         `json:"permissions"`
 	Harness         HarnessConfig             `json:"harness"`
+	Multiplexer     MultiplexerConfig         `json:"multiplexer"`
 }
 
 // ProviderConfig holds provider-specific credentials and settings.
@@ -52,6 +53,14 @@ type HarnessConfig struct {
 	CheckpointDir         string `json:"checkpoint_dir"`
 	ReasoningEffort       string `json:"reasoning_effort"`
 	ReasoningBudgetTokens uint32 `json:"reasoning_budget_tokens"`
+}
+
+// MultiplexerConfig holds terminal multiplexer integration settings.
+type MultiplexerConfig struct {
+	Enabled          bool   `json:"enabled"`
+	PreferredBackend string `json:"preferred_backend"`  // "zellij", "tmux", "auto"
+	SocketDir        string `json:"socket_dir"`
+	CommandTimeoutMs int    `json:"command_timeout_ms"`
 }
 
 // DefaultConfig returns an OrangeConfig with sensible defaults.
@@ -99,7 +108,12 @@ func (m *ConfigManager) Load(path string) (*OrangeConfig, error) {
 		cfg.Providers = make(map[string]ProviderConfig)
 	}
 	normalizeHarnessConfig(&cfg.Harness)
+	normalizeMultiplexerConfig(&cfg.Multiplexer)
 	expandConfigEnv(&cfg)
+
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("config validation: %w", err)
+	}
 
 	return &cfg, nil
 }
@@ -229,6 +243,34 @@ func normalizeHarnessConfig(cfg *HarnessConfig) {
 	}
 }
 
+func normalizeMultiplexerConfig(cfg *MultiplexerConfig) {
+	if cfg.PreferredBackend == "" {
+		cfg.PreferredBackend = "auto"
+	}
+	if cfg.CommandTimeoutMs == 0 {
+		cfg.CommandTimeoutMs = 30000
+	}
+	if cfg.CommandTimeoutMs < 1000 {
+		cfg.CommandTimeoutMs = 1000
+	}
+}
+
+// Validate checks the config for invalid values and returns an error if found.
+func (c *OrangeConfig) Validate() error {
+	if c.ControlPort < 0 || c.ControlPort > 65535 {
+		return fmt.Errorf("invalid control_port: %d (must be 0-65535)", c.ControlPort)
+	}
+	validStores := map[string]bool{"": true, "memory": true, "file": true}
+	if !validStores[c.Harness.CheckpointStore] {
+		return fmt.Errorf("invalid harness.checkpoint_store: %q (must be memory or file)", c.Harness.CheckpointStore)
+	}
+	validBackends := map[string]bool{"": true, "auto": true, "zellij": true, "tmux": true}
+	if !validBackends[c.Multiplexer.PreferredBackend] {
+		return fmt.Errorf("invalid multiplexer.preferred_backend: %q (must be auto, zellij, or tmux)", c.Multiplexer.PreferredBackend)
+	}
+	return nil
+}
+
 func expandConfigEnv(cfg *OrangeConfig) {
 	cfg.LogLevel = os.ExpandEnv(cfg.LogLevel)
 	cfg.DefaultProvider = os.ExpandEnv(cfg.DefaultProvider)
@@ -252,6 +294,7 @@ func expandConfigEnv(cfg *OrangeConfig) {
 	cfg.Permissions.Edit = os.ExpandEnv(cfg.Permissions.Edit)
 	cfg.Permissions.Read = os.ExpandEnv(cfg.Permissions.Read)
 	cfg.Permissions.Execute = os.ExpandEnv(cfg.Permissions.Execute)
+	cfg.Multiplexer.SocketDir = os.ExpandEnv(cfg.Multiplexer.SocketDir)
 }
 
 func expandStringSliceEnv(values []string) []string {

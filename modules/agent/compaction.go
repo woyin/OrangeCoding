@@ -56,12 +56,12 @@ func (c *Compactor) Compact(conv *core.Conversation) error {
 		testMsgs = append(testMsgs, middle[middleStart:]...)
 		testMsgs = append(testMsgs, msgs[keepFrom:]...)
 
-		// Estimate tokens for the test set
-		totalChars := 0
+		// Estimate tokens for the test set using CJK-aware estimation.
+		testConv := core.NewConversation()
 		for _, m := range testMsgs {
-			totalChars += len(m.Content)
+			testConv.AddMessage(m)
 		}
-		if totalChars/4 <= c.maxTokens || middleStart >= len(middle) {
+		if testConv.TokenEstimate() <= c.maxTokens || middleStart >= len(middle) {
 			newMsgs = append(newMsgs, middle[middleStart:]...)
 			break
 		}

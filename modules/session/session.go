@@ -1,7 +1,6 @@
 package session
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -66,6 +65,7 @@ func (m *SessionManager) Delete(id core.SessionId) error {
 }
 
 // List returns all sessions sorted by UpdatedAt descending (most recent first).
+// Skips unreadable or corrupted session files.
 func (m *SessionManager) List() ([]*Session, error) {
 	if err := os.MkdirAll(m.storageDir, 0o755); err != nil {
 		return nil, fmt.Errorf("session list mkdir: %w", err)
@@ -82,37 +82,15 @@ func (m *SessionManager) List() ([]*Session, error) {
 			continue
 		}
 
-		// Read session file to get metadata for sorting
-		path := filepath.Join(m.storageDir, entry.Name())
-		f, err := os.Open(path)
+		// Parse session ID from filename.
+		baseName := entry.Name()[:len(entry.Name())-len(".jsonl")]
+		id, err := core.ParseSessionId(baseName)
 		if err != nil {
 			continue
 		}
 
-		// Parse just the first line (header) to get UpdatedAt
-		var header struct {
-			ID        core.SessionId `json:"id"`
-			UpdatedAt json.RawMessage `json:"updated_at"`
-		}
-		decoder := json.NewDecoder(f)
-		if err := decoder.Decode(&header); err != nil {
-			f.Close()
-			continue
-		}
-		f.Close()
-
-		// Parse ID from filename as fallback
-		baseName := entry.Name()[:len(entry.Name())-len(".jsonl")]
-		if header.ID == (core.SessionId{}) {
-			parsedID, err := core.ParseSessionId(baseName)
-			if err != nil {
-				continue
-			}
-			header.ID = parsedID
-		}
-
-		// Full read for the complete session
-		s, err := ReadSession(m.storageDir, header.ID)
+		// Single read per file.
+		s, err := ReadSession(m.storageDir, id)
 		if err != nil {
 			continue
 		}

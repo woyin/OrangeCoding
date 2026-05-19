@@ -350,7 +350,7 @@ func (p *AnthropicProvider) readStream(resp *http.Response, ch chan<- StreamEven
 	defer close(ch)
 	defer resp.Body.Close()
 
-	payloads := ParseSSEStream(resp.Body)
+	payloads, _ := ParseSSEStream(resp.Body)
 
 	for _, payload := range payloads {
 		var evt anthropicStreamEvent

@@ -92,3 +92,18 @@ func (r *WorkerRuntime) GetStatus(sessionID string) (string, bool) {
 	}
 	return executor.Status(), true
 }
+
+// Shutdown cancels all running sessions and waits for them to finish.
+func (r *WorkerRuntime) Shutdown() {
+	r.mu.Lock()
+	agents := make([]*AgentExecutor, 0, len(r.agents))
+	for _, executor := range r.agents {
+		agents = append(agents, executor)
+	}
+	r.agents = make(map[string]*AgentExecutor)
+	r.mu.Unlock()
+
+	for _, executor := range agents {
+		executor.Cancel()
+	}
+}

@@ -63,9 +63,14 @@ func (f *ForkAgent) Run(ctx context.Context, task string) (*AgentLoopResult, err
 	loop := NewAgentLoop(forkID, f.parent.Provider(), forkExecutor, forkCtx, f.parent.Config(), filteredDefs)
 
 	eventCh := make(chan core.AgentEvent, 100)
-	defer close(eventCh)
+	// Drain events to prevent the channel from blocking the agent loop.
+	go func() {
+		for range eventCh {
+		}
+	}()
 
 	result, err := loop.Run(ctx, aiChatOpts{}, eventCh)
+	close(eventCh)
 	if err != nil {
 		return nil, fmt.Errorf("fork agent failed: %w", err)
 	}

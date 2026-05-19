@@ -264,7 +264,7 @@ func (p *OpenAIProvider) readStream(resp *http.Response, ch chan<- StreamEvent) 
 	defer close(ch)
 	defer resp.Body.Close()
 
-	payloads := ParseSSEStream(resp.Body)
+	payloads, _ := ParseSSEStream(resp.Body)
 
 	// Accumulate tool call data across chunks
 	type toolCallAcc struct {

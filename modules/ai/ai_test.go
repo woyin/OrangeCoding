@@ -168,7 +168,7 @@ data: [DONE]
 
 data: {"content": "after done"}
 `
-	payloads := ParseSSEStream(strings.NewReader(input))
+	payloads, _ := ParseSSEStream(strings.NewReader(input))
 
 	if len(payloads) != 3 {
 		t.Fatalf("ParseSSEStream: got %d payloads, want 3", len(payloads))
@@ -185,7 +185,7 @@ data: {"content": "after done"}
 }
 
 func TestSSEStreamParsingEmpty(t *testing.T) {
-	payloads := ParseSSEStream(strings.NewReader(""))
+	payloads, _ := ParseSSEStream(strings.NewReader(""))
 	if len(payloads) != 0 {
 		t.Errorf("ParseSSEStream(empty): got %d payloads, want 0", len(payloads))
 	}
