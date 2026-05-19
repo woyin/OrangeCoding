@@ -12,6 +12,8 @@ use (
 	./modules/invariant
 	./modules/mcp
 	./modules/mesh
+	./modules/multiplexer
+	./modules/pane-agent
 	./modules/session
 	./modules/tools
 	./modules/tui
