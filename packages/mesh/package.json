@@ -1,0 +1,22 @@
+{
+  "name": "@orangecoding/mesh",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@orangecoding/core": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "uuid": "^9.0.0",
+    "@types/uuid": "^9.0.0"
+  },
+  "license": "Apache-2.0"
+}

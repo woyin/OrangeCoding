@@ -1,0 +1,11 @@
+/target
+/reference
+.worktrees/
+modules/cli/cli
+node_modules/
+dist/
+*.tsbuildinfo
+coverage/
+.env
+.venv/
+*.pdf

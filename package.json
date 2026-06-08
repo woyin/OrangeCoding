@@ -1,0 +1,24 @@
+{
+  "name": "orangecoding",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OrangeCoding - AI coding agent system",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean",
+    "test": "jest",
+    "lint": "eslint packages/*/src/**/*.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "Apache-2.0",
+  "authors": [
+    "OrangeCoding Team"
+  ]
+}

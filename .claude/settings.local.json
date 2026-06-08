@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(git *)",
+      "Bash(cargo test *)",
+      "Bash(cargo build *)",
+      "Bash(xxd)",
+      "Bash(uv run *)",
+      "Bash(cargo check *)",
+      "Bash(awk '{sum+=$4} END {print \"Total tests passed:\", sum}')",
+      "Bash(go work *)"
+    ]
+  },
+  "skillOverrides": {}
+}

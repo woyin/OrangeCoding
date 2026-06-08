@@ -1,0 +1,19 @@
+{
+  "name": "@orangecoding/pane-agent",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": { "orangecoding-pane-agent": "./dist/main.js" },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "dependencies": {
+    "@orangecoding/core": "*",
+    "@orangecoding/ai": "*",
+    "@orangecoding/agent": "*",
+    "@orangecoding/config": "*",
+    "@orangecoding/tools": "*",
+    "@orangecoding/multiplexer": "*"
+  },
+  "devDependencies": { "typescript": "^5.4.0" },
+  "license": "Apache-2.0"
+}

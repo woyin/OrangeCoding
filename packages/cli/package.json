@@ -1,0 +1,31 @@
+{
+  "name": "@orangecoding/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": { "orangecoding": "./dist/main.js" },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean"
+  },
+  "dependencies": {
+    "@orangecoding/core": "*",
+    "@orangecoding/ai": "*",
+    "@orangecoding/config": "*",
+    "@orangecoding/tools": "*",
+    "@orangecoding/control-protocol": "*",
+    "@orangecoding/control-server": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  },
+  "license": "Apache-2.0"
+}
