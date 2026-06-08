@@ -1,11 +1,21 @@
-/target
-/reference
-.worktrees/
-modules/cli/cli
+# TypeScript
 node_modules/
 dist/
 *.tsbuildinfo
 coverage/
+
+# Rust (已移除)
+/target
+/crates
+
+# Go (已移除)
+/modules
+go.work
+go.work.sum
+
+# 其他
+.reference
+.worktrees/
+*.pdf
 .env
 .venv/
-*.pdf
