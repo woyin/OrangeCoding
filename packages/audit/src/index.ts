@@ -1,5 +1,6 @@
 export {
   AuditEntry,
+  AuditEventRecorder,
   AuditLog,
   newEntry,
   computeHash,

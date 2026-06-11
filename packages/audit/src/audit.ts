@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { OrangeError, newIOError } from "@orangecoding/core";
+import { newIOError } from "@orangecoding/core";
+import type { AgentEvent, EventHandler } from "@orangecoding/core";
 
 /**
  * AuditEntry represents a single entry in the tamper-proof audit log.
@@ -191,6 +192,39 @@ export class AuditLog {
       return "";
     }
   }
+}
+
+const AUDITED_EVENT_TYPES = new Set([
+  "guardrail_decision",
+  "tool_call_completed",
+]);
+
+export class AuditEventRecorder implements EventHandler {
+  readonly name = "audit_event_recorder";
+
+  constructor(private readonly log: AuditLog) {}
+
+  async handle(ev: AgentEvent): Promise<void> {
+    if (!AUDITED_EVENT_TYPES.has(ev.eventType)) {
+      return;
+    }
+
+    const details = eventDetails(ev);
+    await this.log.append(ev.eventType, ev.agentId.toString(), details);
+  }
+}
+
+function eventDetails(ev: AgentEvent): string {
+  const maybeSerializable = ev as AgentEvent & { toJSON?: () => unknown };
+  if (typeof maybeSerializable.toJSON === "function") {
+    return JSON.stringify(maybeSerializable.toJSON());
+  }
+  return JSON.stringify({
+    type: ev.eventType,
+    agent_id: ev.agentId.toString(),
+    session_id: ev.sessionId.toString(),
+    timestamp: ev.timestamp.toISOString(),
+  });
 }
 
 // --- Hex helpers ---

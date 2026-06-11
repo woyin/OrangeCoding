@@ -7,6 +7,7 @@
 
 import { AgentExecutor, type ExecutorStatus } from "./executor.js";
 import type { AgentLoop } from "@orangecoding/agent";
+import type { AgentEvent } from "@orangecoding/core";
 import type { ServerEvent } from "@orangecoding/control-protocol";
 
 // ---------------------------------------------------------------------------
@@ -19,12 +20,14 @@ import type { ServerEvent } from "@orangecoding/control-protocol";
  */
 export class WorkerRuntime {
   private agents = new Map<string, AgentExecutor>();
+  private pendingTasks = new Map<string, string[]>();
 
   /**
    * @param eventHandler - Handler for emitting server events. May be null.
    */
   constructor(
     private readonly eventHandler: ((event: ServerEvent) => void) | null,
+    private readonly agentEventHandler: ((event: AgentEvent) => void) | null = null,
   ) {}
 
   // -----------------------------------------------------------------------
@@ -33,8 +36,11 @@ export class WorkerRuntime {
 
   /**
    * StartSession creates a new agent executor and starts it asynchronously.
+   * The executor enters a task-processing loop, waiting for tasks to be
+   * submitted via submitTask().
+   *
    * Returns an error if a session with the same ID already exists.
-   * If agentLoop is null, the executor will complete immediately (useful for testing).
+   * If agentLoop is null, the executor records tasks but does not process them.
    */
   startSession(sessionID: string, agentLoop: AgentLoop | null): void {
     if (this.agents.has(sessionID)) {
@@ -43,6 +49,7 @@ export class WorkerRuntime {
 
     const executor = new AgentExecutor(sessionID, agentLoop);
     executor.setEventHandler(this.eventHandler);
+    executor.setAgentEventHandler(this.agentEventHandler);
 
     const controller = new AbortController();
     executor.setAbortController(controller);
@@ -68,6 +75,7 @@ export class WorkerRuntime {
 
     executor.cancel();
     this.agents.delete(sessionID);
+    this.pendingTasks.delete(sessionID);
   }
 
   /**
@@ -90,11 +98,36 @@ export class WorkerRuntime {
   }
 
   /**
+   * SubmitTask enqueues a task for an active session and forwards it to
+   * the executor for processing through the agent loop.
+   */
+  submitTask(sessionID: string, task: string): void {
+    const executor = this.agents.get(sessionID);
+    if (executor == null) {
+      throw new Error(`worker runtime: session "${sessionID}" not found`);
+    }
+
+    // Record the task for query purposes
+    const tasks = this.pendingTasks.get(sessionID) ?? [];
+    tasks.push(task);
+    this.pendingTasks.set(sessionID, tasks);
+
+    // Forward to executor for actual processing
+    executor.submitTask(task);
+  }
+
+  /** PendingTasks returns queued task strings for an active session. */
+  pendingTasksFor(sessionID: string): string[] {
+    return [...(this.pendingTasks.get(sessionID) ?? [])];
+  }
+
+  /**
    * Shutdown cancels all running sessions and waits for them to finish.
    */
   shutdown(): void {
     const agents = Array.from(this.agents.values());
     this.agents.clear();
+    this.pendingTasks.clear();
 
     for (const executor of agents) {
       executor.cancel();
