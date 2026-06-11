@@ -2,7 +2,14 @@ import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
 import type { ServerEvent } from "@orangecoding/control-protocol";
-import { TaskUpdateEvent } from "@orangecoding/control-protocol";
+import {
+  TaskUpdateEvent,
+  AgentStreamEvent,
+  AgentCompletedEvent,
+  GuardrailEvent,
+  ToolCallEvent,
+  ErrorEvent,
+} from "@orangecoding/control-protocol";
 
 // ---------------------------------------------------------------------------
 // WorkerRuntime -- minimal interface expected from @orangecoding/worker
@@ -18,6 +25,8 @@ export interface WorkerRuntime {
   listSessions(): string[];
   /** Return (status, true) for an active session, or ("", false) if not found. */
   getStatus(sessionId: string): [status: string, found: boolean];
+  /** Submit a task to an active session. Throws if the session cannot accept it. */
+  submitTask(sessionId: string, task: string): void;
   /** Cancel all running sessions. */
   shutdown(): void;
 }
@@ -166,6 +175,10 @@ export interface ServerOptions {
   workers: WorkerRuntime;
   /** Listen address, e.g. ":8080". Defaults to ":8080". */
   addr?: string;
+  /** Optional approval handler for tool approval requests. */
+  approvalHandler?: {
+    respond(requestId: string, approved: boolean, reason?: string): boolean;
+  };
 }
 
 /**
@@ -178,6 +191,7 @@ export class Server {
   private readonly router = new Router();
   private readonly workers: WorkerRuntime;
   private readonly addr: string;
+  private readonly approvalHandler?: { respond(requestId: string, approved: boolean, reason?: string): boolean };
   private readonly eventSubscribers = new Set<(event: ServerEvent) => void>();
   private httpServer: http.Server | null = null;
   private wss: WebSocketServer | null = null;
@@ -186,6 +200,7 @@ export class Server {
   constructor(options: ServerOptions) {
     this.workers = options.workers;
     this.addr = options.addr ?? ":8080";
+    this.approvalHandler = options.approvalHandler;
     this.setupRoutes();
   }
 
@@ -224,6 +239,7 @@ export class Server {
     this.router.add("GET", "/sessions/:id", this.getSession.bind(this));
     this.router.add("POST", "/sessions/:id/task", this.sendTask.bind(this));
     this.router.add("DELETE", "/sessions/:id", this.cancelSession.bind(this));
+    this.router.add("POST", "/sessions/:id/approve", this.approveSession.bind(this));
     this.router.add("GET", "/status", this.status.bind(this));
     this.router.add("GET", "/ws", this.handleWebSocket.bind(this));
   }
@@ -285,6 +301,14 @@ export class Server {
       return;
     }
 
+    try {
+      this.workers.submitTask(sessionId, task);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      sendJson(ctx.res, 409, { error: message });
+      return;
+    }
+
     this.broadcastEvent(
       new TaskUpdateEvent(sessionId, "task_received", task),
     );
@@ -305,6 +329,31 @@ export class Server {
     }
 
     sendJson(ctx.res, 200, { session_id: sessionId, status: "cancelled" });
+  }
+
+  /** POST /sessions/:id/approve -- respond to a tool approval request. */
+  private approveSession(ctx: RequestContext): void {
+    if (!this.approvalHandler) {
+      sendJson(ctx.res, 501, { error: "approval not configured" });
+      return;
+    }
+
+    const body = ctx.body as Record<string, unknown> | null;
+    const requestId = typeof body?.["requestId"] === "string" ? body["requestId"] : "";
+    const approved = typeof body?.["approved"] === "boolean" ? body["approved"] : false;
+
+    if (requestId === "") {
+      sendJson(ctx.res, 400, { error: "requestId is required" });
+      return;
+    }
+
+    const found = this.approvalHandler.respond(requestId, approved);
+    if (!found) {
+      sendJson(ctx.res, 404, { error: "approval request not found or expired" });
+      return;
+    }
+
+    sendJson(ctx.res, 200, { request_id: requestId, approved });
   }
 
   /** GET /status -- server health / version info. */
@@ -379,13 +428,19 @@ export class Server {
       return;
     }
 
+    let timeoutID: NodeJS.Timeout | undefined;
     const shutdownPromise = new Promise<void>((resolve) => {
       this.httpServer!.close(() => resolve());
       this.wss?.close();
     });
 
-    const timeout = new Promise<void>((resolve) => setTimeout(resolve, 10_000));
+    const timeout = new Promise<void>((resolve) => {
+      timeoutID = setTimeout(resolve, 10_000);
+    });
     await Promise.race([shutdownPromise, timeout]);
+    if (timeoutID !== undefined) {
+      clearTimeout(timeoutID);
+    }
   }
 
   /**
@@ -495,6 +550,46 @@ function serializeEvent(event: ServerEvent): Record<string, unknown> {
       session_id: event.sessionId,
       status: event.status,
       message: event.message,
+    };
+  }
+  if (event instanceof AgentStreamEvent) {
+    return {
+      session_id: event.sessionId,
+      content: event.content,
+    };
+  }
+  if (event instanceof AgentCompletedEvent) {
+    return {
+      session_id: event.sessionId,
+      content: event.content,
+      tool_calls_made: event.toolCallsMade,
+      tokens_used: event.tokensUsed,
+      duration_ms: event.durationMs,
+      stop_reason: event.stopReason,
+    };
+  }
+  if (event instanceof GuardrailEvent) {
+    return {
+      session_id: event.sessionId,
+      phase: event.phase,
+      decision: event.decision,
+      reason: event.reason,
+      guardrail_name: event.guardrailName,
+    };
+  }
+  if (event instanceof ToolCallEvent) {
+    return {
+      session_id: event.sessionId,
+      tool_name: event.toolName,
+      input: event.input,
+      output: event.output,
+      is_error: event.isError,
+    };
+  }
+  if (event instanceof ErrorEvent) {
+    return {
+      session_id: event.sessionId,
+      error: event.error,
     };
   }
   // Fallback: spread all own enumerable properties.

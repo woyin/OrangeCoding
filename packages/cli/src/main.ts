@@ -25,6 +25,7 @@ import { runVersion } from "./commands/version.js";
 import { runSkills } from "./commands/skills.js";
 import { runResume } from "./commands/resume.js";
 import { runAnalyze } from "./commands/analyze.js";
+import { runSessions } from "./commands/sessions.js";
 
 // ---------------------------------------------------------------------------
 // CLI argument parsing and command dispatch
@@ -38,6 +39,7 @@ Commands:
   init                Initialize project config
   config get <key>    Get a configuration value
   config set <key> <value>  Set a configuration value
+  sessions            List saved sessions
   skills              List available skills
   resume [run-id]     Resume an interrupted session
   analyze             Analyze sessions for self-improvement
@@ -49,6 +51,7 @@ Options:
   --prompt, -p <text>  Single-shot task prompt (launch only)
   --skill, -s <name>   Use a specific skill (launch only)
   --text               Text mode, no TUI (launch only)
+  --resume, -r <id>    Resume a saved session (launch only)
   --addr <addr>        Bind address for serve (serve only)
   --log-level <level>  Log level: debug, info, warn, error
   --json-log           Enable JSON log format
@@ -85,6 +88,7 @@ async function main(): Promise<void> {
           prompt: { type: "string", short: "p" },
           skill: { type: "string", short: "s" },
           text: { type: "boolean", default: false },
+          resume: { type: "string", short: "r" },
         },
         strict: false,
       });
@@ -92,6 +96,7 @@ async function main(): Promise<void> {
         typeof parsed.values.prompt === "string" ? parsed.values.prompt : undefined,
         !!parsed.values.text,
         typeof parsed.values.skill === "string" ? parsed.values.skill : undefined,
+        typeof parsed.values.resume === "string" ? parsed.values.resume : undefined,
       );
       break;
     }
@@ -150,6 +155,11 @@ async function main(): Promise<void> {
       break;
     }
 
+    case "sessions": {
+      await runSessions();
+      break;
+    }
+
     case "skills": {
       runSkills();
       break;
@@ -180,6 +190,7 @@ async function main(): Promise<void> {
             prompt: { type: "string", short: "p" },
             skill: { type: "string", short: "s" },
             text: { type: "boolean", default: false },
+            resume: { type: "string", short: "r" },
           },
           strict: false,
         });
@@ -187,6 +198,7 @@ async function main(): Promise<void> {
           typeof parsed.values.prompt === "string" ? parsed.values.prompt : undefined,
           !!parsed.values.text,
           typeof parsed.values.skill === "string" ? parsed.values.skill : undefined,
+          typeof parsed.values.resume === "string" ? parsed.values.resume : undefined,
         );
       } else {
         exitWithError(`unknown command: ${command}\nRun 'orangecoding --help' for usage.`);

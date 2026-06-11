@@ -1,68 +1,73 @@
+/**
+ * Handles the `resume` command.
+ *
+ * Lists and resumes saved sessions. When resuming, the session's
+ * conversation history is loaded and the user can continue the
+ * interaction from where they left off.
+ *
+ * This is equivalent to `orangecoding launch --resume <session-id>`.
+ */
+
 import * as os from "node:os";
 import * as path from "node:path";
-import { ResumeManager } from "@orangecoding/agent";
-import { ConfigManager } from "@orangecoding/config";
-import type { OrangeConfig } from "@orangecoding/config";
-import { ProviderFactory, normalizeProviderConfig } from "@orangecoding/ai";
-import type { ProviderConfig as AiProviderConfig } from "@orangecoding/ai";
-import { createDefaultRegistry } from "@orangecoding/tools";
-import { ToolExecutor } from "@orangecoding/agent";
-import { aiProviderConfigFromCLIConfig } from "./launch.js";
+import { runLaunch } from "./launch.js";
+import { listSavedSessions } from "./resume-helper.js";
 
-export async function runResume(runID?: string): Promise<void> {
-  const configPath = defaultConfigPath();
-  const mgr = new ConfigManager();
-  let cfg: OrangeConfig;
-  try {
-    cfg = mgr.load(configPath);
-  } catch {
-    throw new Error("failed to load config. Run 'orangecoding init' first.");
-  }
+/**
+ * Run the resume command.
+ * @param sessionID - Optional session ID to resume. If omitted, lists sessions.
+ */
+export async function runResume(sessionID?: string): Promise<void> {
+  const sessionDir = getSessionDir();
 
-  const checkpointDir = cfg.harness?.checkpoint_dir
-    ?? path.join(os.homedir(), ".orangecoding", "checkpoints");
-
-  const resumeMgr = new ResumeManager(checkpointDir);
-
-  // If no runID, list resumable checkpoints
-  if (!runID) {
-    const checkpoints = await resumeMgr.listResumable();
-    if (checkpoints.length === 0) {
-      console.log("No resumable sessions found.");
-      return;
-    }
-    console.log("Resumable sessions:\n");
-    for (const cp of checkpoints) {
-      console.log("  Run: " + cp.runID);
-      console.log("    State: " + cp.state + " | Iteration: " + String(cp.iteration) + " | Tool calls: " + String(cp.toolCallsMade));
-      console.log("    Task: " + cp.task.slice(0, 80));
-      console.log("    Updated: " + cp.updatedAt);
-      console.log();
-    }
-    console.log("Usage: orangecoding resume <run-id>");
+  if (!sessionID) {
+    // List saved sessions
+    await listSessions(sessionDir);
     return;
   }
 
-  // Resume specific run
-  const canResume = await resumeMgr.canResume(runID);
-  if (!canResume) {
-    throw new Error("cannot resume run " + runID + ": not found or already terminal");
-  }
-
-  const providerName = cfg.default_provider || "openai";
-  const providerConfig = aiProviderConfigFromCLIConfig(providerName, cfg);
-  const factory = new ProviderFactory();
-  const aiProvider = factory.createProvider(providerName, providerConfig);
-  const registry = createDefaultRegistry();
-  const executor = new ToolExecutor(registry);
-
-  console.log("Resuming run: " + runID);
-  const result = await resumeMgr.resume(runID, aiProvider, executor);
-  console.log("Resumed: " + String(result.resumed));
-  console.log("Tool calls: " + String(result.toolCallsMade));
-  console.log("Stop reason: " + result.stopReason);
+  // Delegate to launch with --resume flag
+  await runLaunch(undefined, false, undefined, sessionID);
 }
 
-function defaultConfigPath(): string {
-  return path.join(os.homedir(), ".orangecoding", "config.json");
+async function listSessions(sessionDir: string): Promise<void> {
+  try {
+    const sessions = await listSavedSessions(sessionDir);
+
+    if (sessions.length === 0) {
+      console.log("No saved sessions found.");
+      console.log("Sessions are saved automatically after each agent run.");
+      return;
+    }
+
+    console.log("\x1b[36m⚡ Resumable Sessions\x1b[0m (" + sessions.length + " total)\n");
+
+    for (const s of sessions) {
+      const age = timeSince(s.updatedAt);
+      const taskPreview = s.task ? ` | Task: ${s.task.slice(0, 40)}` : "";
+
+      console.log(`  \x1b[33m${s.id.toString()}\x1b[0m`);
+      console.log(`    Updated: ${s.updatedAt.toISOString()} (${age}) | Messages: ${s.messageCount}${taskPreview}`);
+      console.log();
+    }
+
+    console.log("\x1b[90mUsage: orangecoding resume <session-id>\x1b[0m");
+    console.log("\x1b[90m   or: orangecoding launch -r <session-id> -p \"continue with...\"\x1b[0m");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`Error listing sessions: ${msg}`);
+  }
+}
+
+function timeSince(date: Date): string {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+function getSessionDir(): string {
+  const home = os.homedir() || ".";
+  return path.join(home, ".orangecoding", "sessions");
 }

@@ -2,7 +2,9 @@
   "name": "@orangecoding/cli",
   "version": "0.1.0",
   "type": "module",
-  "bin": { "orangecoding": "./dist/main.js" },
+  "bin": {
+    "orangecoding": "./dist/main.js"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -18,10 +20,15 @@
   "dependencies": {
     "@orangecoding/core": "*",
     "@orangecoding/ai": "*",
+    "@orangecoding/audit": "*",
     "@orangecoding/config": "*",
     "@orangecoding/tools": "*",
     "@orangecoding/control-protocol": "*",
-    "@orangecoding/control-server": "*"
+    "@orangecoding/control-server": "*",
+    "@orangecoding/worker": "*",
+    "@orangecoding/tui": "*",
+    "@orangecoding/agent": "*",
+    "@orangecoding/session": "*"
   },
   "devDependencies": {
     "typescript": "^5.4.0",
