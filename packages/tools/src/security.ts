@@ -4,7 +4,7 @@
  * Ported from modules/tools/security.go.
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { basename, resolve, normalize, sep } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -162,10 +162,11 @@ function containsShellInjection(cmd: string): boolean {
 /**
  * Wraps `which` for use in tool implementations.
  * Returns the resolved path or throws.
+ * Fixed: use execFileSync to prevent command injection.
  */
 export function lookPath(name: string): string {
   try {
-    const result = execSync(`which ${name}`, { encoding: "utf-8" }).trim();
+    const result = execFileSync("which", [name], { encoding: "utf-8" }).trim();
     return result;
   } catch {
     throw new Error(`${name}: command not found`);

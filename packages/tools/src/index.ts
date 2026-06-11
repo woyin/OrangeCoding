@@ -5,9 +5,9 @@
  */
 
 // Core Tool types
-export { ToolError } from "./tool.js";
-export type { Tool, ToolMetadata, ToolErrorKind } from "./tool.js";
-export { defaultMetadata, readOnlyMetadata, destructiveMetadata } from "./tool.js";
+export { ToolError, ToolBudgetTracker } from "./tool.js";
+export type { Tool, ToolMetadata, ToolErrorKind, BudgetCheckResult } from "./tool.js";
+export { defaultMetadata, readOnlyMetadata, destructiveMetadata, withBudget } from "./tool.js";
 
 // Registry
 export { ToolRegistry } from "./registry.js";
@@ -22,12 +22,21 @@ export { PathValidator, SecurityPolicy, DefaultBlockedCommands, lookPath } from 
 export { PermissionDecision } from "./permissions.js";
 export type { PermissionContext } from "./permissions.js";
 
+// Sandbox
+export { SandboxPermissionManager, strictSandbox, devSandbox } from "./sandbox.js";
+export type { PermissionRule, PermissionAction, SandboxConfig, PermissionCheckResult } from "./sandbox.js";
+
 // Batch execution
 export { executeBatch } from "./batch.js";
 export type { ExecuteResult } from "./batch.js";
 
+// Approval
+export { AutoApproveHandler, AutoDenyHandler, CLIApprovalHandler } from "./approval.js";
+export type { ApprovalHandler, ApprovalRequest, ApprovalResult } from "./approval.js";
+
 // Concrete tools
 export { BashTool } from "./bash-tool.js";
-export { ReadFileTool, WriteFileTool, EditFileTool, DeleteFileTool, ListDirectoryTool } from "./file-tools.js";
+export { ReadFileTool, WriteFileTool, EditFileTool, DeleteFileTool, ListDirectoryTool, computeContentHash } from "./file-tools.js";
+export { MultiEditTool, PatchEditTool } from "./multi-edit-tool.js";
 export { GrepTool, FindTool, GlobTool } from "./search-tools.js";
-export { FetchTool, PythonTool, CalcTool, TaskTool, StubTool, newBrowserTool, newSshTool, newLspTool, newWebSearchTool, newNotebookTool } from "./other-tools.js";
+export { FetchTool, PythonTool, CalcTool, TaskTool, BrowserTool, SshTool, NotebookTool } from "./other-tools.js";

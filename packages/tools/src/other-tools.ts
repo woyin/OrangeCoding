@@ -5,6 +5,10 @@
  */
 
 import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { lookup } from "node:dns";
+
+const lookupAsync = promisify(lookup);
 import { mkdtemp, writeFile as fsWriteFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -77,6 +81,20 @@ export class FetchTool implements Tool {
       if (host.startsWith(prefix)) {
         throw new ToolError("security_violation", "access to internal/private network addresses is blocked");
       }
+    }
+
+    // DNS resolution check to prevent DNS rebinding attacks
+    try {
+      const resolved = await lookupAsync(host);
+      const resolvedIp = resolved.address.toLowerCase();
+      for (const prefix of BLOCKED_HOST_PREFIXES) {
+        if (resolvedIp.startsWith(prefix)) {
+          throw new ToolError("security_violation", "access to internal/private network addresses is blocked");
+        }
+      }
+    } catch (err) {
+      if (err instanceof ToolError) throw err;
+      // DNS lookup failed - allow the request to proceed (will fail at fetch time)
     }
 
     const method = args.method || "GET";
@@ -494,56 +512,414 @@ export class TaskTool implements Tool {
 }
 
 // ---------------------------------------------------------------------------
-// StubTool
+// BrowserTool — fetches a URL and extracts readable text from HTML
 // ---------------------------------------------------------------------------
 
+interface BrowserArgs {
+  url: string;
+  max_length?: number;
+}
+
 /**
- * A placeholder tool that returns a "not implemented" error.
+ * BrowserTool fetches a web page and returns human-readable text content.
+ * Strips HTML tags, scripts, and styles, keeping only visible text.
  */
-export class StubTool implements Tool {
-  private readonly _name: string;
-  private readonly _desc: string;
+export class BrowserTool implements Tool {
   private readonly _params: Record<string, unknown>;
 
-  constructor(name: string, desc: string) {
-    this._name = name;
-    this._desc = desc;
-    this._params = { type: "object", properties: {} };
+  constructor() {
+    this._params = {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "The URL to fetch and read." },
+        max_length: { type: "integer", description: "Maximum characters to return (default 8000)." },
+      },
+      required: ["url"],
+    };
   }
 
-  name(): string { return this._name; }
-  description(): string { return this._desc; }
+  name(): string { return "browser"; }
+  description(): string {
+    return "Fetch a web page and extract readable text content. " +
+      "Use for reading documentation, articles, or any web page. " +
+      "Returns cleaned text with HTML tags removed.";
+  }
+  parameters(): Record<string, unknown> { return this._params; }
+  metadata(): ToolMetadata { return readOnlyMetadata(); }
+
+  async execute(_ctx: unknown, input: unknown): Promise<string> {
+    const args = input as BrowserArgs;
+
+    if (!args.url) {
+      throw new ToolError("invalid_params", "url is required");
+    }
+
+    // Validate URL scheme
+    const lowerUrl = args.url.toLowerCase();
+    if (!lowerUrl.startsWith("http://") && !lowerUrl.startsWith("https://")) {
+      throw new ToolError("security_violation", "only http/https URLs are allowed");
+    }
+
+    // Block internal network access
+    const host = extractHost(args.url);
+    for (const prefix of BLOCKED_HOST_PREFIXES) {
+      if (host.startsWith(prefix)) {
+        throw new ToolError("security_violation", "access to internal/private network addresses is blocked");
+      }
+    }
+
+    const maxLength = args.max_length && args.max_length > 0 ? args.max_length : 8000;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+
+    try {
+      const resp = await fetch(args.url, {
+        method: "GET",
+        signal: controller.signal,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; OrangeCoding/1.0)",
+          "Accept": "text/html,application/xhtml+xml,text/plain,*/*",
+        },
+      });
+
+      if (!resp.ok) {
+        return `HTTP ${resp.status} ${resp.statusText}`;
+      }
+
+      const contentType = resp.headers.get("content-type") || "";
+      const raw = await resp.text();
+
+      // If it's not HTML, return as-is (truncated)
+      if (!contentType.includes("html") && !contentType.includes("xhtml")) {
+        return raw.length > maxLength ? raw.slice(0, maxLength) + "\n... (truncated)" : raw;
+      }
+
+      // Extract readable text from HTML
+      const text = htmlToReadableText(raw, maxLength);
+      return text;
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new ToolError("execution_error", "request timed out (30s)");
+      }
+      throw new ToolError("execution_error", (err as Error).message);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+/**
+ * Convert HTML to readable plain text.
+ * Strips scripts, styles, and tags; preserves structure.
+ */
+function htmlToReadableText(html: string, maxLength: number): string {
+  let text = html;
+
+  // Remove script and style blocks entirely
+  text = text.replace(/<script[\s\S]*?<\/script>/gi, "");
+  text = text.replace(/<style[\s\S]*?<\/style>/gi, "");
+  text = text.replace(/<svg[\s\S]*?<\/svg>/gi, "");
+
+  // Remove HTML comments
+  text = text.replace(/<!--[\s\S]*?-->/g, "");
+
+  // Block-level elements: insert newlines
+  text = text.replace(/<\/(p|div|h[1-6]|li|tr|blockquote|section|article|pre|br|hr)[\s\/]*>/gi, "\n");
+  text = text.replace(/<(br|hr)\s*\/?>/gi, "\n");
+
+  // Extract link href attributes for reference
+  text = text.replace(/<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, "$2 [$1]");
+
+  // Extract image alt text
+  text = text.replace(/<img[^>]*alt=["']([^"']+)["'][^>]*>/gi, "[$1]");
+
+  // Remove all remaining HTML tags
+  text = text.replace(/<[^>]+>/g, "");
+
+  // Decode common HTML entities
+  text = text.replace(/&amp;/g, "&");
+  text = text.replace(/&lt;/g, "<");
+  text = text.replace(/&gt;/g, ">");
+  text = text.replace(/&quot;/g, '"');
+  text = text.replace(/&#39;/g, "'");
+  text = text.replace(/&nbsp;/g, " ");
+  text = text.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
+  text = text.replace(/&\w+;/g, "");
+
+  // Normalize whitespace: collapse runs of spaces/tabs, keep newlines
+  text = text.replace(/[^\S\n]+/g, " ");
+  // Collapse 3+ consecutive newlines into 2
+  text = text.replace(/\n{3,}/g, "\n\n");
+  // Trim each line
+  text = text.split("\n").map((l) => l.trim()).join("\n");
+  // Trim overall
+  text = text.trim();
+
+  if (text.length > maxLength) {
+    text = text.slice(0, maxLength) + "\n... (truncated)";
+  }
+
+  return text;
+}
+
+// ---------------------------------------------------------------------------
+// SshTool — execute commands on remote hosts via SSH
+// ---------------------------------------------------------------------------
+
+interface SshArgs {
+  host: string;
+  command: string;
+  user?: string;
+  port?: number;
+  timeout?: number;
+}
+
+/**
+ * SshTool executes commands on a remote host via the system ssh client.
+ * Requires SSH access to be pre-configured (keys, config, etc.).
+ */
+export class SshTool implements Tool {
+  private readonly _params: Record<string, unknown>;
+
+  constructor() {
+    this._params = {
+      type: "object",
+      properties: {
+        host: { type: "string", description: "Remote host (hostname or IP)." },
+        command: { type: "string", description: "Command to execute on the remote host." },
+        user: { type: "string", description: "SSH username (default: current user)." },
+        port: { type: "integer", description: "SSH port (default: 22)." },
+        timeout: { type: "integer", description: "Connection timeout in seconds (default: 30)." },
+      },
+      required: ["host", "command"],
+    };
+  }
+
+  name(): string { return "ssh"; }
+  description(): string {
+    return "Execute a command on a remote host via SSH. " +
+      "Requires SSH access to be pre-configured (SSH keys, ~/.ssh/config). " +
+      "Use for remote server management, deployment, and debugging.";
+  }
   parameters(): Record<string, unknown> { return this._params; }
   metadata(): ToolMetadata { return defaultMetadata(); }
 
-  async execute(_ctx: unknown, _input: unknown): Promise<string> {
-    throw new ToolError("execution_error", `${this._name} tool is not yet implemented`);
+  async execute(_ctx: unknown, input: unknown): Promise<string> {
+    const args = input as SshArgs;
+
+    if (!args.host) throw new ToolError("invalid_params", "host is required");
+    if (!args.command) throw new ToolError("invalid_params", "command is required");
+
+    // Block internal network access
+    const hostLower = args.host.toLowerCase();
+    for (const prefix of BLOCKED_HOST_PREFIXES) {
+      if (hostLower.startsWith(prefix) || hostLower === "localhost") {
+        throw new ToolError("security_violation", "SSH to internal/private addresses is blocked");
+      }
+    }
+
+    const sshArgs: string[] = [];
+    if (args.port && args.port > 0) {
+      sshArgs.push("-p", String(args.port));
+    }
+    sshArgs.push("-o", "StrictHostKeyChecking=accept-new");
+    sshArgs.push("-o", `ConnectTimeout=${args.timeout ?? 30}`);
+
+    const target = args.user ? `${args.user}@${args.host}` : args.host;
+    sshArgs.push(target, args.command);
+
+    const timeoutMs = ((args.timeout ?? 30) + 5) * 1000;
+
+    return new Promise<string>((resolve) => {
+      execFile("ssh", sshArgs, {
+        timeout: timeoutMs,
+        maxBuffer: 1024 * 1024,
+        killSignal: "SIGTERM",
+      }, (error, stdout, stderr) => {
+        const output = (stdout ?? "") + (stderr ? "\n" + stderr : "");
+        if (error) {
+          resolve(output || error.message);
+          return;
+        }
+        resolve(output || "(no output)");
+      });
+    });
   }
 }
 
-/** Creates a stub BrowserTool. */
-export function newBrowserTool(): StubTool {
-  return new StubTool("browser", "Interact with a web browser (not implemented).");
+// ---------------------------------------------------------------------------
+// NotebookTool — read and execute Jupyter notebook cells
+// ---------------------------------------------------------------------------
+
+interface NotebookArgs {
+  action: "read" | "execute_cell" | "list_cells";
+  path: string;
+  cell_index?: number;
+  code?: string;
 }
 
-/** Creates a stub SshTool. */
-export function newSshTool(): StubTool {
-  return new StubTool("ssh", "Execute commands via SSH (not implemented).");
+/**
+ * NotebookTool reads .ipynb (Jupyter notebook) files and can execute cells.
+ */
+export class NotebookTool implements Tool {
+  private readonly _params: Record<string, unknown>;
+
+  constructor() {
+    this._params = {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          description: "Action: read (read notebook), list_cells (list all cells), execute_cell (run a cell).",
+        },
+        path: { type: "string", description: "Path to the .ipynb file." },
+        cell_index: { type: "integer", description: "Cell index for execute_cell action (0-based)." },
+        code: { type: "string", description: "Code to execute (overrides cell content for execute_cell)." },
+      },
+      required: ["action", "path"],
+    };
+  }
+
+  name(): string { return "notebook"; }
+  description(): string {
+    return "Read and interact with Jupyter notebook (.ipynb) files. " +
+      "Use for reading notebook content, listing cells, or executing code cells.";
+  }
+  parameters(): Record<string, unknown> { return this._params; }
+  metadata(): ToolMetadata { return defaultMetadata(); }
+
+  async execute(_ctx: unknown, input: unknown): Promise<string> {
+    const args = input as NotebookArgs;
+
+    if (!args.action) throw new ToolError("invalid_params", "action is required");
+    if (!args.path) throw new ToolError("invalid_params", "path is required");
+
+    const { readFile } = await import("node:fs/promises");
+    const { existsSync } = await import("node:fs");
+
+    if (!existsSync(args.path)) {
+      throw new ToolError("not_found", `notebook not found: ${args.path}`);
+    }
+
+    let raw: string;
+    try {
+      raw = await readFile(args.path, "utf-8");
+    } catch (err) {
+      throw new ToolError("execution_error", `failed to read notebook: ${(err as Error).message}`);
+    }
+
+    let notebook: { cells?: Array<{ cell_type: string; source: string[]; outputs?: Array<{ text?: string[] }> }> };
+    try {
+      notebook = JSON.parse(raw);
+    } catch {
+      throw new ToolError("execution_error", "invalid notebook JSON");
+    }
+
+    const cells = notebook.cells;
+    if (!cells || !Array.isArray(cells)) {
+      throw new ToolError("execution_error", "notebook has no cells array");
+    }
+
+    switch (args.action) {
+      case "read": {
+        const lines: string[] = [];
+        for (let i = 0; i < cells.length; i++) {
+          const cell = cells[i]!;
+          const source = Array.isArray(cell.source) ? cell.source.join("") : String(cell.source);
+          lines.push(`--- Cell ${i} (${cell.cell_type}) ---`);
+          lines.push(source);
+          if (cell.outputs && cell.outputs.length > 0) {
+            lines.push("--- Output ---");
+            for (const out of cell.outputs) {
+              if (out.text) {
+                lines.push(Array.isArray(out.text) ? out.text.join("") : String(out.text));
+              }
+            }
+          }
+          lines.push("");
+        }
+        const result = lines.join("\n");
+        return result.length > 12000 ? result.slice(0, 12000) + "\n... (truncated)" : result;
+      }
+
+      case "list_cells": {
+        const lines: string[] = [];
+        for (let i = 0; i < cells.length; i++) {
+          const cell = cells[i]!;
+          const source = Array.isArray(cell.source) ? cell.source.join("") : String(cell.source);
+          const preview = source.slice(0, 80).replace(/\n/g, " ");
+          lines.push(`${i}: [${cell.cell_type}] ${preview}${source.length > 80 ? "..." : ""}`);
+        }
+        return lines.join("\n") || "No cells.";
+      }
+
+      case "execute_cell": {
+        if (args.cell_index === undefined || args.cell_index < 0 || args.cell_index >= cells.length) {
+          throw new ToolError("invalid_params", `cell_index must be 0-${cells.length - 1}`);
+        }
+        const cell = cells[args.cell_index]!;
+        const code = args.code ?? (Array.isArray(cell.source) ? cell.source.join("") : String(cell.source));
+
+        if (cell.cell_type !== "code") {
+          return `[${cell.cell_type} cell] ${code}`;
+        }
+
+        // Execute via Python
+        const { mkdtemp, writeFile: fsWriteFile, unlink } = await import("node:fs/promises");
+        const { join } = await import("node:path");
+        const { tmpdir } = await import("node:os");
+
+        const tmpDir = await mkdtemp(join(tmpdir(), "notebook-"));
+        const tmpFile = join(tmpDir, "cell.py");
+
+        try {
+          await fsWriteFile(tmpFile, code, "utf-8");
+          return new Promise<string>((resolve) => {
+            execFile("python3", [tmpFile], {
+              timeout: 30_000,
+              maxBuffer: 1024 * 1024,
+              killSignal: "SIGTERM",
+            }, (error, stdout, stderr) => {
+              const output = (stdout ?? "") + (stderr ? "\n" + stderr : "");
+              if (error) {
+                resolve(output || error.message);
+                return;
+              }
+              resolve(output || "(no output)");
+            });
+          });
+        } catch (err) {
+          throw new ToolError("execution_error", (err as Error).message);
+        } finally {
+          try { await unlink(tmpFile); } catch { /* ignore */ }
+        }
+      }
+
+      default:
+        throw new ToolError("invalid_params", `unknown action: ${args.action}`);
+    }
+  }
 }
 
-/** Creates a stub LspTool. */
-export function newLspTool(): StubTool {
-  return new StubTool("lsp", "Language Server Protocol operations (not implemented).");
+// ---------------------------------------------------------------------------
+// Dead stub factories — superseded by real implementations above
+// These are kept only for backward compatibility with existing imports.
+// ---------------------------------------------------------------------------
+
+/** @deprecated Use BrowserTool from browser-tool.ts instead. */
+export function newBrowserTool(): BrowserTool {
+  return new BrowserTool();
 }
 
-/** Creates a stub WebSearchTool. */
-export function newWebSearchTool(): StubTool {
-  return new StubTool("web_search", "Search the web (not implemented).");
+/** @deprecated Use SshTool from ssh-tool.ts instead. */
+export function newSshTool(): SshTool {
+  return new SshTool();
 }
 
-/** Creates a stub NotebookTool. */
-export function newNotebookTool(): StubTool {
-  return new StubTool("notebook", "Jupyter notebook operations (not implemented).");
+/** @deprecated Use NotebookTool from notebook-tool.ts instead. */
+export function newNotebookTool(): NotebookTool {
+  return new NotebookTool();
 }
 
 // ---------------------------------------------------------------------------
