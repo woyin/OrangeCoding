@@ -1,0 +1,22 @@
+{
+  "name": "@orangecoding/goal",
+  "version": "0.1.0",
+  "description": "Goal evaluation with maker/checker separation for autonomous agent loops",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@orangecoding/core": "*",
+    "@orangecoding/ai": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  },
+  "license": "Apache-2.0"
+}

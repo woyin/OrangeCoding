@@ -1,0 +1,29 @@
+{
+  "name": "@orangecoding/orchestrator",
+  "version": "0.1.0",
+  "description": "Maker-checker orchestration and advanced loop workflows",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@orangecoding/core": "*",
+    "@orangecoding/ai": "*",
+    "@orangecoding/agent": "*",
+    "@orangecoding/mesh": "*",
+    "@orangecoding/scheduler": "*",
+    "@orangecoding/worktree": "*",
+    "@orangecoding/goal": "*",
+    "@orangecoding/plugins": "*",
+    "@orangecoding/skill-discovery": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  },
+  "license": "Apache-2.0"
+}
