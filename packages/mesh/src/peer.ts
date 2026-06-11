@@ -88,7 +88,8 @@ export class PeerNegotiation implements CollaborationProtocol {
     }
 
     const winner = this.selectWinner(bids);
-    const info = this.registry.get(winner.agentId as any);
+    // Bid.agentId is stored as string (AgentInfo.id.toString()), look up directly
+    const info = this.registry.get(winner.agentId);
     if (!info) {
       throw new Error(`peer negotiation: winning agent ${winner.agentId} not found`);
     }

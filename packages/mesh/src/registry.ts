@@ -43,8 +43,8 @@ export class AgentRegistry {
   }
 
   /** Get returns the AgentInfo for the given ID, or undefined if not found. */
-  get(id: AgentId): AgentInfo | undefined {
-    return this.agents.get(id.toString());
+  get(id: AgentId | string): AgentInfo | undefined {
+    return this.agents.get(typeof id === "string" ? id : id.toString());
   }
 
   /** FindByRole returns all agents whose Role matches the given role. */

@@ -6,17 +6,68 @@ import { writeSession, readSession } from "./storage.js";
 
 /**
  * Session represents a conversation session with messages and metadata.
+ * All fields are readonly; use methods to mutate state.
  */
 export class Session {
   constructor(
     public readonly id: SessionId,
-    public messages: Message[],
-    public metadata: Record<string, string>,
-    public tokenUsage: TokenUsage,
-    public createdAt: Date,
-    public updatedAt: Date,
-    public parentID?: SessionId,
+    private _messages: Message[],
+    private _metadata: Record<string, string>,
+    private _tokenUsage: TokenUsage,
+    private _createdAt: Date,
+    private _updatedAt: Date,
+    public readonly parentID?: SessionId,
   ) {}
+
+  get messages(): readonly Message[] {
+    return this._messages;
+  }
+
+  get metadata(): Readonly<Record<string, string>> {
+    return this._metadata;
+  }
+
+  get tokenUsage(): TokenUsage {
+    return this._tokenUsage;
+  }
+
+  get createdAt(): Date {
+    return this._createdAt;
+  }
+
+  get updatedAt(): Date {
+    return this._updatedAt;
+  }
+
+  /** Add a message to the session. */
+  addMessage(msg: Message): void {
+    this._messages.push(msg);
+  }
+
+  /** Replace all messages. */
+  setMessages(messages: Message[]): void {
+    this._messages = messages;
+  }
+
+  /** Update a metadata key. */
+  setMetadata(key: string, value: string): void {
+    this._metadata[key] = value;
+  }
+
+  /** Remove a metadata key. */
+  deleteMetadata(key: string): void {
+    delete this._metadata[key];
+  }
+
+  /** Update token usage. */
+  setTokenUsage(usage: TokenUsage): void {
+    this._tokenUsage = usage;
+  }
+
+  /** Mark the session as updated with current timestamp. */
+  markUpdated(): void {
+    this._updatedAt = new Date();
+  }
 }
 
 /**
@@ -52,7 +103,7 @@ export class SessionManager {
    * Update persists the session to disk and updates UpdatedAt.
    */
   async update(s: Session): Promise<void> {
-    (s as { updatedAt: Date }).updatedAt = new Date();
+    s.markUpdated();
     return writeSession(this.storageDir, s);
   }
 

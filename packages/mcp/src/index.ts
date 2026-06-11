@@ -12,16 +12,26 @@ export type {
 } from "./jsonrpc.js";
 
 // Transport
-export { StdioTransport } from "./transport.js";
+export { StdioTransport, SSETransport, StreamableHTTPTransport } from "./transport.js";
 export type { Transport } from "./transport.js";
 
 // Client
 export { McpClient } from "./client.js";
-export type { ServerInfo } from "./client.js";
+export type {
+  ServerInfo,
+  PromptInfo,
+  PromptResult,
+  ResourceInfo,
+  ResourceResult,
+} from "./client.js";
 
 // ToolInfo (shared type, defined in jsonrpc.js)
 export type { ToolInfo } from "./jsonrpc.js";
 
 // Server
 export { McpServer } from "./server.js";
-export type { ToolHandler } from "./server.js";
+export type { ToolHandler, PromptHandler, ResourceHandler, NotificationHandler } from "./server.js";
+
+// Adapter (MCP → native Tool bridge)
+export { McpToolAdapter, McpToolManager } from "./adapter.js";
+export type { AdaptedTool, McpServerConfig } from "./adapter.js";
