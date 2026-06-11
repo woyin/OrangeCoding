@@ -2,6 +2,8 @@
 // Wire types for AI provider communication
 // ---------------------------------------------------------------------------
 
+import type { ToolCall as CoreToolCall } from "@orangecoding/core";
+
 /**
  * Represents a single message in a conversation.
  */
@@ -43,7 +45,7 @@ export function assistantMsgWithTools(toolCalls: ToolCall[]): ChatMessage {
 // ---------------------------------------------------------------------------
 
 /**
- * Represents a tool call from the AI model.
+ * Represents a tool call from the AI model (wire format).
  */
 export interface ToolCall {
   id: string;
@@ -83,6 +85,41 @@ export interface ToolParameter {
   type: string;
   properties: Record<string, unknown>;
   required?: string[];
+}
+
+// ---------------------------------------------------------------------------
+// ToolCall conversion helpers
+// ---------------------------------------------------------------------------
+
+/** Convert core ToolCall to AI wire format ToolCall. */
+export function toAiToolCall(call: CoreToolCall): ToolCall {
+  return {
+    id: call.id,
+    type: "function",
+    function: {
+      name: call.function_name,
+      arguments: typeof call.arguments === "string" ? call.arguments : JSON.stringify(call.arguments),
+    },
+  };
+}
+
+/** Convert AI wire format ToolCall to core ToolCall. */
+export function toCoreToolCall(call: ToolCall): CoreToolCall {
+  return {
+    id: call.id,
+    function_name: call.function.name,
+    arguments: call.function.arguments,
+  };
+}
+
+/** Convert array of core ToolCalls to AI wire format. */
+export function toAiToolCalls(calls: CoreToolCall[]): ToolCall[] {
+  return calls.map(toAiToolCall);
+}
+
+/** Convert array of AI wire format ToolCalls to core. */
+export function toCoreToolCalls(calls: ToolCall[]): CoreToolCall[] {
+  return calls.map(toCoreToolCall);
 }
 
 // ---------------------------------------------------------------------------

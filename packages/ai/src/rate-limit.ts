@@ -1,4 +1,5 @@
 import { AiError, AiErrorKind } from "./error.js";
+import type { AiProvider } from "./provider.js";
 
 // ---------------------------------------------------------------------------
 // RateLimitPolicy — configures retry behavior for 429 responses
@@ -151,16 +152,18 @@ async function defaultAskFn(msg: string): Promise<RetryDecision> {
 
 /**
  * Wrap an AiProvider to automatically handle 429 errors.
+ * Returns a higher-order function that preserves the full AiProvider interface.
  */
 export function withRateLimitRetry(
   policy: Partial<RateLimitPolicy> = {},
   askFn?: (msg: string) => Promise<RetryDecision>,
-): (provider: { chatCompletion: (...args: any[]) => Promise<any>; chatCompletionStream: (...args: any[]) => Promise<any> }) => typeof provider {
+): <T extends AiProvider>(provider: T) => T {
   const handler = new RateLimitHandler(policy, askFn);
-  return (provider) => ({
-    chatCompletion: (...args: Parameters<typeof provider.chatCompletion>) =>
+  return <T extends AiProvider>(provider: T): T => ({
+    ...provider,
+    chatCompletion: (...args: Parameters<AiProvider["chatCompletion"]>) =>
       handler.execute(() => provider.chatCompletion(...args)),
-    chatCompletionStream: (...args: Parameters<typeof provider.chatCompletionStream>) =>
+    chatCompletionStream: (...args: Parameters<AiProvider["chatCompletionStream"]>) =>
       handler.execute(() => provider.chatCompletionStream(...args)),
   });
 }

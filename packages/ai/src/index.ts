@@ -18,6 +18,10 @@ export {
   assistantMsg,
   toolResultMsg,
   assistantMsgWithTools,
+  toAiToolCall,
+  toCoreToolCall,
+  toAiToolCalls,
+  toCoreToolCalls,
 } from "./types.js";
 
 // Error
@@ -65,7 +69,7 @@ export { QianwenProvider, newQianwenProvider } from "./qianwen.js";
 export { WenxinProvider, newWenxinProvider } from "./wenxin.js";
 
 // Router
-export { ModelCategory, ModelRouter } from "./router.js";
+export { ModelCategory, ModelRouter, createOmORouter } from "./router.js";
 export type { RoutingRule } from "./router.js";
 
 // Fallback

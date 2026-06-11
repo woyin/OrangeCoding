@@ -15,7 +15,7 @@ interface ProviderEntry {
  * Tries multiple providers in order, falling back on failure.
  * Providers that recently failed are put on cooldown and skipped.
  */
-export class FallbackChain {
+export class FallbackChain implements AiProvider {
   private entries: ProviderEntry[];
   private cooldownMs: number;
 
@@ -30,6 +30,11 @@ export class FallbackChain {
       lastErr: null,
     }));
     this.cooldownMs = cooldownMs;
+  }
+
+  /** Returns a display name for this fallback chain. */
+  name(): string {
+    return "fallback[" + this.entries.map((e) => e.provider.name()).join(", ") + "]";
   }
 
   /**
