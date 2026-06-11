@@ -104,3 +104,46 @@ export class ErrorEvent implements ServerEvent {
     return "error";
   }
 }
+
+/** AgentStreamEvent reports a streaming text chunk from the agent. */
+export class AgentStreamEvent implements ServerEvent {
+  constructor(
+    public readonly sessionId: string,
+    public readonly content: string,
+  ) {}
+
+  eventType(): string {
+    return "agent_stream";
+  }
+}
+
+/** AgentCompletedEvent reports the agent finished with a final answer. */
+export class AgentCompletedEvent implements ServerEvent {
+  constructor(
+    public readonly sessionId: string,
+    public readonly content: string,
+    public readonly toolCallsMade: number,
+    public readonly tokensUsed: number,
+    public readonly durationMs: number,
+    public readonly stopReason: string,
+  ) {}
+
+  eventType(): string {
+    return "agent_completed";
+  }
+}
+
+/** GuardrailEvent reports a guardrail decision. */
+export class GuardrailEvent implements ServerEvent {
+  constructor(
+    public readonly sessionId: string,
+    public readonly phase: string,
+    public readonly decision: string,
+    public readonly reason: string,
+    public readonly guardrailName: string,
+  ) {}
+
+  eventType(): string {
+    return "guardrail";
+  }
+}

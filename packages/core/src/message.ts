@@ -206,12 +206,37 @@ export class Conversation {
     let cjkCount = 0;
     let nonCJKCount = 0;
     for (const msg of this._messages) {
+      // Estimate content tokens
       for (const ch of msg.content) {
         const code = ch.codePointAt(0)!;
         if (isCJK(code)) {
           cjkCount++;
         } else {
           nonCJKCount++;
+        }
+      }
+      // Estimate tool call tokens (function name + arguments)
+      if (msg.toolCalls) {
+        for (const tc of msg.toolCalls) {
+          // Function name
+          for (const ch of tc.function_name) {
+            const code = ch.codePointAt(0)!;
+            if (isCJK(code)) {
+              cjkCount++;
+            } else {
+              nonCJKCount++;
+            }
+          }
+          // Arguments (serialize to string for estimation)
+          const argsStr = typeof tc.arguments === "string" ? tc.arguments : JSON.stringify(tc.arguments);
+          for (const ch of argsStr) {
+            const code = ch.codePointAt(0)!;
+            if (isCJK(code)) {
+              cjkCount++;
+            } else {
+              nonCJKCount++;
+            }
+          }
         }
       }
     }

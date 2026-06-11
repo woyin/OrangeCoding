@@ -64,6 +64,7 @@ export {
   GoalPhaseChangedEvent,
   GoalTaskCompletedEvent,
   GoalCycleCompleteEvent,
+  GuardrailDecisionEvent,
 } from "./event.js";
 export type { AgentEvent, EventHandler, BaseEventJSON } from "./event.js";
 

@@ -12,5 +12,8 @@ export {
   ToolCallEvent,
   ApprovalRequestEvent,
   ErrorEvent,
+  AgentStreamEvent,
+  AgentCompletedEvent,
+  GuardrailEvent,
 } from "./messages.js";
 export type { ServerEvent } from "./messages.js";

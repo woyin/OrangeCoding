@@ -124,9 +124,9 @@ export interface TokenUsageJSON {
 
 export class TokenUsage {
   constructor(
-    public readonly promptTokens: number,
-    public readonly completionTokens: number,
-    public readonly totalTokens: number,
+    public promptTokens: number,
+    public completionTokens: number,
+    public totalTokens: number,
   ) {}
 
   static create(prompt: number, completion: number): TokenUsage {
@@ -134,9 +134,9 @@ export class TokenUsage {
   }
 
   accumulate(other: TokenUsage): void {
-    (this as { promptTokens: number }).promptTokens += other.promptTokens;
-    (this as { completionTokens: number }).completionTokens += other.completionTokens;
-    (this as { totalTokens: number }).totalTokens += other.totalTokens;
+    this.promptTokens += other.promptTokens;
+    this.completionTokens += other.completionTokens;
+    this.totalTokens += other.totalTokens;
   }
 
   isEmpty(): boolean {
@@ -162,6 +162,9 @@ export const AgentRole = {
   Planner: "planner",
   Executor: "executor",
   Observer: "observer",
+  Explorer: "explorer",
+  Builder: "builder",
+  Analyst: "analyst",
 } as const;
 
 export type AgentRole = (typeof AgentRole)[keyof typeof AgentRole];
@@ -173,6 +176,9 @@ export function parseAgentRole(s: string): AgentRole {
     case "planner": return AgentRole.Planner;
     case "executor": return AgentRole.Executor;
     case "observer": return AgentRole.Observer;
+    case "explorer": return AgentRole.Explorer;
+    case "builder": return AgentRole.Builder;
+    case "analyst": return AgentRole.Analyst;
     default: throw new Error(`unknown agent role: "${s}"`);
   }
 }

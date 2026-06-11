@@ -8,6 +8,7 @@ import {
   type ProviderConfig,
   type HarnessConfig,
   type MultiplexerConfig,
+  type AuditConfig,
 } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -37,6 +38,10 @@ export function defaultConfig(): OrangeConfig {
       preferred_backend: "auto",
       socket_dir: "",
       command_timeout_ms: 30000,
+    },
+    audit: {
+      enabled: true,
+      dir: "audit",
     },
   };
 }
@@ -77,6 +82,7 @@ export class ConfigManager {
 
     normalizeHarnessConfig(cfg.harness);
     normalizeMultiplexerConfig(cfg.multiplexer);
+    normalizeAuditConfig(cfg.audit);
     expandConfigEnv(cfg);
 
     validateConfig(cfg);
@@ -149,6 +155,7 @@ function rawToConfig(raw: Record<string, unknown>): OrangeConfig {
   const rawPermissions = asObject(raw["permissions"]);
   const rawHarness = asObject(raw["harness"]);
   const rawMultiplexer = asObject(raw["multiplexer"]);
+  const rawAudit = asObject(raw["audit"]);
 
   return {
     log_level: asString(raw["log_level"], "info"),
@@ -178,6 +185,10 @@ function rawToConfig(raw: Record<string, unknown>): OrangeConfig {
       preferred_backend: asString(rawMultiplexer["preferred_backend"], ""),
       socket_dir: asString(rawMultiplexer["socket_dir"], ""),
       command_timeout_ms: asNumber(rawMultiplexer["command_timeout_ms"], 0),
+    },
+    audit: {
+      enabled: asBoolean(rawAudit["enabled"], true),
+      dir: asString(rawAudit["dir"], ""),
     },
   };
 }
@@ -263,6 +274,12 @@ function normalizeMultiplexerConfig(cfg: MultiplexerConfig): void {
   }
 }
 
+function normalizeAuditConfig(cfg: AuditConfig): void {
+  if (cfg.dir === "") {
+    cfg.dir = "audit";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Internal: environment variable expansion
 // ---------------------------------------------------------------------------
@@ -315,6 +332,7 @@ function expandConfigEnv(cfg: OrangeConfig): void {
   }
 
   cfg.multiplexer.socket_dir = expandEnv(cfg.multiplexer.socket_dir);
+  cfg.audit.dir = expandEnv(cfg.audit.dir);
 }
 
 /**

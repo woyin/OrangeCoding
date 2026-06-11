@@ -89,6 +89,19 @@ export class ToolCallCompletedEvent extends BaseEvent {
   ) {
     super("tool_call_completed", agentId, sessionId);
   }
+
+  override toJSON(): BaseEventJSON & {
+    tool_name: string;
+    success: boolean;
+    duration_ms: number;
+  } {
+    return {
+      ...super.toJSON(),
+      tool_name: this.toolName,
+      success: this.success,
+      duration_ms: this.durationMs,
+    };
+  }
 }
 
 // 6. TokenUsageUpdatedEvent
@@ -146,6 +159,35 @@ export class GoalCycleCompleteEvent extends BaseEvent {
   }
 }
 
+// 12. GuardrailDecisionEvent
+export class GuardrailDecisionEvent extends BaseEvent {
+  constructor(
+    agentId: AgentId,
+    sessionId: SessionId,
+    public readonly phase: string,
+    public readonly decision: string,
+    public readonly reason: string,
+    public readonly guardrailName: string,
+  ) {
+    super("guardrail_decision", agentId, sessionId);
+  }
+
+  override toJSON(): BaseEventJSON & {
+    phase: string;
+    decision: string;
+    reason: string;
+    guardrail_name: string;
+  } {
+    return {
+      ...super.toJSON(),
+      phase: this.phase,
+      decision: this.decision,
+      reason: this.reason,
+      guardrail_name: this.guardrailName,
+    };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // EventHandler
 // ---------------------------------------------------------------------------
@@ -159,8 +201,11 @@ export interface EventHandler {
 // EventBus
 // ---------------------------------------------------------------------------
 
+export type ErrorHandler = (handler: string, event: AgentEvent, error: Error) => void;
+
 export class EventBus {
   private _subs = new Map<string, EventHandler>();
+  private _errorHandler: ErrorHandler | null = null;
 
   subscribe(handler: EventHandler): void {
     this._subs.set(handler.name, handler);
@@ -170,19 +215,27 @@ export class EventBus {
     this._subs.delete(id);
   }
 
+  /** Set a custom error handler for handler failures. */
+  setErrorHandler(handler: ErrorHandler): void {
+    this._errorHandler = handler;
+  }
+
   async publish(ev: AgentEvent): Promise<void> {
     const handlers = [...this._subs.values()];
-    const results = await Promise.allSettled(
-      handlers.map(async (h) => {
-        try {
-          await h.handle(ev);
-        } catch {
-          // Handler threw; swallow to protect the bus.
+    const promises = handlers.map(async (h) => {
+      try {
+        await h.handle(ev);
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        if (this._errorHandler) {
+          this._errorHandler(h.name, ev, error);
+        } else {
+          // Default: log to console for debugging
+          console.error(`[EventBus] handler "${h.name}" failed for event "${ev.eventType}":`, error.message);
         }
-      }),
-    );
-    // Silently ignore rejected handlers (mirrors Go's panic recovery).
-    void results;
+      }
+    });
+    await Promise.all(promises);
   }
 
   get handlerCount(): number {

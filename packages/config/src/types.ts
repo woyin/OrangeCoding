@@ -57,6 +57,15 @@ export interface MultiplexerConfig {
 }
 
 // ---------------------------------------------------------------------------
+// AuditConfig
+// ---------------------------------------------------------------------------
+
+export interface AuditConfig {
+  enabled: boolean;
+  dir: string;
+}
+
+// ---------------------------------------------------------------------------
 // OrangeConfig
 // ---------------------------------------------------------------------------
 
@@ -70,6 +79,7 @@ export interface OrangeConfig {
   permissions: PermissionsConfig;
   harness: HarnessConfig;
   multiplexer: MultiplexerConfig;
+  audit: AuditConfig;
   skills?: SkillsConfig;
 }
 

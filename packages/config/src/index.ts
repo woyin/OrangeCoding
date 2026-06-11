@@ -6,6 +6,7 @@ export type {
   PermissionsConfig,
   HarnessConfig,
   MultiplexerConfig,
+  AuditConfig,
   SkillsConfig,
   SkillDefinition,
 } from "./types.js";
