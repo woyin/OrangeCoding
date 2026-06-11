@@ -18,6 +18,7 @@ import {
   TokenUsageUpdatedEvent,
   ToolCallRequestedEvent,
   ToolCallCompletedEvent,
+  GuardrailDecisionEvent,
 } from "@orangecoding/core";
 import type { AiProvider, ChatOptions, ToolDefinition, StreamEvent, ChatMessage, ToolCall as AiToolCall } from "@orangecoding/ai";
 import { systemMsg, userMsg, assistantMsg, toolResultMsg, assistantMsgWithTools } from "@orangecoding/ai";
@@ -36,9 +37,10 @@ import type {
 import { HarnessContextBuilder, type HarnessContextInput } from "./harness-context.js";
 import type { HarnessMemoryManager } from "./harness-memory.js";
 import type { TieredMemoryManager } from "./tiered-memory.js";
-import { GuardrailPipeline } from "./harness-guardrail.js";
+import { GuardrailPipeline, defaultGuardrailPipeline } from "./harness-guardrail.js";
 import type { GuardrailLogger, GuardrailPhase, GuardrailDecision } from "./harness-guardrail.js";
-import { DangerousToolGuardrail, RepeatedToolGuardrail, toolCallKey } from "./harness-guardrail.js";
+import { toolCallKey } from "./harness-guardrail.js";
+import { Compactor } from "./compaction.js";
 import type { CheckpointStore } from "./harness-state.js";
 import { MemoryCheckpointStore, HarnessState as HS } from "./harness-state.js";
 import { HarnessEngine } from "./harness-engine.js";
@@ -189,10 +191,9 @@ export class AgentLoop {
 
     let guardrails = this._config.guardrails;
     if (!guardrails) {
-      guardrails = new GuardrailPipeline([
-        new DangerousToolGuardrail(),
-        new RepeatedToolGuardrail(3),
-      ]);
+      guardrails = defaultGuardrailPipeline({
+        maxTokens: this._config.reasoning.budgetTokens,
+      });
     }
 
     const task = this.currentTask();
@@ -252,16 +253,17 @@ export class AgentLoop {
         // Build messages for the AI provider
         let aiMessages = conversationToAIMessages(this._context.conversation);
         aiMessages = prependHarnessContextMessages(aiMessages, contextBlocks);
+        const preModelTokenEstimate = this._context.conversation.tokenEstimate();
 
         // Pre-model guardrail
-        const preModelResult = guardrails.check(loopController.signal, {
+        const preModelResult = await guardrails.check(loopController.signal, {
           phase: "pre_model",
           output: "",
           recentToolKeys: [],
-          tokenEstimate: 0,
+          tokenEstimate: preModelTokenEstimate,
           maxTokens: 0,
         });
-        this.logGuardrail(preModelResult.name, preModelResult.decision, preModelResult.reason, "pre_model");
+        this.recordGuardrail(preModelResult.name, preModelResult.decision, preModelResult.reason, "pre_model", eventCb, sid);
         if (preModelResult.decision === "deny") {
           result.durationMs = Date.now() - start;
           result.stopReason = "guardrail";
@@ -365,14 +367,14 @@ export class AgentLoop {
         // If no tool calls, we're done
         if (coreToolCalls.length === 0) {
           // Final output guardrail
-          const finalResult = guardrails.check(loopController.signal, {
+          const finalResult = await guardrails.check(loopController.signal, {
             phase: "final_output",
             output: content,
             recentToolKeys: [],
-            tokenEstimate: 0,
+            tokenEstimate: this._context.conversation.tokenEstimate(),
             maxTokens: 0,
           });
-          this.logGuardrail(finalResult.name, finalResult.decision, finalResult.reason, "final_output");
+          this.recordGuardrail(finalResult.name, finalResult.decision, finalResult.reason, "final_output", eventCb, sid);
           if (finalResult.decision === "deny") {
             result.durationMs = Date.now() - start;
             result.stopReason = "guardrail";
@@ -415,7 +417,7 @@ export class AgentLoop {
         // Pre-tool guardrail
         const recentKeys = this.recentToolKeys();
         for (const tc of coreToolCalls) {
-          const guardrailResult = guardrails.check(loopController.signal, {
+          const guardrailResult = await guardrails.check(loopController.signal, {
             phase: "pre_tool",
             toolCall: tc,
             output: "",
@@ -423,7 +425,7 @@ export class AgentLoop {
             tokenEstimate: 0,
             maxTokens: 0,
           });
-          this.logGuardrail(guardrailResult.name, guardrailResult.decision, guardrailResult.reason, "pre_tool");
+          this.recordGuardrail(guardrailResult.name, guardrailResult.decision, guardrailResult.reason, "pre_tool", eventCb, sid);
           if (guardrailResult.decision === "deny") {
             result.durationMs = Date.now() - start;
             result.stopReason = "guardrail";
@@ -483,14 +485,14 @@ export class AgentLoop {
 
         // Post-tool guardrail
         for (const er of execResults) {
-          const postToolResult = guardrails.check(loopController.signal, {
+          const postToolResult = await guardrails.check(loopController.signal, {
             phase: "post_tool",
             output: er.content,
             recentToolKeys: [],
             tokenEstimate: 0,
             maxTokens: 0,
           });
-          this.logGuardrail(postToolResult.name, postToolResult.decision, postToolResult.reason, "post_tool");
+          this.recordGuardrail(postToolResult.name, postToolResult.decision, postToolResult.reason, "post_tool", eventCb, sid);
           if (postToolResult.decision === "deny") {
             result.durationMs = Date.now() - start;
             result.stopReason = "guardrail";
@@ -509,6 +511,12 @@ export class AgentLoop {
         // Advance working memory turn counter
         if (this._config.tieredMemory) {
           this._config.tieredMemory.advanceTurn();
+        }
+
+        // Compact conversation if it exceeds the token budget
+        if (this._config.longTask.enabled && this._config.longTask.compactionMaxTokens > 0) {
+          const compactor = new Compactor(this._config.longTask.compactionMaxTokens);
+          compactor.compact(this._context.conversation);
         }
         await harness.update(loopController.signal, (cp) => {
           cp.iteration = iteration;
@@ -538,6 +546,20 @@ export class AgentLoop {
         phase: phase as GuardrailPhase,
         timestamp: new Date(),
       });
+    }
+  }
+
+  private recordGuardrail(
+    name: string,
+    decision: string,
+    reason: string,
+    phase: string,
+    eventCb: ((event: AgentEvent) => void) | null,
+    sid: SessionId,
+  ): void {
+    this.logGuardrail(name, decision, reason, phase);
+    if (eventCb) {
+      eventCb(new GuardrailDecisionEvent(this._id, sid, phase, decision, reason, name));
     }
   }
 

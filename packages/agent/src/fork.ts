@@ -9,7 +9,7 @@ import type { AiProvider, ChatOptions, ToolDefinition } from "@orangecoding/ai";
 import type { ToolExecutor } from "./executor.js";
 import { filteredRegistry } from "./executor.js";
 import { AgentLoop, defaultLoopConfig, type AgentLoopResult } from "./loop.js";
-import type { AgentContext } from "./context.js";
+import { AgentContext } from "./context.js";
 import { buildToolDefinitions } from "./tool-defs.js";
 
 export class ForkAgent {
@@ -31,15 +31,7 @@ export class ForkAgent {
       clonedConv.addMessage(m);
     }
 
-    const forkCtx = new (await import("./context.js")).AgentContext(
-      parentCtx.sessionID,
-      parentCtx.workDir,
-    );
-    // Replace the default conversation with the cloned one
-    // We need to directly build the context properly
-    const AgentContextModule = await import("./context.js");
-
-    // Set task as user message by adding messages to cloned conv
+    // Set task as user message
     clonedConv.addMessage(newUserMessage(task));
 
     // Create filtered tool registry
@@ -58,9 +50,8 @@ export class ForkAgent {
       }
     }
 
-    // Build the fork context properly
-    const forkAgentCtx = new AgentContextModule.AgentContext(parentCtx.sessionID, parentCtx.workDir);
-    // Copy messages from cloned conv
+    // Build the fork context with cloned conversation
+    const forkAgentCtx = new AgentContext(parentCtx.sessionID, parentCtx.workDir);
     for (const m of clonedConv.messages()) {
       forkAgentCtx.conversation.addMessage(m);
     }

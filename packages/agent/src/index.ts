@@ -33,8 +33,14 @@ export type { HookPoint, Hook } from "./hooks.js";
 // ---------------------------------------------------------------------------
 // Intent Gate
 // ---------------------------------------------------------------------------
-export { IntentGate } from "./intent-gate.js";
-export type { IntentCategory } from "./intent-gate.js";
+export { IntentGate, suggestCategory } from "./intent-gate.js";
+export type { IntentCategory, IntentAnalysis } from "./intent-gate.js";
+
+// ---------------------------------------------------------------------------
+// Comment Checker
+// ---------------------------------------------------------------------------
+export { checkComments, isContentClean } from "./comment-checker.js";
+export type { CommentCheckResult, CommentCheckerConfig } from "./comment-checker.js";
 
 // ---------------------------------------------------------------------------
 // Memory
@@ -136,6 +142,7 @@ export type {
 // ---------------------------------------------------------------------------
 export {
   GuardrailPipeline,
+  defaultGuardrailPipeline,
   GuardrailLogger,
   TokenBudgetGuardrail,
   OutputLengthGuardrail,
@@ -152,6 +159,7 @@ export type {
   Guardrail,
   GuardrailLogEntry,
   LLMGuardrailConfig,
+  DefaultGuardrailPipelineConfig,
 } from "./harness-guardrail.js";
 
 // ---------------------------------------------------------------------------
@@ -243,7 +251,8 @@ export { newMetis } from "./agents/metis.js";
 export { newMomus } from "./agents/momus.js";
 export { newMultimodal } from "./agents/multimodal.js";
 export { newOracle } from "./agents/oracle.js";
-export { newPrometheus } from "./agents/prometheus.js";
+export { newPrometheus, newPrometheusResearch, newPrometheusPlanner, needsInterview, researchPrompt, interviewPrompt, planPrompt } from "./agents/prometheus.js";
+export type { InterviewMode, PrometheusConfig, InterviewResult } from "./agents/prometheus.js";
 export { newFilteredAgent } from "./agents/helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -252,10 +261,11 @@ export { newFilteredAgent } from "./agents/helpers.js";
 export { BoulderRecovery } from "./workflows/boulder.js";
 export type { BoulderResult } from "./workflows/boulder.js";
 export { PlanningWorkflow } from "./workflows/planning.js";
-export type { PlanResult } from "./workflows/planning.js";
+export type { PlanResult, PlanningWorkflowConfig } from "./workflows/planning.js";
 export { ExecutionWorkflow } from "./workflows/execution.js";
 export type { ExecutionResult } from "./workflows/execution.js";
 export { UltraWork } from "./workflows/ultra-work.js";
+export type { UltraWorkResult, UltraWorkConfig, UltraWorkMode, AgentResult } from "./workflows/ultra-work.js";
 
 // ---------------------------------------------------------------------------
 // OpenAgent Framework

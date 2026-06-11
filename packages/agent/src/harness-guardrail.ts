@@ -40,6 +40,13 @@ export interface GuardrailResult {
   name: string;
 }
 
+export interface DefaultGuardrailPipelineConfig {
+  repeatedToolLimit?: number;
+  maxTokens?: number;
+  maxOutputLength?: number;
+  llmGuardrails?: LLMGuardrailConfig[];
+}
+
 /** Helper to create an allow result. */
 function allowResult(name: string): GuardrailResult {
   return { decision: "allow", reason: "", name };
@@ -51,7 +58,7 @@ function allowResult(name: string): GuardrailResult {
 
 export interface Guardrail {
   name(): string;
-  check(signal: AbortSignal | undefined, input: GuardrailContext): GuardrailResult;
+  check(signal: AbortSignal | undefined, input: GuardrailContext): GuardrailResult | Promise<GuardrailResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,13 +72,13 @@ export class GuardrailPipeline {
     this._guardrails = guardrails;
   }
 
-  /** Check runs the guardrail pipeline. */
-  check(signal: AbortSignal | undefined, input: GuardrailContext): GuardrailResult {
+  /** Check runs the guardrail pipeline. Supports async guardrails. */
+  async check(signal: AbortSignal | undefined, input: GuardrailContext): Promise<GuardrailResult> {
     if (signal?.aborted) {
       return { decision: "deny", reason: "aborted", name: "context" };
     }
     for (const guardrail of this._guardrails) {
-      const result = guardrail.check(signal, input);
+      const result = await guardrail.check(signal, input);
       if (!result.name) result.name = guardrail.name();
       if (result.decision === "deny" || result.decision === "warn") {
         return result;
@@ -79,6 +86,21 @@ export class GuardrailPipeline {
     }
     return { decision: "allow", reason: "", name: "pipeline" };
   }
+}
+
+export function defaultGuardrailPipeline(config: DefaultGuardrailPipelineConfig = {}): GuardrailPipeline {
+  const guardrails: Guardrail[] = [
+    new TokenBudgetGuardrail(config.maxTokens),
+    new OutputLengthGuardrail(config.maxOutputLength),
+    new DangerousToolGuardrail(),
+    new RepeatedToolGuardrail(config.repeatedToolLimit ?? 3),
+  ];
+
+  for (const llmConfig of config.llmGuardrails ?? []) {
+    guardrails.push(new LLMGuardrail(llmConfig));
+  }
+
+  return new GuardrailPipeline(guardrails);
 }
 
 // ---------------------------------------------------------------------------
@@ -138,13 +160,20 @@ export class GuardrailLogger {
 // ---------------------------------------------------------------------------
 
 export class TokenBudgetGuardrail implements Guardrail {
+  private _maxTokens: number;
+
+  constructor(maxTokens?: number) {
+    this._maxTokens = maxTokens ?? 0;
+  }
+
   name(): string { return "token_budget"; }
 
   check(_signal: AbortSignal | undefined, input: GuardrailContext): GuardrailResult {
     if (input.phase !== "pre_model" && input.phase !== "final_output") {
       return allowResult(this.name());
     }
-    if (input.maxTokens > 0 && input.tokenEstimate > input.maxTokens) {
+    const maxTokens = input.maxTokens > 0 ? input.maxTokens : this._maxTokens;
+    if (maxTokens > 0 && input.tokenEstimate > maxTokens) {
       return {
         decision: "warn",
         reason: "approaching token budget",
@@ -206,28 +235,7 @@ export class LLMGuardrail implements Guardrail {
 
   name(): string { return "llm_guardrail"; }
 
-  check(signal: AbortSignal | undefined, input: GuardrailContext): GuardrailResult {
-    if (input.phase !== this._config.phase) {
-      return allowResult(this.name());
-    }
-    if (!this._config.provider) {
-      return allowResult(this.name());
-    }
-    let content = input.output;
-    if (!content && input.toolCall) {
-      content = JSON.stringify(input.toolCall.arguments);
-    }
-    if (!content) {
-      return allowResult(this.name());
-    }
-    // LLMGuardrail is async, but Guardrail interface is sync.
-    // For synchronous compatibility, we do a sync check and return allow.
-    // Callers should use checkAsync for async guardrails.
-    return allowResult(this.name());
-  }
-
-  /** Async version of check for LLM-based guardrails. */
-  async checkAsync(signal: AbortSignal | undefined, input: GuardrailContext): Promise<GuardrailResult> {
+  async check(signal: AbortSignal | undefined, input: GuardrailContext): Promise<GuardrailResult> {
     if (input.phase !== this._config.phase) {
       return allowResult(this.name());
     }
@@ -264,7 +272,24 @@ export class LLMGuardrail implements Guardrail {
 // DangerousToolGuardrail
 // ---------------------------------------------------------------------------
 
-const BLOCKED_COMMANDS = ["rm -rf /", "rm -rf /*", "mkfs", "dd if=", ":(){:|:&};:"];
+// Comprehensive list of dangerous command patterns
+const BLOCKED_COMMANDS = [
+  // Direct deletion
+  "rm -rf /", "rm -rf /*", "rm -rf ~", "rm -rf .",
+  // Filesystem destruction
+  "mkfs", "dd if=", "> /dev/sda", "> /dev/nvme",
+  // Fork bomb
+  ":(){:|:&};:",
+  // Remote execution
+  "curl | sh", "curl | bash", "wget | sh", "wget | bash",
+  "curl | python", "wget | python",
+  // Permission escalation
+  "chmod -R 777 /", "chmod 777 /", "chown -R",
+  // System control
+  "shutdown", "reboot", "halt", "poweroff",
+  // Process killing
+  "kill -9 -1", "killall -9",
+];
 
 export class DangerousToolGuardrail implements Guardrail {
   name(): string { return "dangerous_tool"; }

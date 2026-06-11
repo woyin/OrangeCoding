@@ -84,9 +84,7 @@ export class ResumeManager {
     const cp = await this._checkpointStore.load(undefined, runID);
 
     // Reconstruct IDs
-    const agentID = typeof cp.sessionID === "string"
-      ? AgentIdClass.create()
-      : (cp as any).agentID ?? AgentIdClass.create();
+    const agentID = AgentIdClass.create();
 
     // Reconstruct context from checkpoint
     const workDir = process.cwd();

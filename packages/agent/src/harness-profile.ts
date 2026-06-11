@@ -72,13 +72,27 @@ export interface HarnessProfileData {
   reasoning: ReasoningPolicy;
 }
 
+const DEFAULT_HARNESS_PROFILE_DATA: HarnessProfileData = {
+  language: "zh-CN",
+  longTask: {
+    enabled: true,
+    maxToolCalls: 120,
+    progressEveryNCalls: 5,
+    compactionMaxTokens: 24000,
+  },
+  reasoning: {
+    effort: "high",
+    budgetTokens: 4096,
+  },
+};
+
 export class HarnessProfile {
   language: OutputLanguage;
   longTask: LongTaskPolicy;
   reasoning: ReasoningPolicy;
 
   constructor(data?: Partial<HarnessProfileData>) {
-    const defaults = defaultHarnessProfile();
+    const defaults = DEFAULT_HARNESS_PROFILE_DATA;
     this.language = data?.language ?? defaults.language;
     this.longTask = { ...defaults.longTask, ...data?.longTask };
     this.reasoning = { ...defaults.reasoning, ...data?.reasoning };
@@ -142,17 +156,5 @@ export class HarnessProfile {
 
 /** DefaultHarnessProfile returns conservative defaults for long-running Chinese work. */
 export function defaultHarnessProfile(): HarnessProfile {
-  return new HarnessProfile({
-    language: "zh-CN",
-    longTask: {
-      enabled: true,
-      maxToolCalls: 120,
-      progressEveryNCalls: 5,
-      compactionMaxTokens: 24000,
-    },
-    reasoning: {
-      effort: "high",
-      budgetTokens: 4096,
-    },
-  });
+  return new HarnessProfile(DEFAULT_HARNESS_PROFILE_DATA);
 }

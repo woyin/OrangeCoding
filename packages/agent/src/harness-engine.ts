@@ -3,6 +3,7 @@
  * Ported from modules/agent/harness_engine.go.
  */
 
+import { TokenUsage } from "@orangecoding/core";
 import type { SessionId } from "@orangecoding/core";
 import type { HarnessState, HarnessCheckpoint } from "./harness-state.js";
 import { MemoryCheckpointStore, cloneHarnessCheckpoint } from "./harness-state.js";
@@ -72,7 +73,7 @@ export class HarnessEngine {
       state: HS.Init,
       iteration: 0,
       toolCallsMade: 0,
-      tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 } as any,
+      tokenUsage: new TokenUsage(0, 0, 0),
       updatedAt: new Date(),
     };
     return this.transition(signal, HS.BuildContext, "start");

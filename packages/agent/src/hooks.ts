@@ -17,6 +17,17 @@ export interface Hook {
 
 const HOOK_TIMEOUT_MS = 10_000;
 
+/** Sanitize data before passing to hook stdin. Removes null bytes and limits length. */
+function sanitizeForStdin(data: string): string {
+  // Remove null bytes
+  let sanitized = data.replace(/\0/g, "");
+  // Limit to 1MB
+  if (sanitized.length > 1024 * 1024) {
+    sanitized = sanitized.slice(0, 1024 * 1024);
+  }
+  return sanitized;
+}
+
 export class HookManager {
   private _hooks: Map<HookPoint, Hook[]>;
 
@@ -37,6 +48,8 @@ export class HookManager {
     const hooks = this._hooks.get(point);
     if (!hooks || hooks.length === 0) return null;
 
+    const sanitizedData = sanitizeForStdin(data);
+
     let firstErr: Error | null = null;
     for (const hook of hooks) {
       try {
@@ -49,7 +62,7 @@ export class HookManager {
             else resolve();
           });
           if (proc.stdin) {
-            proc.stdin.write(data);
+            proc.stdin.write(sanitizedData);
             proc.stdin.end();
           }
         });

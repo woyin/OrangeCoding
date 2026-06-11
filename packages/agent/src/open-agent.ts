@@ -278,6 +278,14 @@ export class OpenAgentRuntime {
     return this._started;
   }
 
+  /**
+   * Get an internal entry by name. Used by AgentRegistrationBuilder.
+   * @internal
+   */
+  getEntry(name: string): AgentEntry | undefined {
+    return this._entries.get(name);
+  }
+
   // --- Private ---
 
   private createAgent(plugin: AgentPlugin): BaseAgent {
@@ -333,7 +341,7 @@ export class AgentRegistrationBuilder {
   }
 
   withTools(tools: string[]): AgentRegistrationBuilder {
-    const entry = (this._runtime as any)._entries.get(this._name) as AgentEntry | undefined;
+    const entry = this._runtime.getEntry(this._name);
     if (entry) {
       entry.plugin = { ...entry.plugin, allowedTools: tools };
     }
@@ -341,7 +349,7 @@ export class AgentRegistrationBuilder {
   }
 
   withSystemPrompt(prompt: string): AgentRegistrationBuilder {
-    const entry = (this._runtime as any)._entries.get(this._name) as AgentEntry | undefined;
+    const entry = this._runtime.getEntry(this._name);
     if (entry) {
       entry.plugin = { ...entry.plugin, systemPrompt: prompt };
     }
@@ -349,7 +357,7 @@ export class AgentRegistrationBuilder {
   }
 
   withLoopConfig(config: Partial<AgentLoopConfig>): AgentRegistrationBuilder {
-    const entry = (this._runtime as any)._entries.get(this._name) as AgentEntry | undefined;
+    const entry = this._runtime.getEntry(this._name);
     if (entry) {
       entry.plugin = { ...entry.plugin, loopConfig: config };
     }
@@ -357,7 +365,7 @@ export class AgentRegistrationBuilder {
   }
 
   withCapability(capability: string): AgentRegistrationBuilder {
-    const entry = (this._runtime as any)._entries.get(this._name) as AgentEntry | undefined;
+    const entry = this._runtime.getEntry(this._name);
     if (entry) {
       entry.plugin = {
         ...entry.plugin,

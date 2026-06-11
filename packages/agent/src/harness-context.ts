@@ -1,6 +1,10 @@
 /**
  * HarnessContextBuilder builds stable, ordered context blocks.
  * Ported from modules/agent/harness_context.go.
+ *
+ * Enhanced with OmO-style AGENTS.md auto-injection:
+ * Automatically loads AGENTS.md, .omo/rules/**, and README.md
+ * from the project directory into the agent context.
  */
 
 import type { Conversation } from "@orangecoding/core";
@@ -17,6 +21,12 @@ export interface HarnessContextConfig {
   maxTokens: number;
   recentMessages: number;
   memoryMaxBlocks: number;
+  /** Enable AGENTS.md auto-injection (default: true) */
+  loadAgentsMd: boolean;
+  /** Enable README.md injection (default: false) */
+  loadReadme: boolean;
+  /** Working directory for finding AGENTS.md files */
+  workDir: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -43,6 +53,9 @@ export class HarnessContextBuilder {
       maxTokens: config?.maxTokens ?? 24000,
       recentMessages: config?.recentMessages ?? 8,
       memoryMaxBlocks: config?.memoryMaxBlocks ?? 6,
+      loadAgentsMd: config?.loadAgentsMd ?? true,
+      loadReadme: config?.loadReadme ?? false,
+      workDir: config?.workDir ?? process.cwd(),
     };
     if (this._config.maxTokens <= 0) this._config.maxTokens = 24000;
     if (this._config.recentMessages <= 0) this._config.recentMessages = 8;
@@ -55,6 +68,18 @@ export class HarnessContextBuilder {
       newContextBlock("system", input.systemPrompt, true, 100),
       newContextBlock("task", `Task: ${input.task}`, true, 90),
     ];
+
+    // AGENTS.md auto-injection (OmO-style)
+    if (this._config.loadAgentsMd) {
+      const agentsMdBlocks = await loadAgentsMdFiles(this._config.workDir);
+      blocks.push(...agentsMdBlocks);
+    }
+
+    // README.md injection
+    if (this._config.loadReadme) {
+      const readmeBlock = await loadReadmeFile(this._config.workDir);
+      if (readmeBlock) blocks.push(readmeBlock);
+    }
 
     if (input.tieredMemory) {
       const memoryBlocks = await input.tieredMemory.recall(input.task);
@@ -85,6 +110,111 @@ export class HarnessContextBuilder {
 
     return fitContextBlocks(blocks, this._config.maxTokens);
   }
+}
+
+// ---------------------------------------------------------------------------
+// AGENTS.md auto-loading (OmO-style project memory)
+// ---------------------------------------------------------------------------
+
+/**
+ * Load AGENTS.md files from the project directory tree.
+ * Walks from workDir up to the nearest git root, loading:
+ *   - AGENTS.md at project root
+ *   - AGENTS.md in src/ and subdirectories
+ *   - .omo/rules/*.md files (project rules)
+ */
+async function loadAgentsMdFiles(workDir: string): Promise<ContextBlock[]> {
+  const blocks: ContextBlock[] = [];
+
+  try {
+    const { existsSync } = await import("node:fs");
+    const { readFile } = await import("node:fs/promises");
+    const { join, resolve } = await import("node:path");
+
+    const rootDir = resolve(workDir);
+
+    // Load root AGENTS.md
+    const rootAgentsMd = join(rootDir, "AGENTS.md");
+    if (existsSync(rootAgentsMd)) {
+      const content = await readFile(rootAgentsMd, "utf-8");
+      if (content.trim()) {
+        blocks.push(newContextBlock("harness", `[Project AGENTS.md]\n${content}`, true, 85));
+      }
+    }
+
+    // Load src/AGENTS.md if it exists
+    const srcAgentsMd = join(rootDir, "src", "AGENTS.md");
+    if (existsSync(srcAgentsMd)) {
+      const content = await readFile(srcAgentsMd, "utf-8");
+      if (content.trim()) {
+        blocks.push(newContextBlock("harness", `[src/AGENTS.md]\n${content}`, true, 80));
+      }
+    }
+
+    // Load .omo/rules/*.md (project rules)
+    const rulesDir = join(rootDir, ".omo", "rules");
+    if (existsSync(rulesDir)) {
+      try {
+        const { readdir } = await import("node:fs/promises");
+        const files = await readdir(rulesDir);
+        const mdFiles = files.filter((f) => f.endsWith(".md")).sort();
+        for (const file of mdFiles) {
+          const content = await readFile(join(rulesDir, file), "utf-8");
+          if (content.trim()) {
+            blocks.push(newContextBlock("harness", `[Rule: ${file}]\n${content}`, true, 78));
+          }
+        }
+      } catch {
+        // .omo/rules/ directory read failed — ignore
+      }
+    }
+
+    // Load .opencode/rules/*.md (OpenCode-compatible rules)
+    const opencodeRulesDir = join(rootDir, ".opencode", "rules");
+    if (existsSync(opencodeRulesDir)) {
+      try {
+        const { readdir } = await import("node:fs/promises");
+        const files = await readdir(opencodeRulesDir);
+        const mdFiles = files.filter((f) => f.endsWith(".md")).sort();
+        for (const file of mdFiles) {
+          const content = await readFile(join(opencodeRulesDir, file), "utf-8");
+          if (content.trim()) {
+            blocks.push(newContextBlock("harness", `[Rule: ${file}]\n${content}`, true, 78));
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+  } catch {
+    // File system errors are non-fatal — context injection is best-effort
+  }
+
+  return blocks;
+}
+
+/**
+ * Load README.md from the project root.
+ */
+async function loadReadmeFile(workDir: string): Promise<ContextBlock | null> {
+  try {
+    const { existsSync } = await import("node:fs");
+    const { readFile } = await import("node:fs/promises");
+    const { join, resolve } = await import("node:path");
+
+    const readmePath = join(resolve(workDir), "README.md");
+    if (existsSync(readmePath)) {
+      const content = await readFile(readmePath, "utf-8");
+      if (content.trim()) {
+        // Truncate long READMEs to 3000 chars
+        const truncated = content.length > 3000 ? content.slice(0, 3000) + "\n... (truncated)" : content;
+        return newContextBlock("harness", `[README.md]\n${truncated}`, true, 75);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null;
 }
 
 function newContextBlock(kind: ContextBlockKind, content: string, stable: boolean, priority: number): ContextBlock {

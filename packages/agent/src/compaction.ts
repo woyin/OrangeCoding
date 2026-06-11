@@ -9,6 +9,17 @@
 
 import { Role, Conversation, Message, newSystemMessage } from "@orangecoding/core";
 
+function isCJK(code: number): boolean {
+  return (
+    (code >= 0x4e00 && code <= 0x9fff) ||
+    (code >= 0x3400 && code <= 0x4dbf) ||
+    (code >= 0x3000 && code <= 0x303f) ||
+    (code >= 0xff00 && code <= 0xffef) ||
+    (code >= 0x3040 && code <= 0x309f) ||
+    (code >= 0x30a0 && code <= 0x30ff)
+  );
+}
+
 export class Compactor {
   private _maxTokens: number;
 
@@ -96,9 +107,43 @@ export class Compactor {
 }
 
 function tokenEstimateForMsg(msg: Message): number {
-  let estimate = Math.floor(msg.content.length / 4);
-  if (estimate === 0) estimate = 1;
-  return estimate;
+  let cjkCount = 0;
+  let nonCJKCount = 0;
+
+  // Estimate content tokens
+  for (const ch of msg.content) {
+    const code = ch.codePointAt(0)!;
+    if (isCJK(code)) {
+      cjkCount++;
+    } else {
+      nonCJKCount++;
+    }
+  }
+
+  // Estimate tool call tokens (function name + arguments)
+  if (msg.toolCalls) {
+    for (const tc of msg.toolCalls) {
+      for (const ch of tc.function_name) {
+        const code = ch.codePointAt(0)!;
+        if (isCJK(code)) {
+          cjkCount++;
+        } else {
+          nonCJKCount++;
+        }
+      }
+      const argsStr = typeof tc.arguments === "string" ? tc.arguments : JSON.stringify(tc.arguments);
+      for (const ch of argsStr) {
+        const code = ch.codePointAt(0)!;
+        if (isCJK(code)) {
+          cjkCount++;
+        } else {
+          nonCJKCount++;
+        }
+      }
+    }
+  }
+
+  return cjkCount * 2 + Math.floor(nonCJKCount / 4);
 }
 
 function tokenEstimateFor(msgs: readonly Message[]): number {

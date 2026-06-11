@@ -107,6 +107,31 @@ const BUILTIN_SKILLS: Skill[] = [
     tags: ["documentation"],
     examples: ["document this API", "write a README for this module", "generate API reference"],
   },
+  // New OmO-style skills
+  {
+    name: "security",
+    description: "Security audit and vulnerability scanning",
+    tools: ["read_file", "grep", "find", "glob", "bash"],
+    prompt: "You are a security audit agent. Analyze code for vulnerabilities, insecure patterns, and compliance issues. Provide specific remediation advice.",
+    tags: ["security", "audit"],
+    examples: ["audit this codebase for security issues", "check for SQL injection vulnerabilities", "review authentication security"],
+  },
+  {
+    name: "perf",
+    description: "Performance optimization and profiling",
+    tools: ["bash", "read_file", "grep", "edit_file"],
+    prompt: "You are a performance optimization agent. Identify bottlenecks, measure performance, and apply targeted optimizations. Profile before optimizing.",
+    tags: ["performance", "optimization"],
+    examples: ["optimize this slow function", "profile the API endpoint", "reduce memory usage"],
+  },
+  {
+    name: "deploy",
+    description: "Deployment and DevOps",
+    tools: ["bash", "read_file", "write_file", "edit_file"],
+    prompt: "You are a deployment agent. Handle CI/CD configuration, Dockerfiles, infrastructure as code, and deployment scripts.",
+    tags: ["deployment", "devops"],
+    examples: ["set up CI/CD pipeline", "create a Dockerfile", "configure deployment scripts"],
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -121,8 +146,14 @@ export class SkillRegistry {
     this.registerBuiltins();
   }
 
+  /** Register a skill. Overwrites if a skill with the same name exists. */
   register(s: Skill): void {
     this._skills.set(s.name, s);
+  }
+
+  /** Unregister a skill by name. */
+  unregister(name: string): boolean {
+    return this._skills.delete(name);
   }
 
   get(name: string): [Skill, true] | [undefined, false] {
@@ -141,6 +172,19 @@ export class SkillRegistry {
 
   listByTag(tag: string): Skill[] {
     return this.list().filter((s) => s.tags?.includes(tag));
+  }
+
+  /** Return all unique tags across all registered skills. */
+  allTags(): string[] {
+    const tags = new Set<string>();
+    for (const skill of this.list()) {
+      if (skill.tags) {
+        for (const tag of skill.tags) {
+          tags.add(tag);
+        }
+      }
+    }
+    return Array.from(tags).sort();
   }
 
   /**
@@ -183,6 +227,79 @@ export class SkillRegistry {
       allTools: Array.from(toolSet),
       skills,
     };
+  }
+
+  /**
+   * Load skills from a JSON string (e.g., from a file).
+   * The JSON should be an array of Skill objects.
+   * Returns the number of skills loaded.
+   */
+  loadFromJSON(json: string): number {
+    try {
+      const skills = JSON.parse(json) as Skill[];
+      if (!Array.isArray(skills)) return 0;
+
+      let count = 0;
+      for (const s of skills) {
+        if (s.name && s.description && s.prompt) {
+          if (!s.tools) s.tools = [];
+          this.register(s);
+          count++;
+        }
+      }
+      return count;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Load a single skill from a JSON object.
+   * Validates required fields before registering.
+   */
+  loadFromObject(obj: unknown): boolean {
+    if (typeof obj !== "object" || obj === null) return false;
+    const s = obj as Record<string, unknown>;
+    if (typeof s.name !== "string" || typeof s.description !== "string" || typeof s.prompt !== "string") {
+      return false;
+    }
+    this.register({
+      name: s.name,
+      description: s.description,
+      tools: Array.isArray(s.tools) ? s.tools as string[] : [],
+      prompt: s.prompt,
+      tags: Array.isArray(s.tags) ? s.tags as string[] : undefined,
+      examples: Array.isArray(s.examples) ? s.examples as string[] : undefined,
+    });
+    return true;
+  }
+
+  /**
+   * Create a skill that wraps an MCP tool.
+   * The skill allows using an MCP tool within the agent's skill system.
+   */
+  createMcpSkill(toolName: string, description: string): Skill {
+    return {
+      name: `mcp:${toolName}`,
+      description: `MCP tool: ${description}`,
+      tools: [toolName],
+      prompt: `You are an agent with access to the "${toolName}" MCP tool. Use it to ${description}.`,
+      tags: ["mcp", "external"],
+    };
+  }
+
+  /**
+   * Register multiple MCP tools as skills.
+   * Each MCP tool becomes a skill with the "mcp:" prefix.
+   */
+  registerMcpTools(tools: Array<{ name: string; description?: string }>): number {
+    let count = 0;
+    for (const tool of tools) {
+      const skill = this.createMcpSkill(tool.name, tool.description ?? tool.name);
+      this.register(skill);
+      count++;
+    }
+    return count;
   }
 
   private registerBuiltins(): void {

@@ -4,22 +4,26 @@
  */
 
 import type { AgentId, ToolCall as CoreToolCall } from "@orangecoding/core";
-import { ToolRegistry } from "@orangecoding/tools";
-import type { ExecuteResult } from "@orangecoding/tools";
+import { ToolRegistry, executeBatch, PermissionDecision, AutoApproveHandler } from "@orangecoding/tools";
+import type { ExecuteResult, PermissionContext, ApprovalHandler, ApprovalRequest } from "@orangecoding/tools";
 import type { SecurityGuard } from "./security-bridge.js";
+import { randomUUID } from "node:crypto";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
-const MAX_CONCURRENT_TOOLS = 8;
 
 export class ToolExecutor {
   private _registry: ToolRegistry;
   private _timeoutMs: number;
   private _guard: SecurityGuard | null;
+  private _approvalHandler: ApprovalHandler | null;
+  private _autoApprove: boolean;
 
   constructor(registry: ToolRegistry) {
     this._registry = registry;
     this._timeoutMs = DEFAULT_TIMEOUT_MS;
     this._guard = null;
+    this._approvalHandler = null;
+    this._autoApprove = false;
   }
 
   /** Execute runs a single tool call. */
@@ -49,6 +53,36 @@ export class ToolExecutor {
       };
     }
 
+    // Permission check
+    if (tool.checkPermissions) {
+      const permCtx: PermissionContext = {
+        workingDir: process.cwd(),
+        isReadOnly: tool.metadata().isReadOnly,
+      };
+      const decision = tool.checkPermissions(permCtx);
+
+      if (decision === PermissionDecision.Deny) {
+        return {
+          toolCallID: call.id,
+          content: "tool denied by permission policy",
+          isError: true,
+          durationMs: Date.now() - start,
+        };
+      }
+
+      if (decision === PermissionDecision.Ask) {
+        const approved = await this.requestApproval(call);
+        if (!approved) {
+          return {
+            toolCallID: call.id,
+            content: "tool execution denied by user",
+            isError: true,
+            durationMs: Date.now() - start,
+          };
+        }
+      }
+    }
+
     try {
       const out = await tool.execute(signal, call.arguments);
       return {
@@ -67,45 +101,10 @@ export class ToolExecutor {
     }
   }
 
-  /** ExecuteBatch runs tool calls concurrently with a bounded concurrency limit. */
+  /** ExecuteBatch runs tool calls respecting concurrency safety. */
   async executeBatch(signal: AbortSignal | undefined, calls: CoreToolCall[]): Promise<ExecuteResult[]> {
-    const results: ExecuteResult[] = new Array(calls.length);
-
-    // Use a simple semaphore pattern with Promise.all
-    const semaphore: Promise<void>[] = [];
-    let activeCount = 0;
-    const waiters: (() => void)[] = [];
-
-    const acquire = (): Promise<void> => {
-      if (activeCount < MAX_CONCURRENT_TOOLS) {
-        activeCount++;
-        return Promise.resolve();
-      }
-      return new Promise<void>((resolve) => {
-        waiters.push(() => {
-          activeCount++;
-          resolve();
-        });
-      });
-    };
-
-    const release = (): void => {
-      activeCount--;
-      const next = waiters.shift();
-      if (next) next();
-    };
-
-    const tasks = calls.map(async (call, idx) => {
-      await acquire();
-      try {
-        results[idx] = await this.execute(signal, call);
-      } finally {
-        release();
-      }
-    });
-
-    await Promise.all(tasks);
-    return results;
+    // Use the concurrency-safe executeBatch from @orangecoding/tools
+    return executeBatch(signal, this._registry, calls);
   }
 
   /** SetTimeout configures the per-call execution timeout in milliseconds. */
@@ -118,9 +117,45 @@ export class ToolExecutor {
     this._guard = guard;
   }
 
+  /**
+   * SetApprovalHandler configures the handler for tool approval requests.
+   * When a tool's checkPermissions returns Ask, this handler is invoked.
+   */
+  setApprovalHandler(handler: ApprovalHandler): void {
+    this._approvalHandler = handler;
+  }
+
+  /**
+   * SetAutoApprove enables or disables automatic approval of all tools.
+   * When enabled, Ask decisions are auto-approved without prompting.
+   */
+  setAutoApprove(enabled: boolean): void {
+    this._autoApprove = enabled;
+  }
+
   /** Registry exposes the underlying tool registry. */
   get registry(): ToolRegistry {
     return this._registry;
+  }
+
+  /** Request approval for a tool call. Returns true if approved. */
+  private async requestApproval(call: CoreToolCall): Promise<boolean> {
+    const handler = this._approvalHandler ?? (this._autoApprove ? new AutoApproveHandler() : null);
+
+    if (handler === null) {
+      // No handler configured — deny by default for safety
+      return false;
+    }
+
+    const request: ApprovalRequest = {
+      requestId: randomUUID(),
+      toolName: call.function_name,
+      toolArguments: call.arguments,
+      reason: `Tool "${call.function_name}" requires approval before execution.`,
+    };
+
+    const result = await handler.requestApproval(request);
+    return result.approved;
   }
 }
 
