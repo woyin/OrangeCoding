@@ -16,8 +16,92 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "composite": true,
     "outDir": "./dist",
     "rootDir": "."
   },
-  "exclude": ["node_modules", "dist", ".venv", "target", "reference"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    ".venv",
+    "target",
+    "reference",
+    "**/__tests__/**",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ],
+  "references": [
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "packages/ai"
+    },
+    {
+      "path": "packages/config"
+    },
+    {
+      "path": "packages/tools"
+    },
+    {
+      "path": "packages/mcp"
+    },
+    {
+      "path": "packages/session"
+    },
+    {
+      "path": "packages/invariant"
+    },
+    {
+      "path": "packages/audit"
+    },
+    {
+      "path": "packages/control-protocol"
+    },
+    {
+      "path": "packages/control-server"
+    },
+    {
+      "path": "packages/mesh"
+    },
+    {
+      "path": "packages/multiplexer"
+    },
+    {
+      "path": "packages/agent"
+    },
+    {
+      "path": "packages/pane-agent"
+    },
+    {
+      "path": "packages/plugin-sdk"
+    },
+    {
+      "path": "packages/plugins"
+    },
+    {
+      "path": "packages/tui"
+    },
+    {
+      "path": "packages/worker"
+    },
+    {
+      "path": "packages/cli"
+    },
+    {
+      "path": "packages/goal"
+    },
+    {
+      "path": "packages/scheduler"
+    },
+    {
+      "path": "packages/skill-discovery"
+    },
+    {
+      "path": "packages/worktree"
+    },
+    {
+      "path": "packages/orchestrator"
+    }
+  ]
 }
