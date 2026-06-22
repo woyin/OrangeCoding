@@ -1,9 +1,11 @@
 /**
- * Handles the `launch` command and its sub-modes (single-shot, text, TUI).
+ * launch 命令及其子模式（单次执行、文本 REPL、TUI）。
  *
- * The launch command is the default when running the CLI with no subcommand.
- * It configures an AI provider, tool registry, agent context, and agent loop,
- * then executes the task through the full agent pipeline.
+ * 无子命令时默认进入 launch。负责：装配 AI provider、工具注册表、
+ * agent 上下文与主循环，再通过完整 agent 管线执行任务。
+ *
+ * ---
+ * Handles the `launch` command and its sub-modes (single-shot, text, TUI).
  */
 
 import * as path from "node:path";
@@ -47,10 +49,10 @@ import {
 } from "@orangecoding/core";
 
 /**
- * Handles the `launch` command.
+ * 处理 launch 命令：根据参数选择 单次执行 / 文本 REPL / TUI / 恢复会话 模式。
  *
- * @param prompt - Single-shot task prompt (from --prompt / -p flag)
- * @param textMode - Whether to use text REPL mode (from --text flag)
+ * @param prompt - 单次执行的任务提示（来自 --prompt / -p）
+ * @param textMode - 是否进入文本 REPL 模式（--text）
  */
 export async function runLaunch(
   prompt?: string,
@@ -93,12 +95,11 @@ export async function runLaunch(
 }
 
 /**
- * Single-shot mode: execute one task end-to-end and print the final answer.
+ * 单次执行模式：端到端跑完一个任务并打印最终答案。
  *
- * Pipeline: resolve provider -> build tool registry -> resolve skill ->
- * construct AgentContext + AgentLoop -> run -> stream events to stdout.
- * Exits the process on rate-limit or unrecoverable errors; the final
- * assistant message and a one-line summary are always printed on success.
+ * 管线：解析 provider → 构建工具注册表 → 解析 skill →
+ * 构造 AgentContext + AgentLoop → run → 把事件流式输出到 stdout。
+ * 触发限流或不可恢复错误时退出进程；成功时始终打印最终 assistant 消息与摘要。
  */
 async function runSingleShot(
   cfg: OrangeConfig,
@@ -189,13 +190,11 @@ async function runSingleShot(
 }
 
 /**
- * Text REPL mode: a persistent read/eval/print loop over stdin.
+ * 文本 REPL 模式：基于 stdin 的常驻 read/eval/print 循环。
  *
- * A single AgentContext is reused across turns so conversation history
- * accumulates, while a fresh AgentLoop is constructed per input (cheap) so
- * skill auto-detection and per-turn loop config stay flexible. "exit",
- * "quit", or Ctrl+D break the loop. Per-turn failures are caught and
- * printed without terminating the session.
+ * 单个 AgentContext 跨轮复用以累积会话历史；每轮输入构造新的 AgentLoop，
+ * 保持 skill 自动检测与按轮配置的灵活性。"exit"/"quit"/Ctrl+D 退出。
+ * 单轮失败被捕获并打印，不终止整个会话。
  */
 async function runTextREPL(
   cfg: OrangeConfig,
@@ -259,13 +258,15 @@ async function runTextREPL(
 
     ctx.addUserMessage(input);
 
+    // 直接传 toolDefs 引用：AgentLoop.run() 不再改写 this._tools
+    // （skill 过滤结果存到局部变量），因此无需每轮拷贝。
     const loop = new AgentLoop(
       createAgentId(),
       aiProvider,
       executor,
       ctx,
       currentLoopConfig,
-      [...toolDefs],
+      toolDefs,
     );
 
     const eventHandler = createConsoleEventHandler();

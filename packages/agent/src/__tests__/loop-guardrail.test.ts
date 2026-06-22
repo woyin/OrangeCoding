@@ -286,4 +286,28 @@ describe("AgentLoop guardrail integration", () => {
     expect(result.stopReason).toBe("guardrail");
     expect(result.toolCallsMade).toBeGreaterThanOrEqual(3);
   });
+  it("skill 过滤不改写 this._tools：多次 run() 后工具集不缩小", async () => {
+    // 回归保护：原 run() 把 skill 过滤结果写回 this._tools，
+    // 多次 run 会让工具集累积缩小。重构后用局部变量，this._tools 保持原样。
+    const logger = new GuardrailLogger();
+    const executor = new RecordingExecutor("ok");
+    const loop = createLoopWithIterations(
+      new StaticProvider([contentEvent("done"), usageEvent(1, 1)]),
+      executor,
+      new GuardrailPipeline([]),
+      logger,
+      1,
+    );
+    // 注入两个工具，再配置只允许第一个的 skill
+    const tools = (loop as unknown as { _tools: { function: { name: string } }[] })._tools;
+    tools.push({ function: { name: "keep" } }, { function: { name: "drop" } });
+    const cfg = (loop as unknown as { _config: { skill?: { systemPrompt: string; allowedTools: string[] } } })._config;
+    cfg.skill = { systemPrompt: "skill prompt", allowedTools: ["keep"] };
+
+    const before = (loop as unknown as { _tools: unknown[] })._tools.length;
+    await loop.run({ model: "test" }, null);
+    const after = (loop as unknown as { _tools: unknown[] })._tools.length;
+    expect(after).toBe(before); // 关键断言：this._tools 没被过滤缩小
+    expect((loop as unknown as { toolDefs: unknown[] }).toolDefs.length).toBe(before);
+  });
 });

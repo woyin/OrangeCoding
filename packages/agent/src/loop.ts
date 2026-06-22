@@ -228,10 +228,14 @@ export class AgentLoop {
 
     const sid = this._context.sessionID;
 
-    // Apply skill context if configured
+    // 应用 skill 上下文：设置 system prompt，并把工具列表按 skill 白名单过滤。
+    // 注意：过滤结果存到局部 effectiveTools，不再改写 this._tools，
+    // 避免跨 run() 调用累积缩小工具集（REPL 多轮场景下尤其重要），
+    // 也让调用方不必为防御性拷贝而分配新数组。
+    let effectiveTools = this._tools;
     if (this._config.skill) {
       this._context.setSystemPrompt(this._config.skill.systemPrompt);
-      this._tools = this._tools.filter((t) =>
+      effectiveTools = this._tools.filter((t) =>
         this._config.skill!.allowedTools.includes(t.function.name),
       );
     }
@@ -356,7 +360,7 @@ export class AgentLoop {
         // Call the AI provider
         let streamIter: AsyncIterable<StreamEvent>;
         try {
-          streamIter = await this._provider.chatCompletionStream(aiMessages, this._tools, chatOpts as ChatOptions);
+          streamIter = await this._provider.chatCompletionStream(aiMessages, effectiveTools, chatOpts as ChatOptions);
         } catch (err) {
           result.durationMs = Date.now() - start;
           result.stopReason = "provider_error";
