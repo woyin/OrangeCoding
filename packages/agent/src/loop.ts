@@ -72,6 +72,12 @@ import type { Skill, SkillContext } from "./skills.js";
 export type { StopReason, OutputLanguage, ReasoningEffort, ProgressSnapshot };
 
 // ---------------------------------------------------------------------------
+// 常量：近期工具调用键的窗口上限。recentToolKeys() 只保留最近这么多键，
+// 把 RepeatedToolGuardrail 的每次检查从 O(累计键数) 压到 O(窗口) —— 即常数时间。
+// ---------------------------------------------------------------------------*/
+const RECENT_TOOL_KEY_WINDOW = 200;
+
+// ---------------------------------------------------------------------------
 // AgentLoopConfig
 // ---------------------------------------------------------------------------
 
@@ -100,7 +106,7 @@ export interface AgentLoopConfig {
   skill?: SkillContext;
 }
 
-/** DefaultLoopConfig returns a long-task-friendly config. */
+/** 返回适合长任务的默认循环配置（迭代上限、超时、推理强度等）。 */
 export function defaultLoopConfig(): AgentLoopConfig {
   const profile = defaultHarnessProfile();
   return {
@@ -127,6 +133,9 @@ export interface AgentLoopResult {
 
 // ---------------------------------------------------------------------------
 // AgentLoop
+// 代理主循环：驱动“构建上下文 → 预模型 guardrail → 模型流式调用 → 工具调度
+// → 后置 guardrail → 记忆/压缩/checkpoint”的迭代管线，直到完成、guardrail 拒绝、
+// 达到工具/迭代预算、取消或 provider 错误为止。
 // ---------------------------------------------------------------------------
 
 export class AgentLoop {
@@ -138,6 +147,11 @@ export class AgentLoop {
   private _tools: ToolDefinition[];
   private _harnessRunID: string;
   private _cachedToolKeys: string[];
+  /**
+   * recentToolKeys() 上次扫描到的消息下标。只追加“新增”消息的工具调用键，
+   * 避免重复计数。-1 表示尚未扫描过。
+   */
+  private _lastScannedMsgIdx = -1;
 
   /**
    * Creates a new AgentLoop instance.
@@ -165,6 +179,7 @@ export class AgentLoop {
     this._tools = toolDefs;
     this._harnessRunID = "";
     this._cachedToolKeys = [];
+    this._lastScannedMsgIdx = -1;
   }
 
   /** The agent's conversation context and working directory. */
@@ -183,6 +198,13 @@ export class AgentLoop {
   get agentID(): AgentId { return this._id; }
 
   /**
+   * 运行代理主循环至完成，通过 `eventCb` 以事件流的形式回报进度。
+   *
+   * `chatOpts` 可部分指定；首次模型调用前会应用 harness profile 默认值
+   * （推理强度、输出语言等）。返回 {@link AgentLoopResult}，包含 token 用量、
+   * 工具调用数、耗时与终止原因。
+   *
+   * ---
    * Runs the agent loop to completion, streaming progress via `eventCb`.
    *
    * `chatOpts` may be partially specified; harness profile defaults are
@@ -649,27 +671,34 @@ export class AgentLoop {
   }
 
   /**
-   * Returns tool call keys from recent messages for duplicate detection.
-   * Used by pre-tool guardrails to detect repeated tool calls.
+   * 返回近期工具调用键（name + 参数指纹），供 pre-tool guardrail 做重复检测。
+   *
+   * 性能优化：原实现把每次新扫描到的键整体追加到 `_cachedToolKeys`，
+   * 导致该数组随迭代次数无限增长，RepeatedToolGuardrail.check 每次都要做
+   * O(缓存长度) 的线性扫描——整个循环呈 O(迭代²×调用数) 复杂度。
+   * 现改为“滑动窗口”：只保留最近 {@link RECENT_TOOL_KEY_WINDOW} 个键，
+   * 把每次 guardrail 检查压到常数时间，且仍保留重复计数语义
+   * （RepeatedToolGuardrail 依赖同一键多次出现来触发拒绝）。
    */
   private recentToolKeys(): string[] {
     const msgs = this._context.conversation.messagesUnsafe();
-    const startIdx = this._cachedToolKeys.length > 0
-      ? Math.max(0, msgs.length - 10)
-      : 0;
+    // 只扫描自上次以来的新增消息（_lastScannedMsgIdx），避免对同一消息重复计数，
+    // 否则会让 RepeatedToolGuardrail 的重复统计虚高、误触发拒绝。
+    const startIdx = this._lastScannedMsgIdx >= 0 ? this._lastScannedMsgIdx : 0;
 
-    const keys: string[] = [];
     for (let i = startIdx; i < msgs.length; i++) {
       const msg = msgs[i]!;
       if (msg.toolCalls) {
         for (const call of msg.toolCalls) {
-          keys.push(toolCallKey(call));
+          this._cachedToolKeys.push(toolCallKey(call));
         }
       }
     }
+    this._lastScannedMsgIdx = msgs.length;
 
-    if (keys.length > 0) {
-      this._cachedToolKeys = [...this._cachedToolKeys, ...keys];
+    // 修剪到窗口上限：保证 _cachedToolKeys 长度有界，guardrail 检查恒为 O(窗口)。
+    if (this._cachedToolKeys.length > RECENT_TOOL_KEY_WINDOW) {
+      this._cachedToolKeys = this._cachedToolKeys.slice(-RECENT_TOOL_KEY_WINDOW);
     }
     return this._cachedToolKeys;
   }

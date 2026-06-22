@@ -5,7 +5,7 @@ import type { ExecuteResult } from "@orangecoding/tools";
 import { AgentContext } from "../context.js";
 import type { ToolExecutor } from "../executor.js";
 import type { Guardrail, GuardrailContext, GuardrailResult } from "../harness-guardrail.js";
-import { GuardrailLogger, GuardrailPipeline } from "../harness-guardrail.js";
+import { GuardrailLogger, GuardrailPipeline, RepeatedToolGuardrail } from "../harness-guardrail.js";
 import { AgentLoop, defaultLoopConfig } from "../loop.js";
 
 class StaticProvider implements AiProvider {
@@ -142,6 +142,19 @@ function createLoop(
   );
 }
 
+function createLoopWithIterations(
+  provider: AiProvider,
+  executor: RecordingExecutor,
+  guardrails: GuardrailPipeline,
+  logger: GuardrailLogger,
+  maxIterations: number,
+): AgentLoop {
+  const loop = createLoop(provider, executor, guardrails, logger);
+  // createLoop 默认 maxIterations=1；这里覆盖以支持多迭代场景。
+  (loop as unknown as { _config: { maxIterations: number } })._config.maxIterations = maxIterations;
+  return loop;
+}
+
 describe("AgentLoop guardrail integration", () => {
   it("passes the conversation token estimate to pre-model guardrails", async () => {
     const logger = new GuardrailLogger();
@@ -252,5 +265,25 @@ describe("AgentLoop guardrail integration", () => {
     expect(logger.recent(1)).toMatchObject([
       { phase: "pre_tool", decision: "deny", reason: "dangerous shell command" },
     ]);
+  });
+  it("recentToolKeys 跨迭代增量累积，重复工具调用达上限后拒绝（窗口 + 增量扫描）", async () => {
+    const logger = new GuardrailLogger();
+    const executor = new RecordingExecutor("ok");
+    // 每次迭代都发起同一个工具调用（相同 name + 参数）
+    const loop = createLoopWithIterations(
+      new StaticProvider([
+        toolCallEvent("c-1", "bash", "{\"command\":\"ls\"}"),
+        usageEvent(2, 2),
+      ]),
+      executor,
+      new GuardrailPipeline([new RepeatedToolGuardrail(3)]),
+      logger,
+      6,
+    );
+
+    const result = await loop.run({ model: "test" }, null);
+    // 同一工具调用累计 3 次后应被 RepeatedToolGuardrail 拒绝
+    expect(result.stopReason).toBe("guardrail");
+    expect(result.toolCallsMade).toBeGreaterThanOrEqual(3);
   });
 });
