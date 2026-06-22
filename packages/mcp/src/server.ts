@@ -60,6 +60,13 @@ interface RegisteredResource {
 // fire-and-forget.
 
 /** McpServer is an MCP protocol server that handles requests over a Transport. */
+
+/**
+ * 包内共享的 TextEncoder 单例（无状态，跨调用复用，避免每次 new）。
+ */
+const sharedEncoder = new TextEncoder();
+const sharedDecoder = new TextDecoder();
+
 export class McpServer {
   private tools = new Map<string, RegisteredTool>();
   private prompts = new Map<string, RegisteredPrompt>();
@@ -135,7 +142,7 @@ export class McpServer {
 
       let parsed: { id?: unknown; method?: string; params?: unknown };
       try {
-        parsed = JSON.parse(new TextDecoder().decode(raw));
+        parsed = JSON.parse(sharedDecoder.decode(raw));
       } catch {
         this.sendError(null, ErrorCode.ParseError, "parse error");
         continue;
@@ -157,7 +164,7 @@ export class McpServer {
       // Parse full request.
       let req: Request;
       try {
-        req = JSON.parse(new TextDecoder().decode(raw));
+        req = JSON.parse(sharedDecoder.decode(raw));
       } catch {
         this.sendError(parsed.id, ErrorCode.InvalidRequest, "invalid request");
         continue;
@@ -221,7 +228,7 @@ export class McpServer {
       jsonrpc: JSONRPC_VERSION,
       method: "notifications/initialized",
     };
-    this.transport.send(new TextEncoder().encode(JSON.stringify(notif))).catch(() => {
+    this.transport.send(sharedEncoder.encode(JSON.stringify(notif))).catch(() => {
       // Log but don't propagate.
     });
   }
@@ -330,7 +337,7 @@ export class McpServer {
       id,
       result,
     };
-    this.transport.send(new TextEncoder().encode(JSON.stringify(resp))).catch(() => {
+    this.transport.send(sharedEncoder.encode(JSON.stringify(resp))).catch(() => {
       // Log but don't propagate.
     });
   }
@@ -342,7 +349,7 @@ export class McpServer {
       id,
       error: { code, message },
     };
-    this.transport.send(new TextEncoder().encode(JSON.stringify(resp))).catch(() => {
+    this.transport.send(sharedEncoder.encode(JSON.stringify(resp))).catch(() => {
       // Log but don't propagate.
     });
   }

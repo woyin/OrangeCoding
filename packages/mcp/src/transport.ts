@@ -1,4 +1,16 @@
-/** Transport abstracts the underlying communication channel for JSON-RPC messages. */
+/**
+ * 包内共享的 TextEncoder 单例。TextEncoder 无状态，可安全跨调用复用，
+ * 避免每次收发消息都 new 一个（transport/client/server 共用）。
+ */
+const sharedEncoder = new TextEncoder();
+
+/**
+ * Transport：对 JSON-RPC 消息底层通道的抽象。
+ *
+ * - send：把一条 JSON-RPC 消息（字节）写入通道
+ * - receive：读取下一条 JSON-RPC 消息（字节）
+ * - close：释放通道持有的资源
+ */
 export interface Transport {
   /** Send writes a JSON-RPC message (as bytes) to the transport. */
   send(data: Uint8Array): Promise<void>;
@@ -9,12 +21,14 @@ export interface Transport {
 }
 
 /**
- * StdioTransport implements Transport over stdin/stdout-style I/O.
- * Messages are line-delimited JSON: each message is terminated by a newline.
+ * StdioTransport：基于 stdin/stdout 风格 I/O 的 Transport 实现。
+ * 消息以换行分帧（每条 JSON 消息以 \n 结尾）。
  */
 export class StdioTransport implements Transport {
   private buffer = "";
   private closed = false;
+  /** 复用的 UTF-8 解码器；多字节序列跨 chunk 时靠其内部状态拼接。 */
+  private readonly _decoder = new TextDecoder();
 
   constructor(
     private readonly reader: NodeJS.ReadableStream,
@@ -54,7 +68,7 @@ export class StdioTransport implements Transport {
           this.reader.removeListener("data", onData);
           this.reader.removeListener("error", onError);
           this.reader.removeListener("end", onEnd);
-          resolve(new TextEncoder().encode(line));
+          resolve(sharedEncoder.encode(line));
         }
       };
 
@@ -99,16 +113,16 @@ export class StdioTransport implements Transport {
 // for the next receive().
 
 /**
- * SSETransport implements Transport over HTTP POST (send) and SSE (receive).
+ * SSETransport：基于 HTTP POST（发送）+ SSE（接收）的 Transport 实现。
  *
- * - Send: POSTs JSON-RPC messages to the server endpoint as line-delimited JSON.
- * - Receive: Reads responses from an SSE stream established on first send.
+ * - 发送：把 JSON-RPC 消息以 JSON 形式 POST 到服务端端点
+ * - 接收：从首次发送建立的 SSE 流中读取响应
  *
- * This matches the MCP HTTP transport specification where the client POSTs
- * requests and the server responds via SSE events.
+ * 对应 MCP HTTP 传输规范：客户端 POST 请求，服务端用 SSE 事件回响应。
  */
 export class SSETransport implements Transport {
   private closed = false;
+  private readonly _decoder = new TextDecoder();
   private _endpoint: string;
   private _headers: Record<string, string>;
   private _messageQueue: Uint8Array[] = [];
@@ -137,7 +151,7 @@ export class SSETransport implements Transport {
         "Content-Type": "application/json",
         ...this._headers,
       },
-      body: new TextDecoder().decode(data),
+      body: this._decoder.decode(data),
     });
 
     if (!response.ok) {
@@ -154,7 +168,7 @@ export class SSETransport implements Transport {
       // Direct JSON response (not SSE)
       const text = await response.text();
       if (text.trim()) {
-        const responseData = new TextEncoder().encode(text);
+        const responseData = sharedEncoder.encode(text);
         if (this._waitingResolver) {
           const resolve = this._waitingResolver;
           this._waitingResolver = null;
@@ -210,7 +224,7 @@ export class SSETransport implements Transport {
         const { done, value } = await this._sseReader.read();
         if (done) break;
 
-        this._sseBuffer += new TextDecoder().decode(value);
+        this._sseBuffer += this._decoder.decode(value);
 
         // Parse SSE events from buffer
         let eventEnd: number;
@@ -220,7 +234,7 @@ export class SSETransport implements Transport {
 
           const data = this.extractSSEData(eventText);
           if (data) {
-            const encoded = new TextEncoder().encode(data);
+            const encoded = sharedEncoder.encode(data);
             if (this._waitingResolver) {
               const resolve = this._waitingResolver;
               this._waitingResolver = null;
@@ -238,14 +252,34 @@ export class SSETransport implements Transport {
     }
   }
 
-  /** Extract the data field from an SSE event text. */
+  /**
+   * 从一条 SSE 事件文本里提取 `data:` 字段。
+   *
+   * 性能优化：原实现用 split("\n") 对事件文本切片构造数组，
+   * 高频事件下分配显著。改为 indexOf 逐行扫描、直接 substring 取负载，
+   * 不再分配中间数组。
+   */
   private extractSSEData(eventText: string): string | null {
-    for (const line of eventText.split("\n")) {
-      if (line.startsWith("data: ")) {
-        const data = line.substring(6);
+    let pos = 0;
+    while (pos < eventText.length) {
+      const nl = eventText.indexOf("\n", pos);
+      const lineEnd = nl === -1 ? eventText.length : nl;
+      // 行首是否为 "data: "（长度 6）
+      if (
+        lineEnd >= pos + 6 &&
+        eventText.charCodeAt(pos) === 100 /* d */ &&
+        eventText.charCodeAt(pos + 1) === 97 /* a */ &&
+        eventText.charCodeAt(pos + 2) === 116 /* t */ &&
+        eventText.charCodeAt(pos + 3) === 97 /* a */ &&
+        eventText.charCodeAt(pos + 4) === 58 /* : */ &&
+        eventText.charCodeAt(pos + 5) === 32 /* space */
+      ) {
+        const data = eventText.substring(pos + 6, lineEnd);
         if (data === "[DONE]") return null;
         return data;
       }
+      if (nl === -1) break;
+      pos = nl + 1;
     }
     return null;
   }
@@ -259,14 +293,14 @@ export class SSETransport implements Transport {
 // "Streamable HTTP" spec where each request/response is a separate exchange.
 
 /**
- * StreamableHTTPTransport implements Transport over pure HTTP POST.
+ * StreamableHTTPTransport：纯 HTTP POST 的 Transport 实现。
  *
- * Each send() POSTs the request, and receive() reads from the response body.
- * This is the "Streamable HTTP" transport from the MCP spec where each
- * request-response pair is a separate HTTP exchange.
+ * 每次 send() POST 一个请求，receive() 从响应体读取。对应 MCP 规范中
+ * “Streamable HTTP”——每个请求/响应是一次独立的 HTTP 交换，严格单飞。
  */
 export class StreamableHTTPTransport implements Transport {
   private closed = false;
+  private readonly _decoder = new TextDecoder();
   private _endpoint: string;
   private _headers: Record<string, string>;
   private _pendingResponse: Promise<Uint8Array> | null = null;
@@ -284,7 +318,7 @@ export class StreamableHTTPTransport implements Transport {
       throw new Error("StreamableHTTPTransport: closed");
     }
 
-    const body = new TextDecoder().decode(data);
+    const body = this._decoder.decode(data);
 
     this._pendingResponse = (async () => {
       const response = await fetch(this._endpoint, {
@@ -302,7 +336,7 @@ export class StreamableHTTPTransport implements Transport {
       }
 
       const text = await response.text();
-      return new TextEncoder().encode(text);
+      return sharedEncoder.encode(text);
     })();
   }
 

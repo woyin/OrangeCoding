@@ -1,4 +1,4 @@
-/** JSON-RPC 2.0 protocol types. */
+/** JSON-RPC 2.0 协议类型：请求 / 响应 / 通知 / 标准错误码。 */
 
 export const JSONRPC_VERSION = "2.0";
 

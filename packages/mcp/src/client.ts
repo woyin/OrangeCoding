@@ -27,6 +27,13 @@ export interface ServerInfo {
  * registered interest, and `waitingResolvers` holds promises awaiting a
  * response. A background drain loop reads frames and dispatches them.
  */
+
+/**
+ * 包内共享的 TextEncoder 单例（无状态，跨调用复用，避免每次 new）。
+ */
+const sharedEncoder = new TextEncoder();
+const sharedDecoder = new TextDecoder();
+
 export class McpClient {
   private idCounter = 0;
   private closed = false;
@@ -76,7 +83,7 @@ export class McpClient {
       params,
     };
 
-    const data = new TextEncoder().encode(JSON.stringify(req));
+    const data = sharedEncoder.encode(JSON.stringify(req));
     await this.transport.send(data);
 
     // Check if a response was already received (from a previous read cycle)
@@ -111,7 +118,7 @@ export class McpClient {
   private async drainResponses(): Promise<void> {
     while (!this.closed) {
       const raw = await this.transport.receive();
-      const msg: Response = JSON.parse(new TextDecoder().decode(raw));
+      const msg: Response = JSON.parse(sharedDecoder.decode(raw));
 
       // Skip notifications (no ID)
       if (msg.id === undefined || msg.id === null) {
@@ -158,7 +165,7 @@ export class McpClient {
       jsonrpc: JSONRPC_VERSION,
       method: "notifications/initialized",
     };
-    await this.transport.send(new TextEncoder().encode(JSON.stringify(notif)));
+    await this.transport.send(sharedEncoder.encode(JSON.stringify(notif)));
 
     return result.serverInfo;
   }
