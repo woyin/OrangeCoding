@@ -1,6 +1,17 @@
 /**
  * @module message
  *
+ * 核心消息类型与会话管理。
+ *
+ * 定义 agent 循环中使用的消息原语：
+ * - {@link Message} 单条聊天消息（system/user/assistant/tool）
+ * - {@link ToolCall} 助手请求的工具调用
+ * - {@link ToolResult} 工具执行结果
+ * - {@link Conversation} 有序消息集合 + token 估算
+ *
+ * 消息格式对齐 OpenAI chat completion，便于多 provider 复用。
+ *
+ * ---
  * Core message types and conversation management for the OrangeCoding agent system.
  *
  * This module defines the message primitives used throughout the agent loop:
@@ -46,10 +57,10 @@ export interface MessageJSON {
 }
 
 /**
- * Message is the fundamental unit of conversation in the agent system.
+ * Message：agent 系统中会话的基本单元。
  *
- * Each message has a role (system/user/assistant/tool), text content, and
- * optional tool call metadata. Messages are immutable after construction.
+ * 每条消息有 role（system/user/assistant/tool）、文本内容，以及可选的
+ * 工具调用元数据。构造后不可变。
  */
 export class Message {
   constructor(
@@ -121,10 +132,9 @@ export interface ToolResultJSON {
 }
 
 /**
- * ToolResult encapsulates the outcome of a single tool execution.
+ * ToolResult：单次工具执行结果的封装。
  *
- * Wraps the tool call ID, output content, and error status together
- * for convenient conversion to a tool-role Message.
+ * 把 tool call ID、输出内容、错误状态打包，便于转成 tool-role Message。
  */
 export class ToolResult {
   constructor(
@@ -181,13 +191,13 @@ function isCJKCodeUnit(code: number): boolean {
 }
 
 /**
- * Conversation manages an ordered sequence of messages for an agent session.
+ * Conversation：管理一个 agent session 的有序消息序列。
  *
- * Provides factory methods, query helpers, and a fast token estimation heuristic.
- * The internal message array can be accessed safely via {@link messages} (copy)
- * or unsafely via {@link messagesUnsafe} (read-only reference, no copy).
+ * 提供工厂方法、查询助手，以及一个快速的 token 估算启发式（见 {@link tokenEstimate}）。
+ * 内部数组可通过 {@link messages}（拷贝，安全）或 {@link messagesUnsafe}
+ * （只读引用，不拷贝，性能更高）访问。
  *
- * Thread safety: not thread-safe; designed for single-threaded agent loops.
+ * 线程安全：非线程安全；面向单线程 agent 循环设计。
  */
 export class Conversation {
   private _messages: Message[] = [];

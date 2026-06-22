@@ -1,4 +1,11 @@
 /**
+ * 防篡改审计日志。
+ *
+ * 每条 AuditEntry 与前一条用哈希链绑定：hash(entry[i]) = SHA256(entry[i-1].hash || action || timestamp || details)，
+ * 形成 append-only 链；任何条目的改动都会破坏后续所有条目的链，可被 verifyChain 检测。
+ * 持久化为单文件 JSONL（audit.jsonl），append 为 O(1)（缓存尾哈希、只追加一行）。
+ *
+ * ---
  * Tamper-evident audit log.
  *
  * Each AuditEntry is cryptographically linked to its predecessor:
@@ -18,7 +25,7 @@ import { newIOError } from "@orangecoding/core";
 import type { AgentEvent, EventHandler } from "@orangecoding/core";
 
 /**
- * AuditEntry represents a single entry in the tamper-proof audit log.
+ * 审计日志中的一条 entry：时间戳、动作、agent、详情，以及前一条/自身的哈希。
  */
 export class AuditEntry {
   constructor(
@@ -123,6 +130,13 @@ function equalHash(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 /**
+ * AuditLog：防篡改、只追加的审计日志，持久化为 JSONL。
+ *
+ * 性能：append() 为 O(1)——缓存尾哈希（_lastHash，首次按需从文件尾行加载），
+ * 每次只追加一行。getEntries() 做窗口短路。lastHash() 只读取文件尾部 64KiB，
+ * 不再全量解析整个日志。
+ *
+ * ---
  * AuditLog - tamper-evident, append-only audit log persisted as JSONL.
  *
  * Performance: append() is O(1). We cache the tail entry hash in
@@ -204,14 +218,60 @@ export class AuditLog {
   }
 
   /**
-   * Returns the hash of the last entry in the file, caching it. Empty digest
-   * when the log is empty (the genesis/first entry chains off an empty hash).
+   * 返回日志最后一条 entry 的哈希（结果缓存）。日志为空时返回空摘要
+   * （即创世 entry 基于空哈希链）。
+   *
+   * 性能优化：原实现为了拿“最后一行”而读取并解析整个日志文件
+   * （readAllEntries 会 readFile + split + 逐行 JSON.parse），大日志下开销显著。
+   * 现改为只读取文件尾部、定位最后一个换行后的那一行，仅 JSON.parse 一次。
+   * 该路径在 AuditLog 首次 append 时触发（之后 _lastHash 命中缓存）。
    */
   private async lastHash(): Promise<Uint8Array> {
     if (this._lastHash !== undefined) return this._lastHash;
-    const entries = await this.readAllEntries();
-    this._lastHash = entries.length > 0 ? entries[entries.length - 1]!.hash : new Uint8Array(0);
+    const tailLine = await this.readTailLine();
+    if (tailLine === null) {
+      this._lastHash = new Uint8Array(0);
+      return this._lastHash;
+    }
+    try {
+      const entry = AuditEntry.fromJSON(JSON.parse(tailLine));
+      this._lastHash = entry.hash;
+    } catch {
+      // 尾行损坏：回退到空哈希（创世链接），verifyChain 可检测异常。
+      this._lastHash = new Uint8Array(0);
+    }
     return this._lastHash;
+  }
+
+  /**
+   * 只读取文件尾部并返回最后一行（去掉末尾换行后的内容）。
+   * 文件不存在 / 为空 / 仅空白时返回 null。最多读取 64KiB 尾部——
+   * 单条审计 entry 的 JSON 远小于此上限，足以容纳最后一行。
+   */
+  private async readTailLine(): Promise<string | null> {
+    const { open } = await import("node:fs/promises");
+    let fh;
+    try {
+      fh = await open(this.filePath, "r");
+    } catch {
+      return null; // 文件不存在
+    }
+    try {
+      const { size } = await fh.stat();
+      if (size === 0) return null;
+      const tailSize = Math.min(size, 64 * 1024);
+      const buf = Buffer.alloc(tailSize);
+      await fh.read(buf, 0, tailSize, size - tailSize);
+      const text = buf.toString("utf-8");
+      // 去掉最末尾的换行（JSONL 通常以 \n 结尾）。
+      const trimmed = text.endsWith("\n") ? text.slice(0, -1) : text;
+      const lastNL = trimmed.lastIndexOf("\n");
+      // 若尾部块里含换行，取最后一个换行之后的内容；否则整块就是最后一行。
+      const lastLine = lastNL === -1 ? trimmed : trimmed.slice(lastNL + 1);
+      return lastLine.trim() === "" ? null : lastLine;
+    } finally {
+      await fh.close();
+    }
   }
 
   /** Reads and parses every entry from the log file. Corrupt lines skipped. */
@@ -247,6 +307,10 @@ const AUDITED_EVENT_TYPES = new Set([
   "tool_call_completed",
 ]);
 
+/**
+ * 把 agent 事件流里的 guardrail_decision / tool_call_completed 事件
+ * 追加写进 AuditLog。实现 EventHandler，可挂到事件总线上。
+ */
 export class AuditEventRecorder implements EventHandler {
   readonly name = "audit_event_recorder";
 
