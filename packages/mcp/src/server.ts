@@ -12,6 +12,9 @@ import type { ServerInfo, PromptInfo, PromptResult, ResourceInfo, ResourceResult
 // ---------------------------------------------------------------------------
 // Handler types
 // ---------------------------------------------------------------------------
+// Function signatures registered by MCP server consumers. Each signature
+// mirrors the JSON-RPC params for the corresponding method, so dispatch
+// can pass `params` through with minimal shaping.
 
 /** ToolHandler is the function signature for handling a tool invocation. */
 export type ToolHandler = (args: unknown) => Promise<unknown>;
@@ -28,6 +31,9 @@ export type NotificationHandler = (method: string, params: unknown) => Promise<v
 // ---------------------------------------------------------------------------
 // Registered items
 // ---------------------------------------------------------------------------
+// Internal record types pairing a public `info` descriptor (name/uri +
+// schema) with the handler that actually serves the request. Stored in
+// Maps keyed by name/uri for O(1) dispatch.
 
 interface RegisteredTool {
   info: ToolInfo;
@@ -47,6 +53,11 @@ interface RegisteredResource {
 // ---------------------------------------------------------------------------
 // McpServer
 // ---------------------------------------------------------------------------
+// Implements the server side of the Model Context Protocol over a pluggable
+// Transport. Tools, prompts, and resources are registered by name/uri and
+// served by a single request loop that parses JSON-RPC, dispatches, and
+// writes responses back over the transport. Notifications (no id) are
+// fire-and-forget.
 
 /** McpServer is an MCP protocol server that handles requests over a Transport. */
 export class McpServer {
@@ -104,9 +115,11 @@ export class McpServer {
   // -----------------------------------------------------------------------
 
   /**
-   * Serve starts the server's main loop. It reads requests from the transport
-   * and dispatches them to the appropriate handler. It blocks until the
-   * abort signal is triggered or the transport returns an error.
+   * Main server loop. Reads framed messages from the transport, dispatches
+   * notifications immediately and routes requests through {@link handleRequest}.
+   * The body of each request is handled synchronously (handleRequest does not
+   * await) so the loop is free to read the next frame; responses are written
+   * as they complete. Returns when the abort signal fires or receive() fails.
    */
   async serve(signal?: AbortSignal): Promise<void> {
     for (;;) {
@@ -158,6 +171,7 @@ export class McpServer {
   // Request dispatch
   // -----------------------------------------------------------------------
 
+  /** Single dispatch point mapping a JSON-RPC method to its handler. */
   private handleRequest(req: Request): void {
     switch (req.method) {
       case "initialize":
@@ -190,6 +204,7 @@ export class McpServer {
   // Method handlers
   // -----------------------------------------------------------------------
 
+  /** Reply to `initialize`: advertise capabilities based on what is registered. */
   private handleInitialize(req: Request): void {
     const result = {
       capabilities: {
@@ -211,6 +226,7 @@ export class McpServer {
     });
   }
 
+  /** Reply to `tools/list`: return all registered tool descriptors. */
   private handleListTools(req: Request): void {
     const tools: ToolInfo[] = [];
     for (const rt of this.tools.values()) {
@@ -219,6 +235,7 @@ export class McpServer {
     this.sendResponse(req.id, { tools });
   }
 
+  /** Reply to `tools/call`: invoke the named tool handler and return its result. */
   private async handleCallTool(req: Request): Promise<void> {
     const params = req.params as { name?: string; arguments?: unknown } | undefined;
     if (!params?.name) {
@@ -240,6 +257,7 @@ export class McpServer {
     }
   }
 
+  /** Reply to `prompts/list`: return all registered prompt descriptors. */
   private handleListPrompts(req: Request): void {
     const prompts: PromptInfo[] = [];
     for (const rp of this.prompts.values()) {
@@ -248,6 +266,7 @@ export class McpServer {
     this.sendResponse(req.id, { prompts });
   }
 
+  /** Reply to `prompts/get`: render the named prompt template with arguments. */
   private async handleGetPrompt(req: Request): Promise<void> {
     const params = req.params as { name?: string; arguments?: Record<string, string> } | undefined;
     if (!params?.name) {
@@ -269,6 +288,7 @@ export class McpServer {
     }
   }
 
+  /** Reply to `resources/list`: return all registered resource descriptors. */
   private handleListResources(req: Request): void {
     const resources: ResourceInfo[] = [];
     for (const rr of this.resources.values()) {
@@ -277,6 +297,7 @@ export class McpServer {
     this.sendResponse(req.id, { resources });
   }
 
+  /** Reply to `resources/read`: fetch the content for a resource uri. */
   private async handleReadResource(req: Request): Promise<void> {
     const params = req.params as { uri?: string } | undefined;
     if (!params?.uri) {
@@ -302,6 +323,7 @@ export class McpServer {
   // Response helpers
   // -----------------------------------------------------------------------
 
+  /** Serialize a successful JSON-RPC response and write it to the transport. */
   private sendResponse(id: unknown, result: unknown): void {
     const resp: Response = {
       jsonrpc: JSONRPC_VERSION,
@@ -313,6 +335,7 @@ export class McpServer {
     });
   }
 
+  /** Serialize a JSON-RPC error response and write it to the transport. */
   private sendError(id: unknown, code: number, message: string): void {
     const resp: Response = {
       jsonrpc: JSONRPC_VERSION,

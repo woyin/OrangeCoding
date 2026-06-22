@@ -1,5 +1,12 @@
 /**
- * Handles the `skills` command — list available skills.
+ * @module cli-skills
+ *
+ * CLI command for managing skill files (SKILL.md).
+ *
+ * Provides:
+ * - Listing available skills
+ * - Validating skill file format
+ * - Installing/removing skills
  */
 
 import { SkillRegistry, SkillMatcher } from "@orangecoding/agent";

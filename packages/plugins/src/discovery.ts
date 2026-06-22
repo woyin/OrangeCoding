@@ -22,6 +22,15 @@ const MANIFEST_FILE = "plugin.json";
  *
  * Scans subdirectories for plugin.json files.
  */
+/**
+ * Scans a directory for plugin manifests (plugin.json files).
+ *
+ * Each subdirectory containing a plugin.json is treated as a plugin.
+ * Invalid or unreadable plugin directories are silently skipped.
+ *
+ * @param searchDir - Directory to scan for plugins
+ * @returns Array of parsed plugin manifests
+ */
 export async function discoverPlugins(searchDir: string): Promise<PluginManifest[]> {
   const manifests: PluginManifest[] = [];
 
@@ -61,6 +70,15 @@ export async function discoverPlugins(searchDir: string): Promise<PluginManifest
  * Resolve plugin dependencies (topological sort).
  *
  * Returns plugins in dependency order (dependencies before dependents).
+ */
+/**
+ * Sorts plugins in topological order based on their declared dependencies.
+ *
+ * Ensures dependencies are loaded before dependents. Throws on circular
+ * dependencies or missing dependency references.
+ *
+ * @param plugins - Unsorted array of plugin manifests
+ * @returns Plugins sorted in dependency order (dependencies first)
  */
 export function resolvePluginDependencies(plugins: PluginManifest[]): PluginManifest[] {
   const graph = new Map<string, PluginManifest>();

@@ -1,3 +1,15 @@
+/**
+ * @module session
+ *
+ * Agent session management — lifecycle and state for coding sessions.
+ *
+ * A Session represents a single agent interaction:
+ * - Contains the conversation history
+ * - Tracks agent configuration and state
+ * - Supports persistence and resumption
+ * - Manages tool execution context
+ * - Handles session hierarchy (parent/child)
+ */
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { SessionId, TokenUsage, type TokenUsage as TokenUsageType, newIOError } from "@orangecoding/core";

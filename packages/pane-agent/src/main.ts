@@ -50,6 +50,8 @@ import {
 // ---------------------------------------------------------------------------
 // CLI entry point
 // ---------------------------------------------------------------------------
+// Parses --socket (required) and --config (optional) flags, then delegates
+// to run(). Exits with a diagnostic on missing socket or any thrown error.
 
 function main(): void {
   const { values } = parseArgs({
@@ -78,6 +80,13 @@ function main(): void {
 // ---------------------------------------------------------------------------
 // Main logic
 // ---------------------------------------------------------------------------
+
+/**
+ * Pane-agent lifecycle: connect to the parent's Unix socket, receive a task,
+ * configure the AI provider + tool registry, run the agent loop while
+ * streaming events back over IPC, then send the final result. SIGINT/SIGTERM
+ * trigger an abort so the loop can shut down cleanly.
+ */
 
 async function run(socketPath: string, configPath: string): Promise<void> {
   // 1. Connect to the parent's Unix socket.
@@ -208,6 +217,9 @@ async function run(socketPath: string, configPath: string): Promise<void> {
 // ---------------------------------------------------------------------------
 // Event forwarding
 // ---------------------------------------------------------------------------
+// A producer/consumer bridge: the agent loop pushes AgentEvents into a queue;
+ // forwardEvents drains the queue over IPC. When the queue empties it awaits a
+ // resolver that the producer signals on the next push or on completion.
 
 /**
  * Reads events from the queue and forwards them as IPC messages.
@@ -243,7 +255,10 @@ async function forwardEvents(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+// Small pure utilities: error reply, config load with fallback, provider
+// construction, cwd resolution, and last-assistant-message extraction.
 
+/** Fire-and-forget error reply over IPC (safe to call from catch blocks). */
 function sendError(transport: SocketTransport, id: string, err: unknown): void {
   const message = err instanceof Error ? err.message : String(err);
   const resultPayload: ResultPayload = {
@@ -259,6 +274,7 @@ function sendError(transport: SocketTransport, id: string, err: unknown): void {
   });
 }
 
+/** Load OrangeConfig from `configPath` (or the default), returning null on any failure. */
 function loadConfig(configPath: string | undefined): OrangeConfig | null {
   const p = configPath ?? defaultConfigPath();
   const mgr = new ConfigManager();
@@ -279,6 +295,11 @@ interface ProviderResult {
   providerModel: string;
 }
 
+/**
+ * Construct the AI provider from config. Throws if config is absent. Maps the
+ * CLI provider config fields into the AI-layer ProviderConfig and normalizes
+ * aliases via normalizeProviderConfig.
+ */
 function createProvider(cfg: OrangeConfig | null): ProviderResult {
   if (cfg == null) {
     throw new Error("no config available");
@@ -330,6 +351,7 @@ function currentWorkDir(): string {
   }
 }
 
+/** Return the content of the most recent assistant message, or "" if none. */
 function lastAssistantContent(ctx: AgentContext): string {
   const messages = ctx.conversation.messages();
   for (let i = messages.length - 1; i >= 0; i--) {

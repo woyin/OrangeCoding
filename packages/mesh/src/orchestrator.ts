@@ -1,6 +1,16 @@
 /**
- * @module orchestrator
- * Task orchestrator with topological sort and concurrent execution.
+ * @module mesh-orchestrator
+ *
+ * Top-level orchestrator for the mesh network.
+ *
+ * The MeshOrchestrator coordinates the entire mesh system:
+ * - Manages the agent pool and registry
+ * - Routes incoming tasks to appropriate agents
+ * - Selects collaboration protocols based on task type
+ * - Monitors overall system health
+ * - Handles graceful shutdown
+ *
+ * This is the main entry point for the mesh subsystem.
  */
 
 // ---------------------------------------------------------------------------

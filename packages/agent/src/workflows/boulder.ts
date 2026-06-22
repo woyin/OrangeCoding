@@ -11,6 +11,7 @@ import { ToolExecutor } from "../executor.js";
 import { buildToolDefinitions } from "../tool-defs.js";
 import { AgentLoop, defaultLoopConfig } from "../loop.js";
 
+/** Result of a boulder-recovery run: attempt count, outcome, and last error. */
 export interface BoulderResult {
   attempts: number;
   success: boolean;
@@ -18,6 +19,13 @@ export interface BoulderResult {
   finalError: string;
 }
 
+/**
+ * Stuck-agent recovery strategy. When an agent fails or loops, BoulderRecovery
+ * discards the contaminated context and retries the task from scratch (fresh
+ * session + system prompt) up to `_maxRetries` times. The fresh-context reset
+ * is the key trick: it breaks tool-call loops that persist within a single
+ * conversation. Throws after all attempts are exhausted.
+ */
 export class BoulderRecovery {
   private _provider: AiProvider;
   private _registry: ToolRegistry;
@@ -31,7 +39,12 @@ export class BoulderRecovery {
     this._maxRetries = maxRetries;
   }
 
-  /** Run attempts the task, detecting stuck states and retrying with a fresh context. */
+  /**
+   * Retry loop: each attempt spins up a brand-new AgentContext so prior
+   * tool-call history cannot trap the agent in the same loop. Returns on the
+   * first successful completion; throws after `_maxRetries` failures. Abort
+   * is honored between attempts.
+   */
   async run(signal: AbortSignal | undefined, task: string): Promise<BoulderResult> {
     const result: BoulderResult = {
       attempts: 0,

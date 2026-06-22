@@ -19,6 +19,7 @@ import type { LongMemoryStore } from "./long-memory.js";
 // Analysis types
 // ---------------------------------------------------------------------------
 
+/** Statistics for a single tool's usage across a session. */
 export interface ToolUsageStat {
   tool: string;
   count: number;
@@ -31,6 +32,10 @@ export interface StopReasonStat {
   percentage: number;
 }
 
+/**
+ * Token efficiency metrics: how effectively tokens are used.
+ * Lower overhead ratio and higher tool success rate indicate efficient sessions.
+ */
 export interface TokenEfficiency {
   totalTokens: number;
   avgTokensPerSession: number;
@@ -39,6 +44,7 @@ export interface TokenEfficiency {
   lowWatermark: number;
 }
 
+/** Summary of agent loop iterations: count, distribution, convergence pattern. */
 export interface IterationProfile {
   avgIterations: number;
   maxIterations: number;
@@ -46,6 +52,7 @@ export interface IterationProfile {
   avgToolCallsPerSession: number;
 }
 
+/** Grouped error patterns: same error message occurring multiple times. */
 export interface ErrorCluster {
   pattern: string;
   count: number;
@@ -61,6 +68,12 @@ export interface SessionInsight {
   suggestion: string;
 }
 
+/**
+ * Complete analysis report for an agent session.
+ *
+ * Combines all metrics: token usage, tool statistics, timing,
+ * efficiency scores, error patterns, and actionable insights.
+ */
 export interface SessionAnalysisReport {
   analyzedAt: string;
   sessionCount: number;
@@ -76,6 +89,11 @@ export interface SessionAnalysisReport {
 // SessionAnalyzer
 // ---------------------------------------------------------------------------
 
+/**
+ * SessionAnalyzer loads completed HarnessCheckpoints, computes aggregate
+ * statistics, derives actionable insights, and persists them to long-term
+ * memory for future sessions to recall.
+ */
 export class SessionAnalyzer {
   private _checkpointStore: CheckpointStore;
   private _longMemory?: LongMemoryStore;
@@ -86,7 +104,10 @@ export class SessionAnalyzer {
   }
 
   /**
-   * Analyze all completed sessions and produce a report.
+   * Loads all checkpoints, runs every analysis pass (tool usage, stop reasons,
+   * token efficiency, iterations, error clusters), generates insights, persists
+   * them to long-term memory, and returns the full report. Corrupt checkpoints
+   * are skipped.
    */
   async analyze(): Promise<SessionAnalysisReport> {
     const summaries = await this._checkpointStore.list(undefined, "");
@@ -132,6 +153,11 @@ export class SessionAnalyzer {
 
   // --- Tool Usage ---
 
+  /**
+   * Tallies per-tool invocation counts from recentToolKeys across all
+   * checkpoints, then attributes an error to the last tool of each failed
+   * session. Returns stats sorted by count descending.
+   */
   private analyzeToolUsage(checkpoints: HarnessCheckpoint[]): ToolUsageStat[] {
     const toolMap = new Map<string, { count: number; errors: number }>();
 
@@ -164,6 +190,11 @@ export class SessionAnalyzer {
 
   // --- Stop Reasons ---
 
+  /**
+   * Counts how sessions terminated (completed / failed / provider_error / ...),
+   * defaulting to the state field when stopReason is absent. Returns counts
+   * and percentages, sorted by frequency.
+   */
   private analyzeStopReasons(checkpoints: HarnessCheckpoint[]): StopReasonStat[] {
     const reasonMap = new Map<string, number>();
     const total = checkpoints.length || 1;
@@ -182,6 +213,11 @@ export class SessionAnalyzer {
 
   // --- Token Efficiency ---
 
+  /**
+   * Computes aggregate token stats: total, per-session average, per-tool-call
+   * average, and the high/low watermarks. Per-call average divides total
+   * tokens by total tool calls across all sessions.
+   */
   private analyzeTokenEfficiency(checkpoints: HarnessCheckpoint[]): TokenEfficiency {
     const tokens: number[] = [];
     const toolCalls: number[] = [];
@@ -207,6 +243,10 @@ export class SessionAnalyzer {
 
   // --- Iteration Profile ---
 
+  /**
+   * Summarizes how many agent-loop iterations and tool calls each session
+   * took. High max-vs-average ratios flag potential runaway loops.
+   */
   private analyzeIterationProfile(checkpoints: HarnessCheckpoint[]): IterationProfile {
     const iterations: number[] = [];
     const toolCalls: number[] = [];
@@ -228,6 +268,10 @@ export class SessionAnalyzer {
 
   // --- Error Clustering ---
 
+  /**
+   * Groups failed sessions by the leading token of lastErrorMessage (a coarse
+   * error-type signature). Keeps up to 3 sample task descriptions per cluster.
+   */
   private analyzeErrorClusters(checkpoints: HarnessCheckpoint[]): ErrorCluster[] {
     const errorMap = new Map<string, { count: number; tasks: string[] }>();
 
@@ -255,6 +299,16 @@ export class SessionAnalyzer {
 
   // --- Insight Generation ---
 
+  /**
+   * Turns raw stats into actionable SessionInsights via heuristic thresholds:
+   *   - tool error rate > 30%      -> warning/critical
+   *   - failure stop-reason > 20%  -> warning/critical
+   *   - token high-watermark > 3x average -> warning (outlier)
+   *   - tokens/tool-call > 5000    -> info (cost)
+   *   - max iterations > 4x average -> warning (loop)
+   *   - recurring error clusters    -> warning/critical
+   *   - completion rate >= 80%      -> info (healthy)
+   */
   private generateInsights(
     toolUsage: ToolUsageStat[],
     stopReasons: StopReasonStat[],
@@ -363,6 +417,11 @@ export class SessionAnalyzer {
 
   // --- Persist insights to long-term memory ---
 
+  /**
+   * Stores actionable insights (max 5 key points) into LongMemoryStore under
+   * the "session-insights" topic so future sessions can recall them. No-op
+   * when no long-memory store is attached or no insights are actionable.
+   */
   private async persistInsights(insights: SessionInsight[]): Promise<void> {
     if (!this._longMemory || insights.length === 0) return;
 
@@ -388,7 +447,8 @@ export class SessionAnalyzer {
   }
 
   /**
-   * Format a report as a human-readable string.
+   * Renders a report as a markdown string (stop reasons, tool usage, token
+   * efficiency, iteration profile, error clusters, and severity-tagged insights).
    */
   formatReport(report: SessionAnalysisReport): string {
     const lines: string[] = [];

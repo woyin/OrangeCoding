@@ -1,6 +1,14 @@
 /**
  * @module master-worker
- * Master-worker collaboration protocol.
+ *
+ * Master-worker collaboration protocol for multi-agent mesh networking.
+ *
+ * The master-worker pattern uses a central coordinator (master) to distribute
+ * tasks to worker agents. The master decides which worker handles which task,
+ * collects results, and aggregates them. This is the most common distributed
+ * computing pattern — analogous to MapReduce.
+ *
+ * Flow: master assigns -> workers execute -> master collects -> master aggregates
  */
 
 import { AgentRole, TaskStatus } from "@orangecoding/core";

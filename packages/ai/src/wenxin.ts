@@ -1,3 +1,11 @@
+/**
+ * @module wenxin
+ *
+ * Baidu Wenxin (ERNIE) provider implementation.
+ *
+ * Adapts the Wenxin API to the AiProvider interface.
+ * Uses Baidu's authentication flow (access token via API key/secret).
+ */
 import type { ProviderConfig } from "./provider.js";
 import { providerTimeout } from "./provider.js";
 import type { ChatMessage, ToolDefinition, ChatOptions, AiResponse, StreamEvent, AiTokenUsage } from "./types.js";
@@ -7,12 +15,21 @@ import { parseSSEStream } from "./stream.js";
 // ---------------------------------------------------------------------------
 // Wenxin / Baidu ERNIE provider
 // ---------------------------------------------------------------------------
+// Baidu's ERNIE (Wenxin) models expose an OpenAI-incompatible HTTP API.
+// Two quirks this provider papers over:
+//   1. Authentication is OAuth2 (client_credentials) rather than bearer API
+//      keys, so we cache an access_token and refresh it ~5 min before expiry.
+//   2. The chat completion field is `result` (not `content`), and the
+//      endpoint path is per-model (completions_pro vs completions vs
+//      ernie_speed/ernie_lite). modelToEndpoint maps friendly names.
 
 const DEFAULT_WENXIN_BASE_URL = "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop";
 
 // ---------------------------------------------------------------------------
 // Wenxin wire types
 // ---------------------------------------------------------------------------
+// Shape of the JSON returned by the Wenxin chat endpoints. Only the fields
+// we read are typed; the API may return others which we ignore.
 
 interface WenxinResponse {
   id: string;
@@ -32,12 +49,20 @@ interface WenxinUsage {
 // WenxinProvider class
 // ---------------------------------------------------------------------------
 
+/**
+ * Provider implementing AiProvider for Baidu Wenxin/ERNIE models. Owns the
+ * OAuth2 access-token lifecycle (cached in-memory, auto-refreshed). Both the
+ * non-streaming and streaming chat methods share the same request-body
+ * construction; streaming only adds `stream: true` and parses the SSE deltas.
+ */
+
 export class WenxinProvider {
   private config: ProviderConfig;
   private baseURL: string;
   private timeoutMs: number;
 
-  // OAuth token state (cached, refreshed when expired)
+  // OAuth token state. `tokenExpiry` is a wall-clock ms timestamp; we refresh
+  // proactively 5 minutes before it lapses to avoid mid-request 401s.
   private accessToken = "";
   private tokenExpiry = 0;
 
@@ -55,6 +80,11 @@ export class WenxinProvider {
   // ChatCompletion (non-streaming)
   // -------------------------------------------------------------------------
 
+  /**
+   * Non-streaming chat completion. Builds the Wenxin request body (note the
+   * `result`-style response), waits for the full payload, and normalizes it
+   * into the shared {@link AiResponse}. Aborts on timeout.
+   */
   async chatCompletion(
     messages: ChatMessage[],
     tools: ToolDefinition[],
@@ -122,6 +152,11 @@ export class WenxinProvider {
   // ChatCompletionStream (streaming)
   // -------------------------------------------------------------------------
 
+  /**
+   * Streaming chat completion. Same request body as {@link chatCompletion}
+   * plus `stream: true`; the response body is parsed as SSE where each chunk
+   * carries an incremental `result` delta until `is_end` is true.
+   */
   async chatCompletionStream(
     messages: ChatMessage[],
     tools: ToolDefinition[],
@@ -210,7 +245,11 @@ export class WenxinProvider {
     }
   }
 
-  /** Obtains an access token using the API key and secret. Caches and refreshes. */
+  /**
+   * Obtain (or return cached) OAuth2 access token. Uses client_credentials
+   * grant with the API key/secret. Caches the token and schedules a refresh
+   * 5 minutes before the server-reported expiry to avoid edge-case 401s.
+   */
   private async getAccessToken(): Promise<string> {
     if (this.accessToken && Date.now() < this.tokenExpiry) {
       return this.accessToken;
@@ -261,6 +300,12 @@ export class WenxinProvider {
     }
   }
 
+  /**
+   * Parse the SSE response body into StreamEvents. Wenxin deltas carry the
+   * incremental text in `result`; the stream terminates when a chunk sets
+   * `is_end`. The timeout timer is cleared in `finally` so it does not leak
+   * if the consumer aborts iteration early.
+   */
   private async *readStream(resp: Response, timer: ReturnType<typeof setTimeout>): AsyncGenerator<StreamEvent> {
     try {
       if (!resp.body) {
@@ -304,6 +349,7 @@ export class WenxinProvider {
   }
 }
 
+/** JSON.stringify wrapper that converts cyclic/unserializable inputs into an AiParseError. */
 function safeMarshal(obj: unknown): string {
   try {
     return JSON.stringify(obj);
@@ -313,6 +359,17 @@ function safeMarshal(obj: unknown): string {
 }
 
 /** Creates a new Wenxin provider with the given config. */
+/**
+ * Creates a Baidu Wenxin (ERNIE) AI provider.
+ *
+ * Wenxin uses a token-based authentication flow:
+ * 1. Exchange API key/secret for an access token
+ * 2. Use the access token for subsequent API calls
+ * 3. Handle token refresh when expired
+ *
+ * @param config - Provider configuration with API key and secret
+ * @returns Configured AiProvider for Wenxin/ERNIE models
+ */
 export function newWenxinProvider(config: ProviderConfig): WenxinProvider {
   return new WenxinProvider(config);
 }

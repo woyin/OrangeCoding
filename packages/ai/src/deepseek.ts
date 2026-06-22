@@ -1,3 +1,11 @@
+/**
+ * @module deepseek
+ *
+ * DeepSeek provider implementation.
+ *
+ * Adapts the DeepSeek API (OpenAI-compatible) with DeepSeek-specific
+ * features like deep thinking mode and code generation optimizations.
+ */
 import type { ProviderConfig } from "./provider.js";
 import { providerTimeout } from "./provider.js";
 import type { ChatMessage, ToolDefinition, ChatOptions, AiResponse, StreamEvent } from "./types.js";
@@ -25,6 +33,11 @@ interface OpenAIRequest {
 // DeepSeekProvider class
 // ---------------------------------------------------------------------------
 
+/**
+ * DeepSeekProvider implements the AI provider interface for the DeepSeek API.
+ * DeepSeek is OpenAI-compatible, so chat and streaming requests are delegated
+ * to the shared OpenAI request helpers with the DeepSeek base URL.
+ */
 export class DeepSeekProvider {
   private config: ProviderConfig;
   private baseURL: string;

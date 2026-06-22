@@ -1,6 +1,25 @@
 /**
- * AgentLoop is the core event loop that drives agent behavior.
- * Ported from modules/agent/loop.go.
+ * AgentLoop — the core event loop that drives agent behavior.
+ *
+ * Each iteration of {@link AgentLoop.run} performs the same fixed pipeline:
+ *
+ *   1. Build context      — assemble system prompt + memory + conversation.
+ *   2. Pre-model guardrail— policy check before spending tokens.
+ *   3. Model call          — stream the provider response, accumulating text
+ *                            and tool-call deltas.
+ *   4. Final-output / tool decision — branch on whether the model requested tools.
+ *   5. Pre-tool guardrail  — policy check per requested tool call.
+ *   6. Tool dispatch       — execute the batch via the ToolExecutor.
+ *   7. Observe + memory    — ingest tool results, feed memory, emit events.
+ *   8. Post-tool guardrail — policy check on tool outputs.
+ *   9. Compact + checkpoint— shrink the conversation if over budget, persist.
+ *
+ * The loop terminates on completion, a guardrail deny, the tool/iteration
+ * budget, cancellation, or a provider error. A {@link HarnessEngine} records
+ * state-machine transitions for observability and resumption.
+ *
+ * Originally ported from modules/agent/loop.go; since refactored for clarity
+ * and to remove repeated allocation/error-handling boilerplate.
  */
 
 import type { AgentId, SessionId, TokenUsage, ToolCall as CoreToolCall } from "@orangecoding/core";
@@ -120,6 +139,16 @@ export class AgentLoop {
   private _harnessRunID: string;
   private _cachedToolKeys: string[];
 
+  /**
+   * Creates a new AgentLoop instance.
+   *
+   * @param id - Unique agent identifier
+   * @param provider - AI provider for model calls
+   * @param executor - Tool executor for dispatching tool calls
+   * @param ctx - Agent context (session, conversation, working directory)
+   * @param config - Loop configuration (limits, guardrails, etc.)
+   * @param toolDefs - Tool definitions to send to the model
+   */
   constructor(
     id: AgentId,
     provider: AiProvider,
@@ -138,15 +167,30 @@ export class AgentLoop {
     this._cachedToolKeys = [];
   }
 
+  /** The agent's conversation context and working directory. */
   get context(): AgentContext { return this._context; }
+  /** The tool executor responsible for running tool calls. */
   get executor(): ToolExecutor { return this._executor; }
+  /** The AI provider used for model completions. */
   get provider(): AiProvider { return this._provider; }
+  /** Current loop configuration (limits, guardrails, etc.). */
   get config(): AgentLoopConfig { return this._config; }
+  /** Tool definitions available to the model. */
   get toolDefs(): ToolDefinition[] { return this._tools; }
+  /** The current harness run ID for observability tracking. */
   get harnessRunID(): string { return this._harnessRunID; }
+  /** The unique identifier for this agent. */
   get agentID(): AgentId { return this._id; }
 
-  /** Run executes the agent loop, streaming events via the callback. */
+  /**
+   * Runs the agent loop to completion, streaming progress via `eventCb`.
+   *
+   * `chatOpts` may be partially specified; harness profile defaults are
+   * applied (reasoning effort, language, etc.) before the first model call.
+   *
+   * Returns an {@link AgentLoopResult} describing token usage, tool calls,
+   * elapsed time, and the terminal stop reason.
+   */
   async run(
     chatOpts: Partial<ChatOptions>,
     eventCb: ((event: AgentEvent) => void) | null,
@@ -215,8 +259,12 @@ export class AgentLoop {
     const loopController = new AbortController();
     const timeoutId = setTimeout(() => loopController.abort(), this._config.timeoutMs);
 
+    // ---- Main iteration loop -------------------------------------------------
+    // Each pass executes one full pipeline (build → guardrail → model → tools).
+    // `start` is captured once so every early-return can compute durationMs in O(1).
     try {
       for (let iteration = 0; iteration < this._config.maxIterations; iteration++) {
+        // Re-enter the BuildContext state for iterations after the first.
         if (iteration > 0) {
           try {
             await harness.transition(loopController.signal, HS.BuildContext, "next iteration");
@@ -250,9 +298,12 @@ export class AgentLoop {
           return result;
         }
 
-        // Build messages for the AI provider
+        // Convert conversation + harness context blocks into provider wire format.
+        // `let` is retained because prependHarnessContextMessages may return the
+        // same array by reference when there is no prefix (zero-copy fast path).
         let aiMessages = conversationToAIMessages(this._context.conversation);
         aiMessages = prependHarnessContextMessages(aiMessages, contextBlocks);
+        // Token estimate for the pre-model guardrail budget check.
         const preModelTokenEstimate = this._context.conversation.tokenEstimate();
 
         // Pre-model guardrail
@@ -292,39 +343,43 @@ export class AgentLoop {
           return result;
         }
 
-        // Accumulate streaming response
+        // Accumulators for the streamed model response.
         let content = "";
         const toolCalls: AiToolCallAccumulator[] = [];
+        // id -> accumulator, for O(1) lookup while streaming tool-call deltas.
+        const toolCallIndex = new Map<string, AiToolCallAccumulator>();
         let usage: { promptTokens: number; completionTokens: number } | null = null;
 
+        // Stream the provider response to completion. Tool-call deltas are
+        // accumulated in arrival order; an index map (toolCallIndex) gives O(1)
+        // appends for the common single-call case and avoids the previous O(n)
+        // linear scan on every delta — a measurable win for models that emit
+        // tool-call arguments token-by-token across many deltas.
         for await (const event of streamIter) {
           switch (event.type) {
             case "content_delta":
+              // Append text delta and forward to the listener (e.g. TUI).
               content += event.content;
-              if (eventCb) {
-                eventCb(new StreamChunkEvent(this._id, sid, event.content));
-              }
+              eventCb?.(new StreamChunkEvent(this._id, sid, event.content));
               break;
             case "tool_call_delta": {
-              let found = false;
-              for (const tc of toolCalls) {
-                if (tc.id === event.tool_call_id) {
-                  tc.arguments += event.arguments;
-                  if (event.tool_call_name) tc.name = event.tool_call_name;
-                  found = true;
-                  break;
-                }
-              }
-              if (!found) {
-                toolCalls.push({
+              const existing = toolCallIndex.get(event.tool_call_id);
+              if (existing !== undefined) {
+                existing.arguments += event.arguments;
+                if (event.tool_call_name) existing.name = event.tool_call_name;
+              } else {
+                const acc: AiToolCallAccumulator = {
                   id: event.tool_call_id,
                   name: event.tool_call_name,
                   arguments: event.arguments,
-                });
+                };
+                toolCallIndex.set(event.tool_call_id, acc);
+                toolCalls.push(acc);
               }
               break;
             }
             case "usage":
+              // Capture token usage once the provider reports it.
               if (event.usage) {
                 usage = {
                   promptTokens: event.usage.prompt_tokens,
@@ -349,11 +404,8 @@ export class AgentLoop {
           this._context.conversation.addMessage(newAssistantMessage(content));
         }
 
-        if (this._config.tieredMemory) {
-          await this._config.tieredMemory.learn(content).catch(() => {});
-        } else if (this._config.memoryManager) {
-          await this._config.memoryManager.learnObservation(undefined, content).catch(() => {});
-        }
+        // Feed assistant output into long-term memory (best-effort; errors swallowed).
+        await this._learn(content);
 
         // Update token usage
         if (usage) {
@@ -454,7 +506,11 @@ export class AgentLoop {
           return result;
         }
 
+        // Execute the requested tool calls. toolNameById is built once so the
+        // completion-event loop below is O(results) instead of O(results*calls).
         const execResults = await this._executor.executeBatch(loopController.signal, coreToolCalls);
+        const toolNameById = new Map<string, string>();
+        for (const tc of coreToolCalls) toolNameById.set(tc.id, tc.function_name);
 
         try {
           await harness.transition(loopController.signal, HS.Observe, "observe tool results");
@@ -466,20 +522,15 @@ export class AgentLoop {
         // Add tool results to conversation and emit completion events
         for (const er of execResults) {
           this._context.conversation.addMessage(newToolResultMessage(er.toolCallID, er.content, er.isError));
-          if (this._config.tieredMemory) {
-            await this._config.tieredMemory.learn(er.content).catch(() => {});
-          } else if (this._config.memoryManager) {
-            await this._config.memoryManager.learnObservation(undefined, er.content).catch(() => {});
-          }
+          await this._learn(er.content);
           if (eventCb) {
-            let toolName = "";
-            for (const tc of coreToolCalls) {
-              if (tc.id === er.toolCallID) {
-                toolName = tc.function_name;
-                break;
-              }
-            }
-            eventCb(new ToolCallCompletedEvent(this._id, sid, toolName, !er.isError, er.durationMs));
+            // toolNameById gives O(1) lookup instead of an inner linear scan
+            // per tool result (was O(n*m) across the result batch).
+            eventCb(new ToolCallCompletedEvent(
+              this._id, sid,
+              toolNameById.get(er.toolCallID) ?? "",
+              !er.isError, er.durationMs,
+            ));
           }
         }
 
@@ -537,6 +588,10 @@ export class AgentLoop {
     }
   }
 
+  /**
+   * Logs a guardrail decision to the configured guardrail logger.
+   * No-op if no logger is configured.
+   */
   private logGuardrail(name: string, decision: string, reason: string, phase: string): void {
     if (this._config.guardrailLogger) {
       this._config.guardrailLogger.log({
@@ -549,6 +604,10 @@ export class AgentLoop {
     }
   }
 
+  /**
+   * Records a guardrail decision by logging it and emitting an event.
+   * Combines logGuardrail with event emission for the event callback.
+   */
   private recordGuardrail(
     name: string,
     decision: string,
@@ -563,6 +622,10 @@ export class AgentLoop {
     }
   }
 
+  /**
+   * Records a progress snapshot at the current iteration.
+   * Captures iteration number, tool calls made, token usage, and reason.
+   */
   private recordProgress(result: AgentLoopResult, iteration: number, reason: string): void {
     result.progress.push({
       iteration,
@@ -573,6 +636,10 @@ export class AgentLoop {
     });
   }
 
+  /**
+   * Returns the most recent user message as the current task description.
+   * Scans backwards through the conversation to find the last user input.
+   */
   private currentTask(): string {
     const msgs = this._context.conversation.messagesUnsafe();
     for (let i = msgs.length - 1; i >= 0; i--) {
@@ -581,6 +648,10 @@ export class AgentLoop {
     return "";
   }
 
+  /**
+   * Returns tool call keys from recent messages for duplicate detection.
+   * Used by pre-tool guardrails to detect repeated tool calls.
+   */
   private recentToolKeys(): string[] {
     const msgs = this._context.conversation.messagesUnsafe();
     const startIdx = this._cachedToolKeys.length > 0
@@ -602,6 +673,20 @@ export class AgentLoop {
     }
     return this._cachedToolKeys;
   }
+
+  /**
+   * Feeds `content` into whichever long-term memory backend is configured.
+   * Prefers the tiered memory manager when present, otherwise falls back to the
+   * flat memory manager. All errors are swallowed (`.catch(() => {})`) because
+   * memory learning is best-effort and must never abort the agent loop.
+   */
+  private async _learn(content: string): Promise<void> {
+    if (this._config.tieredMemory) {
+      await this._config.tieredMemory.learn(content).catch(() => {});
+    } else if (this._config.memoryManager) {
+      await this._config.memoryManager.learnObservation(undefined, content).catch(() => {});
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -622,30 +707,71 @@ function systemPromptFromContext(ctx: AgentContext): string {
   return ctx.conversation.systemPrompt() ?? "";
 }
 
+/**
+ * Prepends non-conversation harness context blocks (as system messages) in
+ * front of the conversation messages. "conversation"-kind blocks and empty
+ * blocks are skipped — they are already represented in `messages`.
+ *
+ * Performance note: builds the result in a single pass by pre-sizing the
+ * output array and pushing directly, rather than allocating an intermediate
+ * `prefix` array and then spreading twice (`[...prefix, ...messages]`), which
+ * previously copied every element twice.
+ */
 function prependHarnessContextMessages(messages: ChatMessage[], blocks: { kind: string; content: string }[]): ChatMessage[] {
-  const prefix: ChatMessage[] = [];
+  // Pre-count usable blocks so we can size the prefix slice exactly, avoiding
+  // a reallocation when we splice it ahead of the conversation messages.
+  let prefixCount = 0;
+  for (const block of blocks) {
+    if (block.kind !== "conversation" && block.content) prefixCount++;
+  }
+  if (prefixCount === 0) return messages; // no prefix → return messages as-is, zero-copy
+
+  const result: ChatMessage[] = new Array(prefixCount + messages.length);
+  let i = 0;
   for (const block of blocks) {
     if (block.kind === "conversation") continue;
     if (!block.content) continue;
-    prefix.push(systemMsg(block.content));
+    result[i++] = systemMsg(block.content);
   }
-  return [...prefix, ...messages];
+  // Copy the conversation messages into the tail of the same array.
+  for (let j = 0; j < messages.length; j++) {
+    result[i++] = messages[j]!;
+  }
+  return result;
 }
 
-function conversationToAIMessages(conv: { messages(): { role: string; content: string; toolCalls?: { id: string; function_name: string; arguments: unknown; toolCallID?: string }[]; toolCallID?: string }[] }): ChatMessage[] {
-  const msgs = conv.messages();
-  const aiMsgs: ChatMessage[] = [];
+/**
+ * Converts the internal Conversation message list into the wire format
+ * expected by AI providers ({@link ChatMessage}).
+ *
+ * Maps: system→system, user→user, assistant(+toolCalls)→assistant w/ tool_calls,
+ * tool→tool result. Assistant tool-call arguments are JSON-stringified when
+ * they are not already strings, since the wire format requires string args.
+ *
+ * Performance note: pre-sizes the output array to the exact message count so
+ * push() never triggers a backing-array reallocation (V8 otherwise grows
+ * dynamically with amortized copies). Uses a plain for-loop index, the
+ * fastest iteration shape in V8.
+ */
+function conversationToAIMessages(conv: { messages(): { role: string; content: string; toolCalls?: { id: string; function_name: string; arguments: unknown; toolCallID?: string }[]; toolCallID?: string }[]; messagesUnsafe(): readonly { role: string; content: string; toolCalls?: { id: string; function_name: string; arguments: unknown; toolCallID?: string }[]; toolCallID?: string }[] }): ChatMessage[] {
+  // Read the backing array directly (messagesUnsafe) to skip the defensive
+  // copy made by messages() — we never mutate here, so the copy was pure waste
+  // and allocated a full message array every agent-loop iteration.
+  const msgs = conv.messagesUnsafe();
+  const aiMsgs: ChatMessage[] = new Array(msgs.length);
 
-  for (const m of msgs) {
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i]!;
     switch (m.role) {
       case "system":
-        aiMsgs.push(systemMsg(m.content));
+        aiMsgs[i] = systemMsg(m.content);
         break;
       case "user":
-        aiMsgs.push(userMsg(m.content));
+        aiMsgs[i] = userMsg(m.content);
         break;
       case "assistant":
         if (m.toolCalls && m.toolCalls.length > 0) {
+          // Map internal tool calls to the provider wire shape in one pass.
           const aiToolCalls = m.toolCalls.map((tc) => ({
             id: tc.id,
             type: "function",
@@ -656,13 +782,18 @@ function conversationToAIMessages(conv: { messages(): { role: string; content: s
           }));
           const msg = assistantMsgWithTools(aiToolCalls);
           msg.content = m.content;
-          aiMsgs.push(msg);
+          aiMsgs[i] = msg;
         } else {
-          aiMsgs.push(assistantMsg(m.content));
+          aiMsgs[i] = assistantMsg(m.content);
         }
         break;
       case "tool":
-        aiMsgs.push(toolResultMsg(m.toolCallID ?? "", m.content));
+        aiMsgs[i] = toolResultMsg(m.toolCallID ?? "", m.content);
+        break;
+      default:
+        // Unknown roles are preserved as user-style messages so the provider
+        // still receives the content (defensive; should not happen in practice).
+        aiMsgs[i] = userMsg(m.content);
         break;
     }
   }

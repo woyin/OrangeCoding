@@ -1,5 +1,19 @@
+/**
+ * @module control-messages
+ *
+ * Control protocol message types for the HTTP control server.
+ *
+ * Defines the request/response types for the REST API:
+ * - Session management (create, list, get, delete)
+ * - Task submission and status queries
+ * - Agent health checks
+ * - Configuration updates
+ *
+ * All messages are serialized as JSON for HTTP transport.
+ */
 // ---------------------------------------------------------------------------
-// ClientCommand -- commands from web UI to server
+// ClientCommand -- commands sent from the web UI / control client to the
+// control server. Each command carries a discriminant string via commandType().
 // ---------------------------------------------------------------------------
 
 /** ClientCommand is the interface for commands from web UI to server. */
@@ -14,6 +28,7 @@ export class SendTaskCommand implements ClientCommand {
     public readonly task: string,
   ) {}
 
+  /** commandType returns the wire discriminant "send_task". */
   commandType(): string {
     return "send_task";
   }
@@ -26,6 +41,7 @@ export class ApproveCommand implements ClientCommand {
     public readonly approved: boolean,
   ) {}
 
+  /** commandType returns the wire discriminant "approve". */
   commandType(): string {
     return "approve";
   }
@@ -37,13 +53,16 @@ export class CancelCommand implements ClientCommand {
     public readonly sessionId: string,
   ) {}
 
+  /** commandType returns the wire discriminant "cancel". */
   commandType(): string {
     return "cancel";
   }
 }
 
 // ---------------------------------------------------------------------------
-// ServerEvent -- events from server to web UI
+// ServerEvent -- events streamed from the control server to connected web UI
+// clients over the WebSocket channel. Each event carries a discriminant via
+// eventType() so the client can switch on a single field.
 // ---------------------------------------------------------------------------
 
 /** ServerEvent is the interface for events from server to web UI. */
@@ -59,6 +78,7 @@ export class TaskUpdateEvent implements ServerEvent {
     public readonly message: string,
   ) {}
 
+  /** eventType returns the wire discriminant "task_update". */
   eventType(): string {
     return "task_update";
   }
@@ -74,6 +94,7 @@ export class ToolCallEvent implements ServerEvent {
     public readonly isError: boolean,
   ) {}
 
+  /** eventType returns the wire discriminant "tool_call". */
   eventType(): string {
     return "tool_call";
   }
@@ -88,6 +109,7 @@ export class ApprovalRequestEvent implements ServerEvent {
     public readonly message: string,
   ) {}
 
+  /** eventType returns the wire discriminant "approval_request". */
   eventType(): string {
     return "approval_request";
   }
@@ -100,6 +122,7 @@ export class ErrorEvent implements ServerEvent {
     public readonly error: string,
   ) {}
 
+  /** eventType returns the wire discriminant "error". */
   eventType(): string {
     return "error";
   }

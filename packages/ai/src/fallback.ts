@@ -1,3 +1,12 @@
+/**
+ * @module fallback
+ *
+ * Fallback provider that chains multiple AI providers for resilience.
+ *
+ * When the primary provider fails (network error, rate limit, etc.),
+ * the fallback provider automatically retries with an alternative provider.
+ * Supports configurable retry policies and provider priority ordering.
+ */
 import type { AiProvider } from "./provider.js";
 import type { ChatMessage, ToolDefinition, ChatOptions, AiResponse, StreamEvent } from "./types.js";
 

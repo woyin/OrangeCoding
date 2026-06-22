@@ -60,6 +60,7 @@ const DEFAULT_CONFIG: TieredMemoryConfig = {
 // Working Memory Entry
 // ---------------------------------------------------------------------------
 
+/** A single transient working-memory record. `turn` enables age-based expiry. */
 interface WorkingEntry {
   content: string;
   turn: number;
@@ -91,6 +92,13 @@ export class TieredMemoryManager {
 
   // --- Initialization ---
 
+  /**
+   * Initialize the memory directory and core memory file.
+   * Idempotent: safe to call multiple times. Creates the directory tree
+   * (recursive) and seeds MEMORY.md if absent, then initializes the
+   * optional long-term store. Subsequent calls are a fast no-op once
+   * `_initialized` is set.
+   */
   async init(): Promise<void> {
     if (this._initialized) return;
     await fs.promises.mkdir(this._config.dir, { recursive: true });
@@ -106,7 +114,13 @@ export class TieredMemoryManager {
   }
 
   // --- Tier 0: Core Memory ---
+  // MEMORY.md is the always-loaded identity/preferences layer.
+  // A `_coreCache` field avoids repeated disk reads within a session.
 
+  /**
+   * Read the core memory file, returning a cached copy after the first
+   * load. Returns an empty string if the file is missing or unreadable.
+   */
   async readCore(): Promise<string> {
     await this.init();
     if (this._coreCache !== null) return this._coreCache;
@@ -119,6 +133,10 @@ export class TieredMemoryManager {
     }
   }
 
+  /**
+   * Overwrite core memory, truncating to the core token budget.
+   * Updates the in-memory cache so subsequent readCore() calls are consistent.
+   */
   async writeCore(content: string): Promise<void> {
     await this.init();
     const trimmed = enforceTokenLimit(content, this._config.coreBudgetTokens);
@@ -126,6 +144,11 @@ export class TieredMemoryManager {
     await fs.promises.writeFile(this._corePath, trimmed, "utf-8");
   }
 
+  /**
+   * Append a single fact (as a bullet line) to core memory.
+   * Reads from the cache when available to avoid an extra disk read,
+   * then re-trims to the budget before persisting.
+   */
   async appendCore(fact: string): Promise<void> {
     await this.init();
     const current = this._coreCache ?? await this.readCore();
@@ -137,7 +160,15 @@ export class TieredMemoryManager {
   }
 
   // --- Tier 1: Working Memory ---
+  // An in-process scratchpad of transient entries tagged with the
+  // current turn and a priority. Entries auto-expire after
+  // `workingMaxTurns` turns; exceeding `workingMaxEntries` triggers
+  // eviction of the lowest-priority/oldest entries.
 
+  /**
+   * Push a working-memory entry at the current turn. Triggers eviction
+   * if the entry count exceeds the configured maximum.
+   */
   pushWorking(content: string, priority = 50): void {
     this._working.push({ content, turn: this._currentTurn, priority });
     if (this._working.length > this._config.workingMaxEntries) {
@@ -145,12 +176,21 @@ export class TieredMemoryManager {
     }
   }
 
+  /**
+   * Advance the turn counter and prune entries older than the cutoff.
+   * Called once per agent turn so stale context does not accumulate.
+   */
   advanceTurn(): void {
     this._currentTurn++;
     const cutoff = this._currentTurn - this._config.workingMaxTurns;
     this._working = this._working.filter((e) => e.turn >= cutoff);
   }
 
+  /**
+   * Return working-memory entries within the age cutoff, ordered by
+   * descending priority and truncated to the working token budget.
+   * Does not mutate state; the most important entries win budget.
+   */
   recallWorking(): string[] {
     const cutoff = this._currentTurn - this._config.workingMaxTurns;
     const valid = this._working.filter((e) => e.turn >= cutoff);
@@ -159,7 +199,15 @@ export class TieredMemoryManager {
   }
 
   // --- Tier 2: Long-Term Memory ---
+  // On-demand topic-based recall backed by LongMemoryStore. Bounded by
+  // `longTermBudgetTokens`; falls back to the most recent index entries
+  // when no search match is found.
 
+  /**
+   * Search long-term memory for entries relevant to `query` and render
+   * them as markdown within the long-term token budget. Returns "" when
+   * the store is absent or empty, or a recency fallback when no match.
+   */
   async recallLongTerm(query: string): Promise<string> {
     if (!this._longMemory) return "";
     await this.init();
@@ -179,6 +227,7 @@ export class TieredMemoryManager {
     return renderIndexEntries(results, this._config.longTermBudgetTokens);
   }
 
+  /** Persist a new entry to the long-term store (no-op if absent). */
   async storeLongTerm(entry: MemoryEntry): Promise<void> {
     if (!this._longMemory) return;
     await this.init();
@@ -191,7 +240,17 @@ export class TieredMemoryManager {
   // This tier is opt-in and not managed by TieredMemoryManager directly.
 
   // --- Unified Recall (for prompt injection) ---
+  // recall() assembles the final ContextBlock list injected into the
+  // prompt. It walks tiers in priority order (core > working > long-term)
+  // and stops as soon as the combined `totalBudgetTokens` is reached,
+  // guaranteeing the prompt never exceeds the configured budget.
 
+  /**
+   * Recall memory across all tiers into a prioritized list of context
+   * blocks. Core memory is always included first; working and long-term
+   * tiers fill the remaining budget. Tier 3 (semantic) is delegated to
+   * an external manager and intentionally not included here.
+   */
   async recall(query: string): Promise<ContextBlock[]> {
     await this.init();
     const blocks: ContextBlock[] = [];
@@ -253,6 +312,13 @@ export class TieredMemoryManager {
 
   // --- Learning ---
 
+  /**
+   * Ingest free-form agent output: any line starting with "FACT:" is
+   * extracted as a short core-memory fact (legacy convention), and the
+   * first few non-empty lines are mirrored into working memory so the
+   * next turn has immediate context. Facts are length-validated to keep
+   * core memory compact.
+   */
   async learn(content: string): Promise<void> {
     await this.init();
 
@@ -277,6 +343,7 @@ export class TieredMemoryManager {
 
   // --- Cleanup ---
 
+  /** Delegate compaction of the long-term store (drop stale entries). */
   async compact(): Promise<void> {
     if (this._longMemory) {
       await this._longMemory.compact();
@@ -285,6 +352,12 @@ export class TieredMemoryManager {
 
   // --- Stats ---
 
+  /**
+   * Return a synchronous snapshot of memory usage. `coreTokens` is 0
+   * because an accurate core read is async; callers needing the precise
+   * figure should `await readCore()` then estimateTokens() it. Working
+   * stats iterate the current entries in O(n).
+   */
   getStats(): { coreTokens: number; workingEntries: number; workingTokens: number } {
     const coreTokens = 0; // Approximate — actual read requires async
     return {
@@ -296,6 +369,12 @@ export class TieredMemoryManager {
 
   // --- Private ---
 
+  /**
+   * Evict working entries until the count fits the configured maximum.
+   * Sorts by descending priority then descending turn (most recent wins),
+   * then drops from the front of the sorted array. The comparator is
+   * stable for equal-priority entries so newer context is retained.
+   */
   private evictWorking(): void {
     // Remove oldest, lowest priority entries
     this._working.sort((a, b) => b.priority - a.priority || b.turn - a.turn);
@@ -309,6 +388,7 @@ export class TieredMemoryManager {
 // Utility Functions
 // ---------------------------------------------------------------------------
 
+/** Fast heuristic token estimator: ~4 chars/token (UTF-16 code units). */
 function estimateTokens(text: string): number {
   if (!text) return 0;
   // Use text.length (UTF-16 code units) as fast approximation.
@@ -332,6 +412,10 @@ function enforceTokenLimit(content: string, budget: number): string {
   return content.slice(0, cutAt) + "\n";
 }
 
+/**
+ * Greedily pack entry contents into `budget` tokens, preserving the
+ * caller-provided order. Stops at the first entry that would overflow.
+ */
 function truncateEntries(entries: WorkingEntry[], budget: number): string[] {
   const result: string[] = [];
   let used = 0;
@@ -344,6 +428,11 @@ function truncateEntries(entries: WorkingEntry[], budget: number): string[] {
   return result;
 }
 
+/**
+ * Render long-term index entries as compact markdown ("## topic" + summary
+ * + bullet key points), stopping as soon as the cumulative token budget
+ * is reached.
+ */
 function renderIndexEntries(
   entries: ReadonlyArray<{ topic: string; summary: string; keyPoints: string[] }>,
   budget: number,

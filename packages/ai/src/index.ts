@@ -1,3 +1,21 @@
+/**
+ * @module ai
+ *
+ * AI provider abstraction layer for OrangeCoding.
+ *
+ * Provides a unified interface for interacting with multiple AI providers:
+ * - OpenAI (GPT models)
+ * - Anthropic (Claude models)
+ * - DeepSeek
+ * - Qianwen (Tongyi)
+ * - Wenxin (ERNIE)
+ *
+ * Key exports:
+ * - AiProvider: the core provider interface
+ * - ProviderFactory: creates providers by name
+ * - ModelRouter: routes requests to optimal models
+ * - RateLimitHandler: automatic retry on 429 errors
+ */
 // Types
 export type {
   ChatMessage,

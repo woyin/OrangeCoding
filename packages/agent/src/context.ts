@@ -16,6 +16,12 @@ import {
 import type { ToolResult, ToolCall } from "@orangecoding/core";
 import type { HarnessProfile } from "./harness-profile.js";
 
+/**
+ * Per-session agent state: the conversation, working directory, and
+ * free-form environment/metadata maps. Thin facade over Conversation that
+ * the agent loop and tools share. System prompt is stored as the first
+ * conversation message so it round-trips through serialization cleanly.
+ */
 export class AgentContext {
   private _sessionID: SessionId;
   private _conversation: Conversation;
@@ -36,7 +42,11 @@ export class AgentContext {
     this._conversation.replaceSystemPrompt(prompt);
   }
 
-  /** ApplyHarnessProfile appends harness guidance to the system prompt once. */
+  /**
+   * Append the harness profile's system-prompt addendum exactly once. The
+   * "[OrangeCoding Harness]" marker guards against double-application across
+   * re-entrancy or profile swaps.
+   */
   applyHarnessProfile(profile: HarnessProfile): void {
     const addendum = profile.systemPromptAddendum();
     const current = this._conversation.systemPrompt();

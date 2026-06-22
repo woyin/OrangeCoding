@@ -1,3 +1,11 @@
+/**
+ * @module session-tree
+ *
+ * Session tree visualization and navigation.
+ *
+ * Provides utilities for displaying session hierarchies, navigating
+ * between parent/child sessions, and querying session relationships.
+ */
 import type { SessionId } from "@orangecoding/core";
 
 /**

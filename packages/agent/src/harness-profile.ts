@@ -117,6 +117,7 @@ export class HarnessProfile {
     return p;
   }
 
+  /** Returns the system prompt text to append for this profile's behavior. */
   systemPromptAddendum(): string {
     const p = this.normalized();
     const parts: string[] = ["\n\n[OrangeCoding Harness]\n"];

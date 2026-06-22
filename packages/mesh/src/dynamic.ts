@@ -1,6 +1,17 @@
 /**
  * @module dynamic
- * DynamicCollaboration wires all collaboration protocols and supports runtime switching.
+ *
+ * Dynamic agent allocation and collaboration protocol switching.
+ *
+ * DynamicCollaboration analyzes task complexity and dynamically provisions
+ * the right number and type of agents. It supports runtime switching between
+ * collaboration protocols (Pipeline, MasterWorker, Consensus, Debate) based
+ * on the task classification.
+ *
+ * Key features:
+ * - Task complexity analysis (simple -> 1 agent, complex -> N agents)
+ * - Auto-scaling based on workload demands
+ * - Protocol selection based on task type
  */
 
 import { TaskType, TaskStatus } from "@orangecoding/core";

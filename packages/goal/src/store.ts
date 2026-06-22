@@ -10,6 +10,10 @@ import type { GoalState } from "./types.js";
 // Store
 // ---------------------------------------------------------------------------
 
+/**
+ * GoalStore is the persistence interface for goal state: load, save, delete, list.
+ * Implementations may be file-backed (FileGoalStore) or in-memory (MemoryGoalStore).
+ */
 export interface GoalStore {
   load(goalId: string): Promise<GoalState | null>;
   save(state: GoalState): Promise<void>;
@@ -28,10 +32,15 @@ export class FileGoalStore implements GoalStore {
     this._dir = dir;
   }
 
+  /** _path resolves the on-disk JSON file path for a goal ID within the store directory. */
   private _path(goalId: string): string {
     return join(this._dir, `${goalId}.json`);
   }
 
+  /**
+   * load reads and reconstructs a GoalState from its JSON file. Returns null if
+   * the file is missing or unreadable (treated as "no saved state").
+   */
   async load(goalId: string): Promise<GoalState | null> {
     try {
       const raw = await readFile(this._path(goalId), "utf-8");
@@ -51,6 +60,7 @@ export class FileGoalStore implements GoalStore {
     }
   }
 
+  /** save serializes the goal state to JSON, creating the store directory if needed. */
   async save(state: GoalState): Promise<void> {
     await mkdir(this._dir, { recursive: true });
     await writeFile(this._path(state.id), JSON.stringify(state, null, 2), "utf-8");

@@ -1,3 +1,15 @@
+/**
+ * @module mcp-client
+ *
+ * MCP client implementation for connecting to MCP servers.
+ *
+ * The McpClient:
+ * - Establishes transport connection (stdio or socket)
+ * - Sends JSON-RPC requests (initialize, tools/list, tools/call, etc.)
+ * - Receives and parses responses
+ * - Manages the connection lifecycle
+ * - Handles protocol version negotiation
+ */
 import type { Transport } from "./transport.js";
 import { JSONRPC_VERSION, type Request, type Response, type Notification, type ToolInfo } from "./jsonrpc.js";
 import { newProtocolError } from "@orangecoding/core";
@@ -8,7 +20,13 @@ export interface ServerInfo {
   version: string;
 }
 
-/** McpClient is an MCP protocol client that communicates over a Transport. */
+/**
+ * MCP protocol client. Serializes JSON-RPC requests over a {@link Transport}
+ * and correlates responses by numeric id. Two maps back the correlation:
+ * `pendingResponses` holds responses that arrived before their requester
+ * registered interest, and `waitingResolvers` holds promises awaiting a
+ * response. A background drain loop reads frames and dispatches them.
+ */
 export class McpClient {
   private idCounter = 0;
   private closed = false;
@@ -17,7 +35,10 @@ export class McpClient {
 
   constructor(private readonly transport: Transport) {}
 
-  /** Close shuts down the client. */
+  /**
+   * Shut down the client: fail any in-flight requests with an error response,
+   * then close the underlying transport. Idempotent.
+   */
   async close(): Promise<void> {
     if (!this.closed) {
       this.closed = true;
@@ -39,7 +60,12 @@ export class McpClient {
     return ++this.idCounter;
   }
 
-  /** sendRequest sends a JSON-RPC request and waits for the matching response. */
+  /**
+   * Send a JSON-RPC request and await its correlated response. If the
+   * response has already been buffered (race with the drain loop) it is
+   * returned immediately; otherwise we register a resolver promise and kick
+   * the drain loop, which resolves on arrival or on transport error.
+   */
   private async sendRequest(method: string, params?: unknown): Promise<Response> {
     const id = this.nextID();
 
@@ -77,7 +103,11 @@ export class McpClient {
     });
   }
 
-  /** Continuously read responses from the transport and dispatch to waiting requests. */
+  /**
+   * Background read loop: pull frames, parse, and hand each response to its
+   * waiting resolver (or buffer it in `pendingResponses` if none yet).
+   * Notifications (no id) are dropped. Runs until close() or transport error.
+   */
   private async drainResponses(): Promise<void> {
     while (!this.closed) {
       const raw = await this.transport.receive();
@@ -215,6 +245,9 @@ export class McpClient {
 // ---------------------------------------------------------------------------
 // Prompt types (MCP spec)
 // ---------------------------------------------------------------------------
+// Prompt templates exposed by the server. `PromptResult.messages` mirrors the
+// MCP content-block shape (text / image / resource) so a client can render
+// prompt output without a second round-trip.
 
 export interface PromptInfo {
   name: string;
@@ -243,6 +276,8 @@ export interface PromptResult {
 // ---------------------------------------------------------------------------
 // Resource types (MCP spec)
 // ---------------------------------------------------------------------------
+// Addressable server-side resources. A resource may be served as text or as
+// a base64 `blob`; the client treats both uniformly via ResourceResult.
 
 export interface ResourceInfo {
   uri: string;

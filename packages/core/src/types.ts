@@ -1,8 +1,28 @@
+/**
+ * @module types
+ *
+ * Core type definitions and branded types for the OrangeCoding system.
+ *
+ * Provides:
+ * - Branded types: AgentId, SessionId (prevent accidental mixing)
+ * - Role enum: System, User, Assistant, Tool
+ * - AgentStatus enum: lifecycle states
+ * - TokenUsage: tracks AI API token consumption
+ * - TaskType: task classification categories
+ * - TaskStatus: task lifecycle states
+ */
 import { v4 as uuidv4, validate as uuidValidate, parse as uuidParse } from "uuid";
 
 // ---------------------------------------------------------------------------
 // AgentId
 // ---------------------------------------------------------------------------
+
+/**
+ * Opaque identifier for an agent instance. Wraps a UUIDv4 string and
+ * serializes with an `agent-` prefix so it is unambiguous in logs and
+ * persisted state. The constructor is private; use {@link AgentId.create}
+ * (random) or {@link AgentId.parse} (from string).
+ */
 
 export class AgentId {
   private readonly _id: string;
@@ -46,6 +66,12 @@ export class AgentId {
 // SessionId
 // ---------------------------------------------------------------------------
 
+/**
+ * Opaque identifier for a conversation session. Same pattern as AgentId but
+ * uses the `session-` prefix. Equality is by the inner UUID, not the
+ * formatted string, so prefixes cannot collide.
+ */
+
 export class SessionId {
   private readonly _id: string;
 
@@ -88,6 +114,12 @@ export class SessionId {
 // ToolName
 // ---------------------------------------------------------------------------
 
+/**
+ * Lightweight newtype around a tool name string. Provides structural typing
+ * (a plain string is not assignable to ToolName) so tool registries and
+ * tool-call payloads stay type-safe without runtime overhead.
+ */
+
 export class ToolName {
   private readonly _name: string;
 
@@ -115,6 +147,9 @@ export class ToolName {
 // ---------------------------------------------------------------------------
 // TokenUsage
 // ---------------------------------------------------------------------------
+// Tracks cumulative token consumption for a conversation. The `create`
+// factory computes `totalTokens` from prompt+completion so callers cannot
+// accidentally desynchronize the three fields.
 
 export interface TokenUsageJSON {
   prompt_tokens: number;
@@ -155,6 +190,9 @@ export class TokenUsage {
 // ---------------------------------------------------------------------------
 // AgentRole enum
 // ---------------------------------------------------------------------------
+// String-enum (not a TS `enum`) so the values survive JSON serialization
+// unchanged and are tree-shakeable. `parseAgentRole` is the trusted boundary
+// that maps arbitrary input strings to the known set, throwing on unknowns.
 
 export const AgentRole = {
   Coder: "coder",
@@ -186,6 +224,9 @@ export function parseAgentRole(s: string): AgentRole {
 // ---------------------------------------------------------------------------
 // AgentStatus enum
 // ---------------------------------------------------------------------------
+// Lifecycle states for an agent. `isTerminalStatus` and `isActiveStatus`
+// are the predicates callers should use instead of comparing to literals,
+// so future status additions only need to update one place.
 
 export const AgentStatus = {
   Idle: "idle",
@@ -219,6 +260,8 @@ export function isActiveStatus(s: AgentStatus): boolean {
 // ---------------------------------------------------------------------------
 // Role enum (message role)
 // ---------------------------------------------------------------------------
+// Mirrors the OpenAI/Anthropic chat-message roles. `parseRole` is the
+// single point that validates strings coming off disk or the wire.
 
 export const Role = {
   System: "system",
@@ -242,6 +285,12 @@ export function parseRole(s: string): Role {
 // ---------------------------------------------------------------------------
 // AgentCapability
 // ---------------------------------------------------------------------------
+
+/**
+ * Declares what an agent can do: a human-readable name/description plus the
+ * subset of tools it supports. {@link supportsTool} is the O(n) membership
+ * check used by dispatchers; n is small so a Set is not warranted.
+ */
 
 export interface AgentCapability {
   name: string;

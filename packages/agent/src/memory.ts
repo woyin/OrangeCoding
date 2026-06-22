@@ -6,6 +6,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+/**
+ * MemoryStore is a simple file-backed key-value store for agent memory.
+ * Each key maps to a .txt file under the configured directory; keys are
+ * sanitized via path.basename to prevent path traversal.
+ */
 export class MemoryStore {
   private _dir: string;
 

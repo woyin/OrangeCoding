@@ -27,21 +27,58 @@ interface FetchArgs {
 
 const MAX_FETCH_SIZE = 100 * 1024; // 100KB
 
+/** Shared non-fatal UTF-8 decoder for FetchTool. Stateless, safe to reuse. */
+const UTF8_DECODER = new TextDecoder("utf-8", { fatal: false });
+
+/**
+ * Private/internal address prefixes blocked to prevent SSRF. Both literal
+ * hostnames ("localhost") and CIDR ranges (RFC 1918 + link-local + loopback)
+ * are listed. `isBlockedHost` scans this list; it is intentionally small
+ * (24 entries) so the linear scan is cheaper than a Set on cold paths.
+ */
 const BLOCKED_HOST_PREFIXES: string[] = [
-  "169.254.", // cloud metadata
-  "10.",
+  "169.254.", // link-local / cloud metadata (AWS IMDS, GCP)
+  "10.",       // RFC 1918 private (10.0.0.0/8)
   "172.16.", "172.17.", "172.18.", "172.19.",
   "172.20.", "172.21.", "172.22.", "172.23.",
   "172.24.", "172.25.", "172.26.", "172.27.",
-  "172.28.", "172.29.", "172.30.", "172.31.",
-  "192.168.",
-  "0.0.0.0",
+  "172.28.", "172.29.", "172.30.", "172.31.", // RFC 1918 private (172.16.0.0/12)
+  "192.168.",  // RFC 1918 private (192.168.0.0/16)
+  "0.0.0.0",   // unspecified
   "localhost",
-  "127.",
+  "127.",      // loopback (127.0.0.0/8)
 ];
 
 /**
+ * Returns true if the (lowercased) host matches any blocked prefix. The host
+ * must already be lowercased by the caller. Single pass over 24 prefixes;
+ * exits on first match.
+ */
+/**
+ * Checks whether a host is blocked by the security policy.
+ * Prevents the agent from accessing internal/private network addresses
+ * (localhost, private IP ranges, metadata endpoints like 169.254.169.254).
+ */
+function isBlockedHost(host: string): boolean {
+  for (let i = 0; i < BLOCKED_HOST_PREFIXES.length; i++) {
+    if (host.startsWith(BLOCKED_HOST_PREFIXES[i]!)) return true;
+  }
+  return false;
+}
+
+/**
  * FetchTool makes HTTP requests and returns the response body.
+ */
+/**
+ * FetchTool retrieves content from URLs via HTTP GET requests.
+ *
+ * Security features:
+ * - Host blocking for internal/private network addresses
+ * - Response size limits to prevent memory exhaustion
+ * - Content-Type filtering (text/JSON only, no binary downloads)
+ * - HTML-to-text conversion for readability
+ *
+ * Used by the agent to access documentation, APIs, and web resources.
  */
 export class FetchTool implements Tool {
   private readonly _params: Record<string, unknown>;
@@ -62,6 +99,12 @@ export class FetchTool implements Tool {
   parameters(): Record<string, unknown> { return this._params; }
   metadata(): ToolMetadata { return defaultMetadata(); }
 
+  /**
+   * execute fetches a URL via the Fetch API with three SSRF guards: scheme
+   * whitelist (http/https only), blocked-host prefix check, and DNS-resolved
+   * IP check (prevents DNS rebinding). Enforces a 30s timeout and truncates
+   * responses over MAX_FETCH_SIZE (100KB) using the shared UTF8_DECODER.
+   */
   async execute(ctx: unknown, input: unknown): Promise<string> {
     const args = input as FetchArgs;
 
@@ -75,22 +118,19 @@ export class FetchTool implements Tool {
       throw new ToolError("security_violation", "only http/https URLs are allowed");
     }
 
-    // Extract host from URL and check against blocked prefixes.
+    // Extract host from URL and check against blocked prefixes (SSRF guard).
     const host = extractHost(args.url);
-    for (const prefix of BLOCKED_HOST_PREFIXES) {
-      if (host.startsWith(prefix)) {
-        throw new ToolError("security_violation", "access to internal/private network addresses is blocked");
-      }
+    if (isBlockedHost(host)) {
+      throw new ToolError("security_violation", "access to internal/private network addresses is blocked");
     }
 
-    // DNS resolution check to prevent DNS rebinding attacks
+    // DNS resolution check to prevent DNS rebinding attacks: the hostname may
+    // be public but resolve to a private IP at runtime.
     try {
       const resolved = await lookupAsync(host);
       const resolvedIp = resolved.address.toLowerCase();
-      for (const prefix of BLOCKED_HOST_PREFIXES) {
-        if (resolvedIp.startsWith(prefix)) {
-          throw new ToolError("security_violation", "access to internal/private network addresses is blocked");
-        }
+      if (isBlockedHost(resolvedIp)) {
+        throw new ToolError("security_violation", "access to internal/private network addresses is blocked");
       }
     } catch (err) {
       if (err instanceof ToolError) throw err;
@@ -112,15 +152,15 @@ export class FetchTool implements Tool {
       const buffer = await resp.arrayBuffer();
       const bytes = new Uint8Array(buffer);
 
+      // Reuse the module-scope UTF8_DECODER (stateless, non-fatal) instead of
+      // allocating a new TextDecoder per request. { fatal: false } means
+      // truncated multi-byte sequences at the slice boundary decode as
+      // replacement chars rather than throwing.
       let result: string;
       if (bytes.length > MAX_FETCH_SIZE) {
-        // Find a safe UTF-8 truncation point.
-        let truncateAt = MAX_FETCH_SIZE;
-        const decoder = new TextDecoder("utf-8", { fatal: false });
-        result = decoder.decode(bytes.slice(0, truncateAt)) + "\n... (truncated)";
+        result = UTF8_DECODER.decode(bytes.subarray(0, MAX_FETCH_SIZE)) + "\n... (truncated)";
       } else {
-        const decoder = new TextDecoder("utf-8", { fatal: false });
-        result = decoder.decode(bytes);
+        result = UTF8_DECODER.decode(bytes);
       }
 
       return result;
@@ -144,6 +184,13 @@ interface PythonArgs {
 /**
  * Executes Python code by writing it to a temp file and running python3.
  */
+/**
+ * PythonTool executes Python code in a subprocess.
+ *
+ * Runs the provided code with a configurable timeout and captures
+ * stdout/stderr. Useful for data analysis, calculations, and scripting tasks.
+ * Execution is sandboxed to the working directory.
+ */
 export class PythonTool implements Tool {
   private readonly _params: Record<string, unknown>;
 
@@ -162,6 +209,11 @@ export class PythonTool implements Tool {
   parameters(): Record<string, unknown> { return this._params; }
   metadata(): ToolMetadata { return defaultMetadata(); }
 
+  /**
+   * execute writes the code to a temp .py file and runs `python3` on it with
+   * a configurable timeout (default 30s). Returns combined stdout+stderr.
+   * The temp file is always cleaned up in finally.
+   */
   async execute(_ctx: unknown, input: unknown): Promise<string> {
     const args = input as PythonArgs;
 
@@ -222,6 +274,13 @@ interface CalcArgs {
 /**
  * Evaluates arithmetic expressions.
  */
+/**
+ * CalcTool evaluates mathematical expressions safely.
+ *
+ * Supports basic arithmetic (+, -, *, /), functions (sin, cos, sqrt, etc.),
+ * and parentheses. Does NOT support arbitrary code execution — only
+ * mathematical operations via a custom recursive-descent parser.
+ */
 export class CalcTool implements Tool {
   private readonly _params: Record<string, unknown>;
 
@@ -240,6 +299,10 @@ export class CalcTool implements Tool {
   parameters(): Record<string, unknown> { return this._params; }
   metadata(): ToolMetadata { return readOnlyMetadata(); }
 
+  /**
+   * execute evaluates the arithmetic expression via a recursive-descent parser
+   * (no eval) and returns "expr = result". Throws on division by zero or syntax errors.
+   */
   async execute(_ctx: unknown, input: unknown): Promise<string> {
     const args = input as CalcArgs;
 
@@ -256,6 +319,8 @@ export class CalcTool implements Tool {
 // CalcTool internals - recursive descent parser
 // ---------------------------------------------------------------------------
 
+/** formatNumber renders an integer or float as a string (integers without decimals). */
+/** Formats a number for display — integers without decimals, floats with up to 10 significant digits. */
 function formatNumber(f: number): string {
   if (Number.isInteger(f)) {
     return f.toString();
@@ -263,11 +328,24 @@ function formatNumber(f: number): string {
   return f.toString();
 }
 
+/** evalExpression tokenizes and parses an arithmetic expression into a number. */
+/** Safely evaluates a mathematical expression string using the ExprParser. */
 function evalExpression(expr: string): number {
   const parser = new ExprParser(expr);
   return parser.parse();
 }
 
+/**
+ * Recursive-descent parser for mathematical expressions.
+ *
+ * Grammar:
+ *   expr     → term (('+' | '-') term)*
+ *   term     → unary (('*' | '/' | '%') unary)*
+ *   unary    → ('+' | '-')? primary
+ *   primary  → NUMBER | IDENT | IDENT '(' args ')' | '(' expr ')'
+ *
+ * Supports: +, -, *, /, %, parentheses, and named functions (sin, cos, etc.)
+ */
 class ExprParser {
   private tokens: string[] = [];
   private pos = 0;
@@ -316,6 +394,7 @@ class ExprParser {
     return t;
   }
 
+  /** parse is the entry point; delegates to the additive-precedence level. */
   parse(): number {
     return this.parseAddSub();
   }
@@ -406,6 +485,13 @@ interface TaskEntry {
 /**
  * Manages an in-memory task list.
  */
+/**
+ * TaskTool manages sub-tasks within an agent session.
+ *
+ * Allows the agent to break complex work into smaller tasks,
+ * track their progress, and coordinate results. Each sub-task
+ * runs in its own context and reports back to the parent.
+ */
 export class TaskTool implements Tool {
   private readonly _params: Record<string, unknown>;
   private _tasks = new Map<string, TaskEntry>();
@@ -431,6 +517,11 @@ export class TaskTool implements Tool {
   parameters(): Record<string, unknown> { return this._params; }
   metadata(): ToolMetadata { return readOnlyMetadata(); }
 
+  /**
+   * execute dispatches a task action: create, update, list, delete, or delegate.
+   * `delegate` does not spawn a real sub-agent; it formats a delegation brief
+   * (role, task, scope, expected output, coordination rules) for the caller.
+   */
   async execute(_ctx: unknown, input: unknown): Promise<string> {
     const args = input as TaskArgs;
 
@@ -524,6 +615,13 @@ interface BrowserArgs {
  * BrowserTool fetches a web page and returns human-readable text content.
  * Strips HTML tags, scripts, and styles, keeping only visible text.
  */
+/**
+ * BrowserTool navigates web pages and extracts content.
+ *
+ * Simulates a simple browser: follows redirects, handles cookies,
+ * extracts readable text from HTML, and respects size limits.
+ * Used for web research and documentation lookups.
+ */
 export class BrowserTool implements Tool {
   private readonly _params: Record<string, unknown>;
 
@@ -547,6 +645,11 @@ export class BrowserTool implements Tool {
   parameters(): Record<string, unknown> { return this._params; }
   metadata(): ToolMetadata { return readOnlyMetadata(); }
 
+  /**
+   * execute fetches a web page with scheme + SSRF guards, sends a browser-like
+   * User-Agent, and converts HTML to readable text via htmlToReadableText.
+   * Non-HTML responses are returned as-is (truncated to max_length, default 8000).
+   */
   async execute(_ctx: unknown, input: unknown): Promise<string> {
     const args = input as BrowserArgs;
 
@@ -560,12 +663,10 @@ export class BrowserTool implements Tool {
       throw new ToolError("security_violation", "only http/https URLs are allowed");
     }
 
-    // Block internal network access
+    // SSRF guard: block internal/private network access.
     const host = extractHost(args.url);
-    for (const prefix of BLOCKED_HOST_PREFIXES) {
-      if (host.startsWith(prefix)) {
-        throw new ToolError("security_violation", "access to internal/private network addresses is blocked");
-      }
+    if (isBlockedHost(host)) {
+      throw new ToolError("security_violation", "access to internal/private network addresses is blocked");
     }
 
     const maxLength = args.max_length && args.max_length > 0 ? args.max_length : 8000;
@@ -609,51 +710,73 @@ export class BrowserTool implements Tool {
   }
 }
 
+// Module-scope compiled regexes for htmlToReadableText.
+// Hoisting these out of the function avoids recompiling ~16 regex literals on
+// every BrowserTool call. For a 100KB page render the old code allocated and
+// compiled 16 regex objects per invocation; now they are created once at
+// module load and reused.
+const RE_HTML_SCRIPT = /<script[\s\S]*?<\/script>/gi;
+const RE_HTML_STYLE = /<style[\s\S]*?<\/style>/gi;
+const RE_HTML_SVG = /<svg[\s\S]*?<\/svg>/gi;
+const RE_HTML_COMMENT = /<!--[\s\S]*?-->/g;
+const RE_HTML_BLOCK_CLOSE = /<\/(p|div|h[1-6]|li|tr|blockquote|section|article|pre|br|hr)[\s\/]*>/gi;
+const RE_HTML_VOID = /<(br|hr)\s*\/?>/gi;
+const RE_HTML_LINK = /<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+const RE_HTML_IMG_ALT = /<img[^>]*alt=["']([^"']+)["'][^>]*>/gi;
+const RE_HTML_TAG = /<[^>]+>/g;
+const RE_HTML_NUM_ENTITY = /&#(\d+);/g;
+const RE_HTML_NAMED_ENTITY = /&\w+;/g;
+const RE_HTML_WS = /[^\S\n]+/g;
+const RE_HTML_NL3 = /\n{3,}/g;
+
 /**
  * Convert HTML to readable plain text.
  * Strips scripts, styles, and tags; preserves structure.
+ *
+ * Pipeline order matters: block-element closing tags are converted to
+ * newlines *before* generic tag stripping so structure survives; named
+ * entities are decoded last (after numeric, so &amp;#39; sequences don't
+ * double-resolve). All regexes are module-scope for reuse.
+ */
+/**
+ * Converts HTML to readable plain text by stripping tags and normalizing whitespace.
+ * Respects maxLength to prevent excessive output.
  */
 function htmlToReadableText(html: string, maxLength: number): string {
   let text = html;
 
-  // Remove script and style blocks entirely
-  text = text.replace(/<script[\s\S]*?<\/script>/gi, "");
-  text = text.replace(/<style[\s\S]*?<\/style>/gi, "");
-  text = text.replace(/<svg[\s\S]*?<\/svg>/gi, "");
+  // Phase 1: remove non-content blocks entirely (scripts, styles, svg, comments)
+  text = text.replace(RE_HTML_SCRIPT, "");
+  text = text.replace(RE_HTML_STYLE, "");
+  text = text.replace(RE_HTML_SVG, "");
+  text = text.replace(RE_HTML_COMMENT, "");
 
-  // Remove HTML comments
-  text = text.replace(/<!--[\s\S]*?-->/g, "");
+  // Phase 2: convert structural tags to newlines before stripping tags
+  text = text.replace(RE_HTML_BLOCK_CLOSE, "\n");
+  text = text.replace(RE_HTML_VOID, "\n");
 
-  // Block-level elements: insert newlines
-  text = text.replace(/<\/(p|div|h[1-6]|li|tr|blockquote|section|article|pre|br|hr)[\s\/]*>/gi, "\n");
-  text = text.replace(/<(br|hr)\s*\/?>/gi, "\n");
+  // Phase 3: preserve link targets and image alt text
+  text = text.replace(RE_HTML_LINK, "$2 [$1]");
+  text = text.replace(RE_HTML_IMG_ALT, "[$1]");
 
-  // Extract link href attributes for reference
-  text = text.replace(/<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, "$2 [$1]");
+  // Phase 4: strip all remaining tags
+  text = text.replace(RE_HTML_TAG, "");
 
-  // Extract image alt text
-  text = text.replace(/<img[^>]*alt=["']([^"']+)["'][^>]*>/gi, "[$1]");
-
-  // Remove all remaining HTML tags
-  text = text.replace(/<[^>]+>/g, "");
-
-  // Decode common HTML entities
+  // Phase 5: decode entities. &amp; first so it doesn't corrupt later decodes.
   text = text.replace(/&amp;/g, "&");
   text = text.replace(/&lt;/g, "<");
   text = text.replace(/&gt;/g, ">");
   text = text.replace(/&quot;/g, '"');
   text = text.replace(/&#39;/g, "'");
   text = text.replace(/&nbsp;/g, " ");
-  text = text.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
-  text = text.replace(/&\w+;/g, "");
+  text = text.replace(RE_HTML_NUM_ENTITY, (_, code) => String.fromCharCode(Number(code)));
+  text = text.replace(RE_HTML_NAMED_ENTITY, "");
 
-  // Normalize whitespace: collapse runs of spaces/tabs, keep newlines
-  text = text.replace(/[^\S\n]+/g, " ");
-  // Collapse 3+ consecutive newlines into 2
-  text = text.replace(/\n{3,}/g, "\n\n");
-  // Trim each line
+  // Phase 6: normalize whitespace. Collapse space/tab runs to one space,
+  // collapse 3+ newlines to 2, trim each line.
+  text = text.replace(RE_HTML_WS, " ");
+  text = text.replace(RE_HTML_NL3, "\n\n");
   text = text.split("\n").map((l) => l.trim()).join("\n");
-  // Trim overall
   text = text.trim();
 
   if (text.length > maxLength) {
@@ -678,6 +801,15 @@ interface SshArgs {
 /**
  * SshTool executes commands on a remote host via the system ssh client.
  * Requires SSH access to be pre-configured (keys, config, etc.).
+ */
+/**
+ * SshTool executes commands on remote hosts via SSH.
+ *
+ * Provides secure remote command execution with:
+ * - Configurable timeout
+ * - Output capture (stdout + stderr)
+ * - Host verification
+ * - Security policy enforcement
  */
 export class SshTool implements Tool {
   private readonly _params: Record<string, unknown>;
@@ -705,18 +837,21 @@ export class SshTool implements Tool {
   parameters(): Record<string, unknown> { return this._params; }
   metadata(): ToolMetadata { return defaultMetadata(); }
 
+  /**
+   * execute runs a command on a remote host via the system ssh client.
+   * Enforces an SSRF guard (blocks private/internal hosts), sets
+   * StrictHostKeyChecking=accept-new, and applies a connection+5s execution timeout.
+   */
   async execute(_ctx: unknown, input: unknown): Promise<string> {
     const args = input as SshArgs;
 
     if (!args.host) throw new ToolError("invalid_params", "host is required");
     if (!args.command) throw new ToolError("invalid_params", "command is required");
 
-    // Block internal network access
+    // SSRF guard: block SSH to internal/private addresses.
     const hostLower = args.host.toLowerCase();
-    for (const prefix of BLOCKED_HOST_PREFIXES) {
-      if (hostLower.startsWith(prefix) || hostLower === "localhost") {
-        throw new ToolError("security_violation", "SSH to internal/private addresses is blocked");
-      }
+    if (isBlockedHost(hostLower)) {
+      throw new ToolError("security_violation", "SSH to internal/private addresses is blocked");
     }
 
     const sshArgs: string[] = [];
@@ -762,6 +897,13 @@ interface NotebookArgs {
 /**
  * NotebookTool reads .ipynb (Jupyter notebook) files and can execute cells.
  */
+/**
+ * NotebookTool manages Jupyter/IPython notebook operations.
+ *
+ * Supports creating, reading, and executing notebook cells.
+ * Useful for data science and analysis tasks where the agent
+ * needs to work with notebook environments.
+ */
 export class NotebookTool implements Tool {
   private readonly _params: Record<string, unknown>;
 
@@ -789,6 +931,11 @@ export class NotebookTool implements Tool {
   parameters(): Record<string, unknown> { return this._params; }
   metadata(): ToolMetadata { return defaultMetadata(); }
 
+  /**
+   * execute performs a notebook action: read (all cells + outputs), list_cells
+   * (index/type/preview), or execute_cell (runs a code cell via python3 in a
+   * temp file). Non-code cells are returned as marked text, not executed.
+   */
   async execute(_ctx: unknown, input: unknown): Promise<string> {
     const args = input as NotebookArgs;
 
@@ -908,16 +1055,19 @@ export class NotebookTool implements Tool {
 // ---------------------------------------------------------------------------
 
 /** @deprecated Use BrowserTool from browser-tool.ts instead. */
+/** Factory: creates a new BrowserTool with default configuration. */
 export function newBrowserTool(): BrowserTool {
   return new BrowserTool();
 }
 
 /** @deprecated Use SshTool from ssh-tool.ts instead. */
+/** Factory: creates a new SshTool with default configuration. */
 export function newSshTool(): SshTool {
   return new SshTool();
 }
 
 /** @deprecated Use NotebookTool from notebook-tool.ts instead. */
+/** Factory: creates a new NotebookTool with default configuration. */
 export function newNotebookTool(): NotebookTool {
   return new NotebookTool();
 }
@@ -927,6 +1077,7 @@ export function newNotebookTool(): NotebookTool {
 // ---------------------------------------------------------------------------
 
 /** Extracts the hostname from a URL string. */
+/** Parses a URL string and returns the hostname, or empty string on parse failure. */
 function extractHost(rawURL: string): string {
   try {
     const u = new URL(rawURL);

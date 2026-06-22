@@ -1,3 +1,11 @@
+/**
+ * @module cli-main
+ *
+ * OrangeCoding CLI entry point.
+ *
+ * Parses command-line arguments and dispatches to the appropriate
+ * subcommand handler (launch, serve, tui-mode, sessions, etc.).
+ */
 #!/usr/bin/env node
 
 /**
@@ -30,7 +38,11 @@ import { runSessions } from "./commands/sessions.js";
 // ---------------------------------------------------------------------------
 // CLI argument parsing and command dispatch
 // ---------------------------------------------------------------------------
+// Resolves argv[0] to a subcommand and forwards the remaining flags. The
+// default (no subcommand) is `launch`. Unknown commands print usage and
+// exit non-zero.
 
+/** printUsage writes the top-level CLI help text (commands + options) to stdout. */
 function printUsage(): void {
   console.log(`Usage: orangecoding [command] [options]
 
@@ -58,11 +70,17 @@ Options:
   --help, -h           Show this help message`);
 }
 
+/** exitWithError prints a message to stderr and exits with code 1. */
 function exitWithError(msg: string): never {
   console.error(`Error: ${msg}`);
   process.exit(1);
 }
 
+/**
+ * main is the CLI entry point: parses argv[0] as a subcommand, dispatches to
+ * the matching handler, and forwards remaining flags. No args (or a leading
+ * flag) defaults to `launch`. Unknown commands print usage and exit non-zero.
+ */
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
@@ -81,6 +99,8 @@ async function main(): Promise<void> {
   }
 
   switch (command) {
+    // launch: parse --prompt/-p, --text, --skill/-s, --resume/-r and start the agent.
+    /** Subcommand: launch — starts a new agent session. */
     case "launch": {
       const parsed = parseArgs({
         args: args.slice(1),
@@ -101,11 +121,13 @@ async function main(): Promise<void> {
       break;
     }
 
+    // init: scaffold a project config file in the current directory.
     case "init": {
       runInit();
       break;
     }
 
+    // config: route to the get/set subcommands (requires a subcommand argument).
     case "config": {
       const subArgs = args.slice(1);
       if (subArgs.length === 0) {
@@ -136,11 +158,15 @@ async function main(): Promise<void> {
       break;
     }
 
+    // status: print version, providers, API keys, tools, sessions, audit, harness.
+    /** Subcommand: status — shows running agent status. */
     case "status": {
       runStatus();
       break;
     }
 
+    // serve: start the HTTP/WebSocket control server bound to --addr or config port.
+    /** Subcommand: serve — starts the HTTP control server. */
     case "serve": {
       const parsed = parseArgs({
         args: args.slice(1),
@@ -155,27 +181,33 @@ async function main(): Promise<void> {
       break;
     }
 
+    // sessions: list saved JSONL sessions under ~/.orangecoding/sessions.
+    /** Subcommand: sessions — manages saved sessions. */
     case "sessions": {
       await runSessions();
       break;
     }
 
+    // skills: list discovered skills and their descriptions.
     case "skills": {
       runSkills();
       break;
     }
 
+    // resume: re-open a saved session by run-id for continuation.
     case "resume": {
       const runID = args.slice(1).find((a) => !a.startsWith("-"));
       await runResume(runID);
       break;
     }
 
+    // analyze: run self-improvement analysis over saved sessions.
     case "analyze": {
       await runAnalyze();
       break;
     }
 
+    // version: print the package version.
     case "version": {
       runVersion();
       break;

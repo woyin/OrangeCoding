@@ -21,6 +21,10 @@ export class StdioTransport implements Transport {
     private readonly writer: NodeJS.WritableStream,
   ) {}
 
+  /**
+   * Write a message to the underlying stream as a line of UTF-8. The
+   * newline framing is what makes messages self-delimiting on the wire.
+   */
   async send(data: Uint8Array): Promise<void> {
     return new Promise((resolve, reject) => {
       this.writer.write(data);
@@ -34,6 +38,11 @@ export class StdioTransport implements Transport {
     });
   }
 
+  /**
+   * Block until a complete newline-terminated line arrives, then return it
+   * as encoded bytes. Attaches one-shot data/error/end listeners per call
+   * and removes them on resolution so concurrent receives do not interfere.
+   */
   async receive(): Promise<Uint8Array> {
     return new Promise((resolve, reject) => {
       const onData = (chunk: Buffer | string) => {
@@ -67,6 +76,7 @@ export class StdioTransport implements Transport {
     });
   }
 
+  /** Idempotently close the writer (and thus the underlying stream). */
   async close(): Promise<void> {
     if (!this.closed) {
       this.closed = true;
@@ -83,6 +93,10 @@ export class StdioTransport implements Transport {
 // ---------------------------------------------------------------------------
 // SSETransport — Client-side transport using HTTP + Server-Sent Events
 // ---------------------------------------------------------------------------
+// Client-side transport matching servers that respond with text/event-stream.
+// POST carries requests; SSE carries responses. Inbound messages are either
+// resolved immediately (if a receive() call is already pending) or queued
+// for the next receive().
 
 /**
  * SSETransport implements Transport over HTTP POST (send) and SSE (receive).
@@ -152,6 +166,11 @@ export class SSETransport implements Transport {
     }
   }
 
+  /**
+   * Block until a complete newline-terminated line arrives, then return it
+   * as encoded bytes. Attaches one-shot data/error/end listeners per call
+   * and removes them on resolution so concurrent receives do not interfere.
+   */
   async receive(): Promise<Uint8Array> {
     if (this.closed) {
       throw new Error("SSETransport: closed");
@@ -168,6 +187,7 @@ export class SSETransport implements Transport {
     });
   }
 
+  /** Idempotently close the writer (and thus the underlying stream). */
   async close(): Promise<void> {
     if (!this.closed) {
       this.closed = true;
@@ -234,6 +254,9 @@ export class SSETransport implements Transport {
 // ---------------------------------------------------------------------------
 // StreamableHTTPTransport — Modern MCP HTTP transport (POST-based, no SSE)
 // ---------------------------------------------------------------------------
+// Each send() POSTs a request and stores the response promise; receive()
+// awaits and clears it. Strictly one-in-flight at a time, matching the MCP
+// "Streamable HTTP" spec where each request/response is a separate exchange.
 
 /**
  * StreamableHTTPTransport implements Transport over pure HTTP POST.
@@ -283,6 +306,11 @@ export class StreamableHTTPTransport implements Transport {
     })();
   }
 
+  /**
+   * Block until a complete newline-terminated line arrives, then return it
+   * as encoded bytes. Attaches one-shot data/error/end listeners per call
+   * and removes them on resolution so concurrent receives do not interfere.
+   */
   async receive(): Promise<Uint8Array> {
     if (this.closed) {
       throw new Error("StreamableHTTPTransport: closed");
@@ -297,6 +325,7 @@ export class StreamableHTTPTransport implements Transport {
     return data;
   }
 
+  /** Idempotently close the writer (and thus the underlying stream). */
   async close(): Promise<void> {
     this.closed = true;
     this._pendingResponse = null;

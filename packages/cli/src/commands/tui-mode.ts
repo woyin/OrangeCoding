@@ -1,6 +1,13 @@
 /**
- * TUI mode — full terminal UI with interactive agent loop.
- * Uses raw ANSI escape codes via the @orangecoding/tui package.
+ * @module cli-tui-mode
+ *
+ * CLI command for starting the interactive TUI (Terminal UI) mode.
+ *
+ * Launches the agent with a full-screen terminal interface featuring:
+ * - Real-time conversation display
+ * - Markdown rendering
+ * - Tool execution status indicators
+ * - Interactive input handling
  */
 
 import { AgentId, SessionId } from "@orangecoding/core";
@@ -36,16 +43,19 @@ export async function runTuiMode(
   cfg: OrangeConfig,
   skillName?: string,
 ): Promise<void> {
+  // Resolve the AI provider from config: name, credentials, default model.
   const providerName = cfg.default_provider || "openai";
   const providerConfig = aiProviderConfigFromCLIConfig(providerName, cfg);
   const factory = new ProviderFactory();
   const aiProvider = factory.createProvider(providerName, providerConfig);
 
+  // Build the tool registry and executor: tools the agent can call this session.
   const registry = createDefaultRegistry();
   const executor = new ToolExecutor(registry);
   executor.setApprovalHandler(new CLIApprovalHandler());
   const toolDefs = buildToolDefinitions(registry);
 
+  // Register custom skills defined in config so the matcher can auto-select them.
   const skillRegistry = new SkillRegistry();
   const customSkills = cfg.skills?.custom ?? [];
   for (const def of customSkills) {
@@ -59,6 +69,7 @@ export async function runTuiMode(
     });
   }
 
+  // Create the agent context with cwd and a baseline system prompt.
   const sid = SessionId.create();
   const ctx = new AgentContext(sid, process.cwd());
   ctx.setSystemPrompt(
@@ -68,13 +79,15 @@ export async function runTuiMode(
 
   const loopConfig = defaultLoopConfig();
 
-  // Create the TUI App
+  // Create the TUI App — the full-screen raw-mode terminal renderer.
   const app = new App();
 
-  // Create the event bridge
+  // Create the event bridge — translates AgentEvents into TUI model messages.
   const bridge = new TuiEventBridge(app);
 
-  // Set up the onSubmit callback — runs user input through the agent loop
+  // Set up the onSubmit callback — runs user input through the agent loop.
+  // Guards against re-entrancy with isProcessing, auto-detects a matching skill,
+  // builds a fresh AgentLoop per turn, and forwards agent events to the TUI bridge.
   let isProcessing = false;
   app.onSubmit = async (text: string) => {
     if (isProcessing) return;
@@ -119,7 +132,8 @@ export async function runTuiMode(
     isProcessing = false;
   };
 
-  // Start file watcher for the current working directory
+  // Start file watcher for the current working directory — surfaces filesystem
+  // changes as status-line notifications so the user sees external edits.
   const watcher = new FileWatcher({
     paths: [process.cwd()],
     debounceMs: 500,

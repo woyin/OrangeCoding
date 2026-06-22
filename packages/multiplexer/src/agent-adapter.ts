@@ -9,11 +9,27 @@ import { newAgentError } from "@orangecoding/core";
 /**
  * MultiplexerAgentAdapter wraps an agent to run in a separate terminal pane.
  */
+/**
+ * MultiplexerAgentAdapter runs an agent in a separate terminal pane.
+ *
+ * Bridges the agent system with the terminal multiplexer (tmux/zellij):
+ * - Spawns a new pane running the pane-agent binary
+ * - Establishes IPC via Unix domain sockets
+ * - Sends task payloads and receives streaming events
+ * - Collects the final result when the agent completes
+ *
+ * This enables parallel agent execution across terminal panes,
+ * each with its own visible output for debugging and monitoring.
+ */
 export class MultiplexerAgentAdapter {
   private readonly id: AgentId;
   private status: AgentStatus = AgentStatus.Idle;
   private abortController: AbortController | null = null;
 
+  /**
+   * Constructs an adapter for the given role that drives a managed pane lifecycle
+   * (spawn → IPC receive loop → completion) via the PaneManager.
+   */
   constructor(
     private readonly role: AgentRole,
     private readonly manager: PaneManager,
@@ -21,14 +37,17 @@ export class MultiplexerAgentAdapter {
     this.id = AgentId.create();
   }
 
+  /** getID returns the adapter agent identifier. */
   getID(): AgentId {
     return this.id;
   }
 
+  /** getRole returns the configured agent role. */
   getRole(): AgentRole {
     return this.role;
   }
 
+  /** getStatus returns the current execution status of the agent. */
   getStatus(): AgentStatus {
     return this.status;
   }

@@ -1,3 +1,17 @@
+/**
+ * @module task
+ *
+ * Task types for the multi-agent system.
+ *
+ * A Task represents a unit of work that can be assigned to an agent:
+ * - id: unique identifier
+ * - description: what needs to be done
+ * - type: classification (coding, review, research, etc.)
+ * - priority: urgency level
+ * - context: additional information for the agent
+ *
+ * Tasks flow through the mesh network from submission to completion.
+ */
 // ---------------------------------------------------------------------------
 // TaskId
 // ---------------------------------------------------------------------------

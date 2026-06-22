@@ -93,7 +93,12 @@ export async function runLaunch(
 }
 
 /**
- * Executes a single prompt through the full agent loop.
+ * Single-shot mode: execute one task end-to-end and print the final answer.
+ *
+ * Pipeline: resolve provider -> build tool registry -> resolve skill ->
+ * construct AgentContext + AgentLoop -> run -> stream events to stdout.
+ * Exits the process on rate-limit or unrecoverable errors; the final
+ * assistant message and a one-line summary are always printed on success.
  */
 async function runSingleShot(
   cfg: OrangeConfig,
@@ -184,8 +189,13 @@ async function runSingleShot(
 }
 
 /**
- * Text REPL mode — reads prompts from stdin, runs them through the agent loop,
- * and prints results. Maintains conversation context across turns.
+ * Text REPL mode: a persistent read/eval/print loop over stdin.
+ *
+ * A single AgentContext is reused across turns so conversation history
+ * accumulates, while a fresh AgentLoop is constructed per input (cheap) so
+ * skill auto-detection and per-turn loop config stay flexible. "exit",
+ * "quit", or Ctrl+D break the loop. Per-turn failures are caught and
+ * printed without terminating the session.
  */
 async function runTextREPL(
   cfg: OrangeConfig,
@@ -284,7 +294,11 @@ async function runTextREPL(
 }
 
 /**
- * Creates a console event handler that streams agent events to stdout.
+ * Build a synchronous event sink that renders agent lifecycle events to the
+ * terminal. Streaming chunks are written without a trailing newline; when a
+ * non-stream event arrives after streamed content, a newline is emitted first
+ * to keep the prompt tidy. Tool calls show a spinner-style status line; only
+ * deny-decision guardrails and errors are surfaced (warns are silent).
  */
 function createConsoleEventHandler(): (event: AgentEvent) => void {
   let lastWasStream = false;
@@ -318,7 +332,9 @@ function createConsoleEventHandler(): (event: AgentEvent) => void {
 }
 
 /**
- * Build an AgentLoopConfig from OrangeConfig harness settings.
+ * Translate the user-facing OrangeConfig harness settings into the internal
+ * AgentLoopConfig. Currently maps reasoning_effort and
+ * reasoning_budget_tokens; other loop knobs fall back to defaults.
  */
 function buildLoopConfig(cfg: OrangeConfig): AgentLoopConfig {
   const base = defaultLoopConfig();
@@ -333,15 +349,16 @@ function buildLoopConfig(cfg: OrangeConfig): AgentLoopConfig {
   return base;
 }
 
-/**
- * Creates a new AgentId.
- */
+/** Thin wrapper so call sites read as intent ("create an agent id"). */
 function createAgentId(): AgentId {
   return AgentId.create();
 }
 
 /**
- * Converts CLI config to AI provider config, resolving provider aliases.
+ * Convert the CLI OrangeConfig into the AI-layer ProviderConfig shape.
+ * Walks the candidate provider keys returned by {@link providerConfigKeys}
+ * so aliases (e.g. "gpt" -> "openai") resolve transparently. Environment
+ * overrides (default_model) win over per-provider defaults.
  */
 export function aiProviderConfigFromCLIConfig(
   providerName: string,
@@ -381,8 +398,10 @@ export function aiProviderConfigFromCLIConfig(
 }
 
 /**
- * Returns the candidate config key names for a given provider,
- * including canonical aliases (e.g. gpt -> openai, opus -> anthropic).
+ * Return the ordered list of config keys to probe for a provider name.
+ * Always includes the raw name and its lowercased form, then appends the
+ * canonical alias (gpt->openai, opus/claude->anthropic, moonshot->kimi,
+ * bigmodel/zhipu->glm) so users can configure either spelling.
  */
 export function providerConfigKeys(providerName: string): string[] {
   const normalized = providerName.toLowerCase().trim();
@@ -413,9 +432,10 @@ export function providerConfigKeys(providerName: string): string[] {
  * Uses ~/.orangecoding/config.json.
  */
 /**
- * Creates an OrangeConfig from environment variables.
- * This allows running without a config file by setting:
- *   OPENAI_API_KEY, ANTHROPIC_API_KEY, DEEPSEEK_API_KEY, etc.
+ * Build an OrangeConfig purely from environment variables, enabling zero-file
+ * runs. The first available provider key is picked in priority order
+ * (anthropic > openai > deepseek > qianwen) and ORANGECODING_MODEL overrides
+ * the model. Currently unused by runLaunch but kept for future env-only mode.
  */
 function configFromEnvironment(): OrangeConfig {
   const cfg = defaultConfig();
@@ -443,13 +463,16 @@ function configFromEnvironment(): OrangeConfig {
   return cfg;
 }
 
+/** Returns the default path for the OrangeCoding configuration file. */
 export function defaultLaunchConfigPath(): string {
   const home = os.homedir() || ".";
   return path.join(home, ".orangecoding", "config.json");
 }
 
 /**
- * Build a SkillRegistry with built-in + config-defined custom skills.
+ * Construct a SkillRegistry seeded with built-ins plus any custom skills
+ * declared under `cfg.skills.custom`. Missing optional fields on each custom
+ * skill definition default to empty values so partial configs work.
  */
 function buildSkillRegistry(cfg: OrangeConfig): SkillRegistry {
   const registry = new SkillRegistry();
@@ -467,11 +490,11 @@ function buildSkillRegistry(cfg: OrangeConfig): SkillRegistry {
   return registry;
 }
 
-
-
 /**
- * Resumes a saved session by loading its conversation history
- * and continuing with a new prompt through the agent loop.
+ * Resume a previously saved session: restore its message history, then either
+ * run a single new prompt to completion or drop into a REPL that continues
+ * the conversation. The session is persisted after each turn so resumption
+ * is idempotent. Exits the process on invalid session ids or load failures.
  */
 async function runResumed(
   cfg: OrangeConfig,
@@ -592,7 +615,10 @@ async function runResumed(
 }
 
 /**
- * Saves the current session (conversation) to disk for later resumption.
+ * Persist the current conversation to the session store for later resumption.
+ * Builds a Session snapshot from the agent context and delegates to
+ * SessionManager.update. Failures are logged as warnings, never thrown, so a
+ * disk error cannot abort an otherwise-successful turn.
  */
 async function saveSession(sid: SessionId, ctx: import("@orangecoding/agent").AgentContext): Promise<void> {
   const sessionDir = getSessionDir();
@@ -617,13 +643,17 @@ async function saveSession(sid: SessionId, ctx: import("@orangecoding/agent").Ag
   }
 }
 
+/** Resolve the on-disk sessions directory under ~/.orangecoding/sessions. */
 function getSessionDir(): string {
   const home = os.homedir() || ".";
   return path.join(home, ".orangecoding", "sessions");
 }
 
 /**
- * Resolve a skill by name or auto-detect from the task prompt.
+ * Resolve a SkillContext for the current turn. If `skillName` is given it is
+ * looked up explicitly (throwing on unknown); otherwise the SkillMatcher
+ * auto-detects from the task text. Returns undefined when nothing matches,
+ * leaving the caller to fall back to the default system prompt.
  */
 function resolveSkill(
   skillName: string | undefined,

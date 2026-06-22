@@ -1,6 +1,16 @@
 /**
  * @module agent-pool
- * Agent pool for managing reusable ManagedAgent instances.
+ *
+ * Agent pool management for the mesh network.
+ *
+ * The AgentPool manages a pool of worker agents, handling:
+ * - Agent creation and destruction
+ * - Resource tracking (active agents, available capacity)
+ * - Task assignment based on agent role and capabilities
+ * - Agent lifecycle management (idle -> busy -> idle)
+ *
+ * The pool enforces concurrency limits and ensures efficient
+ * agent reuse to minimize startup overhead.
  */
 
 import type { AgentId, AgentRole, AgentStatus } from "@orangecoding/core";

@@ -1,6 +1,13 @@
 /**
- * BaseAgent provides common implementation for all agents.
- * Ported from modules/agent/agents/base.go.
+ * @module base-agent
+ *
+ * Base agent implementation with shared functionality.
+ *
+ * Provides common agent behavior that specialized agents extend:
+ * - Agent lifecycle (init, run, shutdown)
+ * - Event emission
+ * - Configuration management
+ * - Error handling and recovery
  */
 
 import type { AgentId, AgentRole, AgentStatus, Task, TaskResult } from "@orangecoding/core";
@@ -12,6 +19,11 @@ import type { AgentLoop } from "../loop.js";
 // Agent interface
 // ---------------------------------------------------------------------------
 
+/**
+ * Agent is the common contract for all agents: identity (id/role), lifecycle
+ * (run/stop), and status query. Implementations include BaseAgent and its
+ * specialized subclasses.
+ */
 export interface Agent {
   id(): AgentId;
   role(): AgentRole;
@@ -39,9 +51,12 @@ export class BaseAgent implements Partial<ManagedAgent> {
     this._abortController = null;
   }
 
+  /** id returns the unique agent identifier. */
   id(): AgentId { return this._id; }
+  /** role returns the configured agent role. */
   role(): AgentRole { return this._role; }
 
+  /** status returns the current lifecycle status of this agent. */
   status(): AgentStatus {
     return this._status;
   }

@@ -26,26 +26,34 @@ const CMD_TIMEOUT = 30_000;
 // LSP protocol response types (subset of LSP 3.17)
 // ---------------------------------------------------------------------------
 
+/** LspPosition is a 0-based (line, character) cursor position in the LSP protocol. */
+/** LSP text document position: line (0-based) and character offset. */
 interface LspPosition {
   line: number;
   character: number;
 }
 
+/** LspRange is a half-open [start, end) span within a document. */
+/** LSP text range: start and end positions within a document. */
 interface LspRange {
   start: LspPosition;
   end: LspPosition;
 }
 
+/** LspLocation is a target URI plus the range to highlight (definition/reference results). */
+/** LSP location: a file URI combined with a text range. */
 interface LspLocation {
   uri: string;
   range: LspRange;
   targetSelectionRange?: LspRange;
 }
 
+/** Result of an LSP hover request (documentation/type info at a position). */
 interface LspHoverResult {
   contents: string | { kind: string; value: string } | Array<string | { kind: string; value: string }>;
 }
 
+/** Information about a symbol (variable, function, class) from LSP. */
 interface LspSymbolInfo {
   name: string;
   kind: number;
@@ -53,21 +61,25 @@ interface LspSymbolInfo {
   selectionRange?: LspRange;
 }
 
+/** A single text replacement edit within a document. */
 interface LspTextEdit {
   range: LspRange;
   newText: string;
 }
 
+/** A set of edits spanning multiple files in a workspace. */
 interface LspWorkspaceEdit {
   changes?: Record<string, LspTextEdit[]>;
 }
 
+/** A single code completion suggestion from the LSP server. */
 interface LspCompletionItem {
   label: string;
   kind?: number;
   detail?: string;
 }
 
+/** A list of completion items returned for a specific cursor position. */
 interface LspCompletionList {
   isIncomplete: boolean;
   items: LspCompletionItem[];
@@ -77,6 +89,12 @@ interface LspCompletionList {
 // LSP server config (user can override)
 // ---------------------------------------------------------------------------
 
+/** LspServerConfig maps file extensions to the language-server command line. */
+/**
+ * Configuration for connecting to and managing an LSP language server.
+ * Specifies the server command, arguments, initialization options,
+ * and supported language/file extensions.
+ */
 interface LspServerConfig {
   /** Language to command map, e.g. { "typescript": ["typescript-language-server", "--stdio"] } */
   commands: Record<string, string[]>;
@@ -102,6 +120,8 @@ const DEFAULT_LSP_COMMANDS: Record<string, string[]> = {
 // LspTool
 // ---------------------------------------------------------------------------
 
+/** LspArgs is the parsed input for the LspTool: action, file, position, and rename target. */
+/** Parsed and validated arguments for LSP tool operations. */
 interface LspArgs {
   action: "definition" | "references" | "hover" | "diagnostics" | "symbols" | "rename" | "completion";
   path: string;
@@ -115,10 +135,29 @@ interface LspArgs {
   cwd?: string;
 }
 
+/**
+ * LspTool integrates Language Server Protocol servers for deep code analysis.
+ *
+ * Capabilities:
+ * - go_to_definition: navigate to where a symbol is defined
+ * - find_references: find all locations where a symbol is used
+ * - hover: get type information and documentation at a position
+ * - completions: get code completion suggestions
+ * - diagnostics: retrieve compiler/linter errors and warnings
+ * - symbols: list document or workspace symbols
+ * - rename: rename a symbol across all files
+ *
+ * Each language requires a configured LSP server (e.g., typescript-language-server,
+ * pyright, gopls). The tool manages server lifecycle and communication.
+ */
 export class LspTool implements Tool {
   private readonly _params: Record<string, unknown>;
   private _lspConfig: LspServerConfig;
 
+  /**
+   * Constructs an LspTool. If lspConfig is omitted, DEFAULT_LSP_COMMANDS is
+   * used (typescript-language-server, pyright, gopls, rust-analyzer, etc.).
+   */
   constructor(lspConfig?: LspServerConfig) {
     this._lspConfig = lspConfig || { commands: DEFAULT_LSP_COMMANDS };
     this._params = {
@@ -139,15 +178,25 @@ export class LspTool implements Tool {
     };
   }
 
+  /** name returns the tool identifier "lsp". */
   name(): string { return "lsp"; }
+  /** description returns the human-readable tool description shown to the model. */
   description(): string {
     return "Language Server Protocol operations for code navigation and analysis. " +
       "Use for: go-to-definition, find-references, hover info, diagnostics, document symbols, " +
       "rename symbol, and completions. Supports TypeScript, Python, Go, Rust, Java, C/C++.";
   }
+  /** parameters returns the JSON schema for this tool inputs. */
   parameters(): Record<string, unknown> { return this._params; }
+  /** metadata marks this tool as read-only (no filesystem writes). */
   metadata(): ToolMetadata { return readOnlyMetadata(); }
 
+  /**
+   * execute validates the request, resolves the absolute path, and first
+   * attempts the real LSP path (JSON-RPC over stdio). On any failure it falls
+   * back to heuristic grep-based tools so the tool degrades gracefully when
+   * no language server is installed.
+   */
   async execute(_ctx: unknown, input: unknown): Promise<string> {
     const args = input as LspArgs;
 
@@ -173,6 +222,11 @@ export class LspTool implements Tool {
   // Real LSP via JSON-RPC over stdio
   // -------------------------------------------------------------------------
 
+  /**
+   * executeWithLsp spawns the configured language server, sends initialize +
+   * didOpen + the requested method over JSON-RPC stdin, then parses the
+   * Content-Length-framed stdout responses and formats the result for id=1.
+   */
   private async executeWithLsp(args: LspArgs, absPath: string): Promise<string> {
     const ext = extname(absPath).toLowerCase();
     const cmdParts = this._lspConfig.commands[ext];
@@ -293,6 +347,11 @@ export class LspTool implements Tool {
   // Fallback: heuristic tools when no LSP is available
   // -------------------------------------------------------------------------
 
+  /**
+   * executeFallback handles requests when no LSP server is available by
+   * routing to language-specific shell tools (tsc/py_compile/go vet) for
+   * diagnostics, and regex heuristics for symbols/definition/references/hover.
+   */
   private async executeFallback(args: LspArgs, absPath: string): Promise<string> {
     switch (args.action) {
       case "diagnostics":
@@ -310,6 +369,10 @@ export class LspTool implements Tool {
     }
   }
 
+  /**
+   * fallbackDiagnostics runs language-specific linters when no LSP is available:
+   * tsc --noEmit for TS/JS, py_compile for Python, go vet for Go.
+   */
   private async fallbackDiagnostics(absPath: string): Promise<string> {
     const ext = extname(absPath).toLowerCase();
     const cwd = dirname(absPath);
@@ -356,48 +419,60 @@ export class LspTool implements Tool {
     }
   }
 
+  /**
+   * fallbackSymbols extracts document symbols (functions, classes, interfaces,
+   * types, vars, methods) via module-scope regex heuristics. Returns one line
+   * per symbol with its line number.
+   */
   private async fallbackSymbols(absPath: string): Promise<string> {
     const content = await readFile(absPath, "utf-8");
     const lines = content.split("\n");
     const symbols: string[] = [];
 
-    // Heuristic symbol extraction
+    // Heuristic symbol extraction. Uses module-scope pre-compiled regexes
+    // (RE_SYM_*) so the patterns are not recompiled once per line per call.
+    // On a 1000-line file this previously allocated ~5000 regex objects.
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]!;
       const lineNum = i + 1;
 
       // Functions/methods
-      const funcMatch = line.match(/^\s*(export\s+)?(async\s+)?function\s+(\w+)/);
+      const funcMatch = line.match(RE_SYM_FUNC);
       if (funcMatch) {
         symbols.push(`${lineNum}: function ${funcMatch[3]}`);
         continue;
       }
 
       // Class declarations
-      const classMatch = line.match(/^\s*(export\s+)?(abstract\s+)?class\s+(\w+)/);
+      const classMatch = line.match(RE_SYM_CLASS);
       if (classMatch) {
         symbols.push(`${lineNum}: class ${classMatch[3]}`);
         continue;
       }
 
       // Interface/type
-      const ifaceMatch = line.match(/^\s*(export\s+)?(interface|type)\s+(\w+)/);
+      const ifaceMatch = line.match(RE_SYM_IFACE);
       if (ifaceMatch) {
         symbols.push(`${lineNum}: ${ifaceMatch[2]} ${ifaceMatch[3]}`);
         continue;
       }
 
       // const/let/var declarations (top-level only)
-      const varMatch = line.match(/^(export\s+)?(const|let|var)\s+(\w+)/);
+      const varMatch = line.match(RE_SYM_VAR);
       if (varMatch) {
         symbols.push(`${lineNum}: ${varMatch[2]} ${varMatch[3]}`);
         continue;
       }
 
-      // Method shorthand in classes
-      const methodMatch = line.match(/^\s+(async\s+)?(\w+)\s*\(/);
-      if (methodMatch && !line.trim().startsWith("if") && !line.trim().startsWith("for") &&
-          !line.trim().startsWith("while") && !line.trim().startsWith("switch")) {
+      // Method shorthand in classes. Skip control-flow keywords by checking a
+      // trimmed-line prefix set rather than 4 separate startsWith() calls.
+      const methodMatch = line.match(RE_SYM_METHOD);
+      if (methodMatch) {
+        const trimmed = line.trim();
+        if (trimmed.charCodeAt(0) === 105 /* 'i' */ && trimmed.startsWith("if")) continue;
+        if (trimmed.charCodeAt(0) === 102 /* 'f' */ && trimmed.startsWith("for")) continue;
+        if (trimmed.charCodeAt(0) === 119 /* 'w' */ && trimmed.startsWith("while")) continue;
+        if (trimmed.charCodeAt(0) === 115 /* 's' */ && trimmed.startsWith("switch")) continue;
         symbols.push(`${lineNum}: method ${methodMatch[2]}`);
       }
     }
@@ -409,6 +484,10 @@ export class LspTool implements Tool {
     return `Document symbols in ${absPath}:\n` + symbols.join("\n");
   }
 
+  /**
+   * fallbackDefinition extracts the identifier under the cursor and searches
+   * the current file for lines that look like a definition of that identifier.
+   */
   private async fallbackDefinition(args: LspArgs, absPath: string): Promise<string> {
     // Read the line and extract the identifier under cursor
     const content = await readFile(absPath, "utf-8");
@@ -437,6 +516,10 @@ export class LspTool implements Tool {
     return `Possible definitions for "${identifier}":\n` + results.join("\n");
   }
 
+  /**
+   * fallbackReferences finds all occurrences of the cursor identifier in the
+   * current file (capped at 50 results) as a lightweight references lookup.
+   */
   private async fallbackReferences(args: LspArgs, absPath: string): Promise<string> {
     const content = await readFile(absPath, "utf-8");
     const lines = content.split("\n");
@@ -465,6 +548,10 @@ export class LspTool implements Tool {
     return header + results.join("\n");
   }
 
+  /**
+   * fallbackHover reports any type annotation or declaration found for the
+     cursor identifier, or falls back to a no-type-info message.
+   */
   private async fallbackHover(args: LspArgs, absPath: string): Promise<string> {
     const content = await readFile(absPath, "utf-8");
     const lines = content.split("\n");
@@ -500,6 +587,7 @@ export class LspTool implements Tool {
   // LSP protocol helpers
   // -------------------------------------------------------------------------
 
+  /** lspMethod maps a high-level action to the LSP JSON-RPC method name. */
   private lspMethod(action: string): string {
     switch (action) {
       case "definition": return "textDocument/definition";
@@ -513,6 +601,7 @@ export class LspTool implements Tool {
     }
   }
 
+  /** lspParams builds the JSON-RPC params object for the given action and position. */
   private lspParams(action: string, uri: string, line: number, col: number, path: string, newName?: string): Record<string, unknown> {
     const textDoc = { uri };
     const position = { line, character: col };
@@ -527,6 +616,7 @@ export class LspTool implements Tool {
     }
   }
 
+  /** parseJsonRpcResponses splits Content-Length-framed stdout into parsed JSON-RPC response objects. */
   private parseJsonRpcResponses(stdout: string): Array<{ id?: number; result?: unknown; error?: { message: string } }> {
     const results: Array<{ id?: number; result?: unknown; error?: { message: string } }> = [];
     // LSP uses Content-Length header framing
@@ -545,6 +635,7 @@ export class LspTool implements Tool {
     return results;
   }
 
+  /** formatLspResult renders a raw LSP result into a human-readable string per action type. */
   private formatLspResult(action: string, result: unknown, absPath: string): string {
     if (result === null || result === undefined) {
       return "No result.";
@@ -628,6 +719,24 @@ export class LspTool implements Tool {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Module-scope compiled regexes for the fallback symbol/reference heuristics.
+// Hoisting avoids recompiling the same pattern for every line of every file
+// scanned when no LSP server is available.
+const RE_SYM_FUNC = /^\s*(export\s+)?(async\s+)?function\s+(\w+)/;
+const RE_SYM_CLASS = /^\s*(export\s+)?(abstract\s+)?class\s+(\w+)/;
+const RE_SYM_IFACE = /^\s*(export\s+)?(interface|type)\s+(\w+)/;
+const RE_SYM_VAR = /^(export\s+)?(const|let|var)\s+(\w+)/;
+const RE_SYM_METHOD = /^\s+(async\s+)?(\w+)\s*\(/;
+
+/**
+ * Find the identifier (JS/TS style: [a-zA-Z_$][\w$]*) that contains `col`,
+ * or the word at `col` as a fallback. Used by the definition/references/
+ * hover fallbacks to pick the symbol the cursor is on.
+ */
+/**
+ * Extracts the identifier (variable/function name) at a given column position.
+ * Uses word-boundary detection to find the complete identifier token.
+ */
 function extractIdentifierAtPosition(line: string, col: number): string {
   // Find the identifier that contains the column position
   const idRegex = /[a-zA-Z_$][\w$]*/g;
@@ -651,8 +760,18 @@ function extractIdentifierAtPosition(line: string, col: number): string {
   return "";
 }
 
+/**
+ * Heuristic test: does this line look like a *definition* of `identifier`
+ * (as opposed to a usage)? Patterns cover declarations, assignment, and
+ * import/export forms. Patterns are rebuilt per call because they embed the
+ * identifier; callers invoke this at most a few times per fallback lookup,
+ * so the cost is negligible.
+ */
+/**
+ * Heuristically checks whether a line contains the definition of an identifier.
+ * Looks for patterns like "function foo", "class Foo", "const foo =", etc.
+ */
 function isLikelyDefinition(line: string, identifier: string): boolean {
-  // Heuristic: definition patterns
   const patterns = [
     new RegExp(`(function|class|interface|type|enum|const|let|var)\\s+${identifier}\\b`),
     new RegExp(`${identifier}\\s*[:=(]`),

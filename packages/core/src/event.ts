@@ -1,9 +1,29 @@
+/**
+ * @module event
+ *
+ * Agent event types for observability and streaming.
+ *
+ * Events are emitted during agent execution to provide
+ * real-time visibility into the agent's progress:
+ * - ModelRequest/ModelResponse: AI API calls
+ * - ToolCall/ToolResult: tool invocations
+ * - Thinking: reasoning steps
+ * - Error: failures and warnings
+ * - Status: lifecycle state changes
+ */
 import type { AgentId, SessionId, TokenUsage } from "./types.js";
 import type { ToolCall } from "./message.js";
 
 // ---------------------------------------------------------------------------
 // AgentEvent interface
 // ---------------------------------------------------------------------------
+
+/**
+ * Structural shape that all concrete event types share. Consumers of the
+ * EventBus treat events polymorphically through this interface; type
+ * discrimination happens via `eventType`. Keeping it minimal avoids forcing
+ * every subscriber to import the concrete classes.
+ */
 
 export interface AgentEvent {
   eventType: string;
@@ -15,6 +35,13 @@ export interface AgentEvent {
 // ---------------------------------------------------------------------------
 // BaseEvent
 // ---------------------------------------------------------------------------
+
+/**
+ * Shared base for all 12 concrete event types. Carries the routing triple
+ * (type, agent, session) plus a timestamp, and knows how to serialize
+ * itself to the snake_case JSON shape used for persistence and transport.
+ * Concrete subclasses override {@link toJSON} when they carry extra fields.
+ */
 
 export interface BaseEventJSON {
   type: string;
@@ -49,6 +76,11 @@ export class BaseEvent {
 // ---------------------------------------------------------------------------
 // Concrete event types (11)
 // ---------------------------------------------------------------------------
+// Each event below models a single stage in the agent lifecycle. They are
+// intentionally tiny immutable value objects exposing exactly the fields the
+// UI / metrics / persistence layers need. Subscribers discriminate by the
+// `eventType` string ("started", "tool_call_requested", ...) returned by the
+// getter on BaseEvent.
 
 // 1. StartedEvent
 export class StartedEvent extends BaseEvent {
@@ -192,6 +224,12 @@ export class GuardrailDecisionEvent extends BaseEvent {
 // EventHandler
 // ---------------------------------------------------------------------------
 
+/**
+ * Subscriber contract for the EventBus. Implementations may return a Promise
+ * (async handlers run concurrently per publish) or void (synchronous).
+ * Exceptions are isolated per handler so one failure does not break others.
+ */
+
 export interface EventHandler {
   handle(ev: AgentEvent): Promise<void> | void;
   readonly name: string;
@@ -200,6 +238,15 @@ export interface EventHandler {
 // ---------------------------------------------------------------------------
 // EventBus
 // ---------------------------------------------------------------------------
+
+/**
+ * Minimal in-process pub/sub used to fan agent lifecycle events out to
+ * subscribers. Subscriptions are keyed by {@link EventHandler.name} so a
+ * later registration with the same name overwrites the earlier one.
+ * publish() awaits all handlers concurrently; per-handler failures are
+ * routed to the installed ErrorHandler (default: console.error) and never
+ * reject the publish() promise.
+ */
 
 export type ErrorHandler = (handler: string, event: AgentEvent, error: Error) => void;
 
@@ -220,6 +267,12 @@ export class EventBus {
     this._errorHandler = handler;
   }
 
+  /**
+   * Fan `ev` out to every subscriber. Handlers run concurrently via
+   * Promise.all; a throwing handler is caught and reported to the error
+   * handler rather than rejecting this promise, so a single misbehaving
+   * subscriber cannot break the event stream.
+   */
   async publish(ev: AgentEvent): Promise<void> {
     const handlers = [...this._subs.values()];
     const promises = handlers.map(async (h) => {

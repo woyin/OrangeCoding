@@ -64,6 +64,18 @@ export interface PlanningWorkflowConfig {
 // PlanningWorkflow
 // ---------------------------------------------------------------------------
 
+/**
+ * PlanningWorkflow implements multi-step task planning and execution.
+ *
+ * The planning workflow:
+ * 1. Analyzes the task to identify required steps
+ * 2. Creates a structured plan with dependencies
+ * 3. Executes steps in order, adapting the plan as needed
+ * 4. Tracks progress and handles failures gracefully
+ *
+ * Used for complex tasks that benefit from explicit planning
+ * rather than direct single-shot execution.
+ */
 export class PlanningWorkflow {
   private _provider: AiProvider;
   private _registry: ToolRegistry;

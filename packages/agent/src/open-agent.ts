@@ -47,6 +47,13 @@ import type { AgentLoopConfig } from "./loop.js";
 // AgentPlugin — describes a pluggable agent definition
 // ---------------------------------------------------------------------------
 
+/** Describes a pluggable agent: its role, capabilities, allowed tools, and loop config. */
+/**
+ * AgentPlugin defines a specialized agent configuration bundle.
+ *
+ * Plugins encapsulate a system prompt, tool set, and behavioral
+ * parameters for a specific agent role (coder, reviewer, planner, etc.).
+ */
 export interface AgentPlugin {
   name: string;
   description: string;
@@ -61,6 +68,13 @@ export interface AgentPlugin {
 // OpenAgentConfig
 // ---------------------------------------------------------------------------
 
+/** Optional tuning for the runtime: pool size, idle timeout, health-check cadence. */
+/**
+ * OpenAgentConfig holds runtime configuration for the agent system.
+ *
+ * Includes model settings, tool permissions, session parameters,
+ * and feature flags that control agent behavior.
+ */
 export interface OpenAgentConfig {
   maxPoolAgents?: number;
   poolIdleTimeoutMs?: number;
@@ -83,6 +97,11 @@ interface AgentEntry {
 // Simple classifier — classifies by task.type field
 // ---------------------------------------------------------------------------
 
+/** Trivial classifier: routes by the task's own `type` field (no heuristic inference). */
+/**
+ * Classifies incoming tasks to select the best plugin/agent for the job.
+ * Uses keyword matching and heuristics to determine task intent.
+ */
 class PluginTaskClassifier implements TaskClassifier {
   classify(task: Task): TaskType {
     return task.type;
@@ -93,6 +112,18 @@ class PluginTaskClassifier implements TaskClassifier {
 // OpenAgentRuntime
 // ---------------------------------------------------------------------------
 
+/**
+ * OpenAgentRuntime is the top-level agent orchestrator.
+ *
+ * Manages the full lifecycle of an agent session:
+ * 1. Task classification → selects the right plugin/agent
+ * 2. Agent initialization → sets up context, tools, system prompt
+ * 3. Agent execution → runs the agent loop to completion
+ * 4. Result collection → gathers output, metrics, and diagnostics
+ *
+ * Supports multiple concurrent agent instances and plugin-based
+ * extensibility for custom agent behaviors.
+ */
 export class OpenAgentRuntime {
   private _registry: AgentRegistry;
   private _pool: AgentPool;
@@ -288,6 +319,7 @@ export class OpenAgentRuntime {
 
   // --- Private ---
 
+  /** Instantiates a BaseAgent from a plugin: builds a ToolExecutor, AgentContext, and AgentLoop with merged config. */
   private createAgent(plugin: AgentPlugin): BaseAgent {
     const id = AgentId.create();
     const executor = new ToolExecutor(this._toolRegistry);
@@ -307,6 +339,7 @@ export class OpenAgentRuntime {
     return new BaseAgent(plugin.role, loop);
   }
 
+  /** Creates a synthetic plugin for on-demand pool agents spawned by role+capabilities. */
   private createManagedAgent(role: AgentRole, caps: string[]): ManagedAgent {
     const plugin: AgentPlugin = {
       name: "dynamic-" + role,
@@ -318,6 +351,7 @@ export class OpenAgentRuntime {
     return this.createAgent(plugin) as unknown as ManagedAgent;
   }
 
+  /** Wraps raw capability strings into the AgentCapability shape the registry expects. */
   private toAgentCapabilities(caps: string[]): AgentCapability[] {
     return caps.map((name) => ({
       name,
@@ -331,6 +365,10 @@ export class OpenAgentRuntime {
 // AgentRegistrationBuilder — fluent API for configuring an agent registration
 // ---------------------------------------------------------------------------
 
+/**
+ * Fluent builder for registering agent plugins with the runtime.
+ * Provides a chainable API for configuring plugin parameters.
+ */
 export class AgentRegistrationBuilder {
   private _runtime: OpenAgentRuntime;
   private _name: string;
@@ -340,6 +378,7 @@ export class AgentRegistrationBuilder {
     this._name = name;
   }
 
+  /** Fluent setter — see OpenAgentRuntime.register. Returns this builder for chaining. */
   withTools(tools: string[]): AgentRegistrationBuilder {
     const entry = this._runtime.getEntry(this._name);
     if (entry) {
@@ -348,6 +387,7 @@ export class AgentRegistrationBuilder {
     return this;
   }
 
+  /** Fluent setter — see OpenAgentRuntime.register. Returns this builder for chaining. */
   withSystemPrompt(prompt: string): AgentRegistrationBuilder {
     const entry = this._runtime.getEntry(this._name);
     if (entry) {
@@ -356,6 +396,7 @@ export class AgentRegistrationBuilder {
     return this;
   }
 
+  /** Fluent setter — see OpenAgentRuntime.register. Returns this builder for chaining. */
   withLoopConfig(config: Partial<AgentLoopConfig>): AgentRegistrationBuilder {
     const entry = this._runtime.getEntry(this._name);
     if (entry) {
@@ -364,6 +405,7 @@ export class AgentRegistrationBuilder {
     return this;
   }
 
+  /** Fluent setter — see OpenAgentRuntime.register. Returns this builder for chaining. */
   withCapability(capability: string): AgentRegistrationBuilder {
     const entry = this._runtime.getEntry(this._name);
     if (entry) {
@@ -375,6 +417,7 @@ export class AgentRegistrationBuilder {
     return this;
   }
 
+  /** Fluent setter — see OpenAgentRuntime.register. Returns this builder for chaining. */
   onEvent(handler: (data: unknown) => void): AgentRegistrationBuilder {
     this._runtime.bus.subscribe("agent:" + this._name, handler);
     return this;
@@ -382,9 +425,10 @@ export class AgentRegistrationBuilder {
 }
 
 // ---------------------------------------------------------------------------
-// Preset plugins — convenient factory functions for common agent types
+/** Preset plugins — convenient factory functions for common agent roles with sensible tool whitelists. */
 // ---------------------------------------------------------------------------
 
+/** Creates a coder plugin — optimized for writing and modifying code. */
 export function coderPlugin(): AgentPlugin {
   return {
     name: "coder",
@@ -395,6 +439,7 @@ export function coderPlugin(): AgentPlugin {
   };
 }
 
+/** Creates a planner plugin — optimized for task decomposition and strategy. */
 export function plannerPlugin(): AgentPlugin {
   return {
     name: "planner",
@@ -405,6 +450,7 @@ export function plannerPlugin(): AgentPlugin {
   };
 }
 
+/** Creates a reviewer plugin — optimized for code review and quality analysis. */
 export function reviewerPlugin(): AgentPlugin {
   return {
     name: "reviewer",
@@ -415,6 +461,7 @@ export function reviewerPlugin(): AgentPlugin {
   };
 }
 
+/** Creates an explorer plugin — optimized for codebase navigation and understanding. */
 export function explorerPlugin(): AgentPlugin {
   return {
     name: "explorer",
@@ -425,6 +472,7 @@ export function explorerPlugin(): AgentPlugin {
   };
 }
 
+/** Creates an executor plugin — optimized for running commands and automation. */
 export function executorPlugin(): AgentPlugin {
   return {
     name: "executor",

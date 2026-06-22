@@ -1,6 +1,14 @@
 /**
  * @module pipeline
- * Sequential stage collaboration protocol.
+ *
+ * Sequential stage collaboration protocol for multi-agent mesh networking.
+ *
+ * The Pipeline pattern chains multiple agent stages together where each stage's
+ * output becomes context for the next stage. This is useful for workflows like:
+ *   research → planning → implementation → review
+ *
+ * Unlike parallel collaboration (Consensus, Debate), Pipeline enforces strict
+ * sequential ordering — stage N+1 only starts after stage N completes.
  */
 
 import { AgentRole, TaskStatus } from "@orangecoding/core";
@@ -12,7 +20,16 @@ import type { CollaborationProtocol, AssignmentPlan } from "./collaboration.js";
 // Pipeline
 // ---------------------------------------------------------------------------
 
-/** Sequential stage collaboration. Each stage's output feeds into the next. */
+/**
+ * Pipeline implements sequential stage collaboration where tasks are executed
+ * one after another, with each stage's output appended as context for the next.
+ *
+ * If any stage fails, the pipeline throws immediately and previous results are
+ * discarded. Failed stages produce a TaskResult with status=Failed before throwing.
+ *
+ * Thread safety: acquires and releases workers from the AgentPool for each stage,
+ * ensuring safe concurrent use of the pool.
+ */
 export class Pipeline implements CollaborationProtocol {
   private pool: AgentPool;
 
@@ -20,7 +37,19 @@ export class Pipeline implements CollaborationProtocol {
     this.pool = pool;
   }
 
-  /** Execute runs tasks sequentially, feeding each output to the next stage. */
+  /**
+   * Execute runs the task plan sequentially through pipeline stages.
+   *
+   * For each task in the plan:
+   * 1. Acquires a worker from the pool
+   * 2. Augments the task description with previous stage output (if any)
+   * 3. Assigns the task to the worker
+   * 4. Collects the result and feeds output to the next stage
+   *
+   * @param plan - the assignment plan containing ordered tasks
+   * @returns array of task results (one per stage)
+   * @throws Error if any stage fails (with stage ID in the message)
+   */
   async execute(plan: AssignmentPlan): Promise<TaskResult[]> {
     const results: TaskResult[] = [];
     let previousOutput = "";

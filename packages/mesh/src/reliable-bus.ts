@@ -1,6 +1,16 @@
 /**
  * @module reliable-bus
- * Reliable message bus with at-least-once delivery and acknowledgment.
+ *
+ * Reliable message bus with guaranteed delivery semantics.
+ *
+ * Extends the base Bus with:
+ * - Message persistence (via MessageStore)
+ * - Delivery acknowledgment
+ * - Automatic retry on failure
+ * - Ordered delivery guarantees
+ *
+ * Used for critical messages that must not be lost (task assignments,
+ * results, health status changes).
  */
 
 import { v4 as uuidv4 } from "uuid";
@@ -81,7 +91,12 @@ export class ReliableBus {
     this.guard = guard;
   }
 
-  /** Subscribe registers for messages on a topic. */
+  /**
+   * Registers `onDelivery` to receive deliveries for `topic`. Returns a
+   * Subscription handle used by {@link unsubscribe}. Subscription lists are
+   * mutated in place; unsubscribe removes by id (O(n) findIndex, acceptable
+   * since subscriber counts per topic are small).
+   */
   subscribe(topic: string, onDelivery: (delivery: Delivery) => void): Subscription {
     const sub: Subscription = {
       id: uuidv4(),
@@ -95,7 +110,10 @@ export class ReliableBus {
     return sub;
   }
 
-  /** Unsubscribe removes a subscription. */
+  /**
+   * Removes a subscription by id. Cleans up the topic map entry when the
+   * last subscriber leaves so topics do not leak.
+   */
   unsubscribe(sub: Subscription): void {
     const subs = this.topics.get(sub.topic);
     if (!subs) return;
@@ -109,7 +127,16 @@ export class ReliableBus {
     }
   }
 
-  /** Publish sends a message to all subscribers of a topic. */
+  /**
+   * Publishes `payload` to all current subscribers of `topic` with at-least-
+   * once delivery. The message is durably stored (if a MessageStore is
+   * configured) before any dispatch, so a crash after store but before ack
+   * triggers redelivery rather than loss.
+   *
+   * Dispatch is fire-and-forget per subscriber (mirrors goroutine + channel
+   * send in the Go original); failures are swallowed here and retried by the
+   * redelivery loop.
+   */
   async publish(topic: string, payload: unknown): Promise<void> {
     const msg: MeshMessage = {
       id: uuidv4() as MessageId,
@@ -150,7 +177,12 @@ export class ReliableBus {
     this.topics.clear();
   }
 
-  /** StartRedelivery begins the background redelivery loop. */
+  /**
+   * Starts a background interval that re-dispatches stored-but-unacked
+   * messages for every active topic. This is what makes delivery at-least-
+   * once rather than at-most-once: a subscriber that never acks (e.g. crashed)
+   * will keep seeing the message until it succeeds.
+   */
   startRedelivery(intervalMs = 100): void {
     this.redeliveryTimer = setInterval(() => {
       this.redeliverPending();

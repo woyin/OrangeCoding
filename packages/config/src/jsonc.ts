@@ -1,3 +1,10 @@
+/**
+ * jsonc.ts — minimal JSONC (JSON with comments) preprocessor.
+ *
+ * The OrangeCoding config file allows // line comments and block comments
+ * for documentation. JSON.parse cannot handle these, so parseJSONC strips
+ * comments while respecting string literals, then returns clean JSON.
+ */
 import { newConfigError } from "@orangecoding/core";
 
 /**

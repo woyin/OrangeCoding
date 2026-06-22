@@ -16,6 +16,19 @@ const GREEN = "\x1b[32m";
 const GRAY = "\x1b[90m";
 const MAGENTA = "\x1b[35m";
 
+// --- Pre-compiled regexes -------------------------------------------------
+// These patterns are applied to every line on every render(). Compiling them
+// once at module load (rather than per-call inside render) avoids re-running
+// the regex compiler on each streamed chunk - a significant win for the TUI
+// hot path, which re-renders on every stream delta.
+const RE_HR = /^(?:-{3,}|_{3,}|\*{3,})$/;
+const RE_H1 = /^# (.+)$/;
+const RE_H2 = /^## (.+)$/;
+const RE_H3 = /^### (.+)$/;
+const RE_FENCE = /^\s*```/;
+const RE_BULLET = /^(\s*)[-*+]\s+(.+)$/;
+const RE_NUMBERED = /^(\s*)(\d+)\.\s+(.+)$/;
+
 export class MarkdownRenderer {
   private readonly wordWrap: number;
 
@@ -59,26 +72,26 @@ export class MarkdownRenderer {
         continue;
       }
 
-      // Horizontal rule
-      if (/^(-{3,}|_{3,}|\*{3,})$/.test(line.trim())) {
+      // Horizontal rule (--- / ___ / ***)
+      if (RE_HR.test(line.trim())) {
         output.push(GRAY + "─".repeat(Math.min(this.wordWrap, 40)) + RESET);
         continue;
       }
 
-      // Headers
-      const h1 = line.match(/^# (.+)$/);
+      // Headers (use pre-compiled patterns).
+      const h1 = line.match(RE_H1);
       if (h1) {
         output.push(BOLD_ON + CYAN + h1[1] + RESET);
         continue;
       }
 
-      const h2 = line.match(/^## (.+)$/);
+      const h2 = line.match(RE_H2);
       if (h2) {
         output.push(BOLD_ON + MAGENTA + h2[1] + RESET);
         continue;
       }
 
-      const h3 = line.match(/^### (.+)$/);
+      const h3 = line.match(RE_H3);
       if (h3) {
         output.push(BOLD_ON + h3[1] + RESET);
         continue;
@@ -91,8 +104,8 @@ export class MarkdownRenderer {
         continue;
       }
 
-      // Bullet list
-      const bullet = line.match(/^(\s*)[-*+]\s+(.+)$/);
+      // Bullet list (-, *, +)
+      const bullet = line.match(RE_BULLET);
       if (bullet) {
         const indent = bullet[1] ?? "";
         const text = this.renderInline(bullet[2]!);
@@ -100,8 +113,8 @@ export class MarkdownRenderer {
         continue;
       }
 
-      // Numbered list
-      const numbered = line.match(/^(\s*)(\d+)\.\s+(.+)$/);
+      // Numbered list (1. 2. 3.)
+      const numbered = line.match(RE_NUMBERED);
       if (numbered) {
         const indent = numbered[1] ?? "";
         const num = numbered[2]!;

@@ -1,3 +1,13 @@
+/**
+ * @module tui-model
+ *
+ * Data model for the Terminal User Interface (TUI).
+ *
+ * Defines the application state that drives the TUI rendering,
+ * including conversation messages, status indicators, input state,
+ * and layout configuration. Follows the Elm Architecture pattern
+ * (Model → Update → View) for predictable state management.
+ */
 import type { Message } from "@orangecoding/core";
 import { DarkTheme, type Theme } from "./theme.js";
 

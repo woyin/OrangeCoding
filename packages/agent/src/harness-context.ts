@@ -17,6 +17,12 @@ import type { ContextBlock, ContextBlockKind } from "./harness-state.js";
 // HarnessContextConfig
 // ---------------------------------------------------------------------------
 
+/**
+ * Tunable knobs for {@link HarnessContextBuilder}. Token caps and message
+ * windows keep the assembled context within a model's input budget; the
+ * file-loading flags opt AGENTS.md / README.md injection in/out.
+ */
+
 export interface HarnessContextConfig {
   maxTokens: number;
   recentMessages: number;
@@ -33,6 +39,12 @@ export interface HarnessContextConfig {
 // HarnessContextInput
 // ---------------------------------------------------------------------------
 
+/**
+ * Per-turn inputs to the context builder: the static system prompt and task
+ * plus the dynamic conversation and memory managers. All optional fields
+ * degrade gracefully — the builder emits at least system + task blocks.
+ */
+
 export interface HarnessContextInput {
   systemPrompt: string;
   task: string;
@@ -44,6 +56,15 @@ export interface HarnessContextInput {
 // ---------------------------------------------------------------------------
 // HarnessContextBuilder
 // ---------------------------------------------------------------------------
+
+/**
+ * Assembles the ordered list of {@link ContextBlock}s fed to the model each
+ * turn. Stable blocks (system, task, AGENTS.md, memory) come first so they
+ * occupy predictable prompt positions; recent conversation messages are
+ * appended last as low-priority dynamic blocks. Final trimming via
+ * {@link fitContextBlocks} drops the lowest-priority non-stable blocks until
+ * the total fits the token budget.
+ */
 
 export class HarnessContextBuilder {
   private _config: HarnessContextConfig;
@@ -62,7 +83,11 @@ export class HarnessContextBuilder {
     if (this._config.memoryMaxBlocks <= 0) this._config.memoryMaxBlocks = 6;
   }
 
-  /** Build assembles stable system/task/memory blocks followed by recent dynamic blocks. */
+  /**
+   * Assemble the full context block list for one turn. Ordering is:
+   * system → task → AGENTS.md rules → README → memory tiers → recent
+   * conversation. The result is trimmed to {@link maxTokens} before return.
+   */
   async build(_signal: AbortSignal | undefined, input: HarnessContextInput): Promise<ContextBlock[]> {
     const blocks: ContextBlock[] = [
       newContextBlock("system", input.systemPrompt, true, 100),
@@ -115,6 +140,11 @@ export class HarnessContextBuilder {
 // ---------------------------------------------------------------------------
 // AGENTS.md auto-loading (OmO-style project memory)
 // ---------------------------------------------------------------------------
+// These helpers implement OmO-style project context injection: they walk
+// the working directory for AGENTS.md files and rule directories
+// (.omo/rules, .opencode/rules), turning each into a stable harness block.
+// All file I/O is best-effort: any error short-circuits to an empty block
+// list so a missing/permission-denied file never breaks the agent.
 
 /**
  * Load AGENTS.md files from the project directory tree.
@@ -217,6 +247,7 @@ async function loadReadmeFile(workDir: string): Promise<ContextBlock | null> {
   return null;
 }
 
+/** Construct a ContextBlock with a precomputed token estimate. */
 function newContextBlock(kind: ContextBlockKind, content: string, stable: boolean, priority: number): ContextBlock {
   return {
     kind,
@@ -227,6 +258,12 @@ function newContextBlock(kind: ContextBlockKind, content: string, stable: boolea
   };
 }
 
+/**
+ * Trim `blocks` to fit within `maxTokens` by repeatedly dropping the
+ * lowest-priority non-stable block. Stable blocks (system, task, AGENTS.md)
+ * are never dropped, which guarantees the prompt always carries identity and
+ * rules. Runs in O(n²) worst case but n is small (tens of blocks).
+ */
 function fitContextBlocks(blocks: ContextBlock[], maxTokens: number): ContextBlock[] {
   if (maxTokens <= 0 || totalBlockTokens(blocks) <= maxTokens) {
     return blocks;
@@ -249,6 +286,7 @@ function fitContextBlocks(blocks: ContextBlock[], maxTokens: number): ContextBlo
   return kept;
 }
 
+/** Sum the precomputed token estimates across all blocks (single pass). */
 function totalBlockTokens(blocks: ContextBlock[]): number {
   let total = 0;
   for (const block of blocks) {
@@ -257,6 +295,7 @@ function totalBlockTokens(blocks: ContextBlock[]): number {
   return total;
 }
 
+/** Cheap ~4 chars/token heuristic used to size context blocks for trimming. */
 function estimateTextTokens(text: string): number {
   if (!text) return 0;
   const tokens = Math.floor(text.length / 4);
@@ -267,10 +306,12 @@ function estimateTextTokens(text: string): number {
 // Helper functions exported for testing
 // ---------------------------------------------------------------------------
 
+/** Test helper: does the block list contain at least one block of `kind`? */
 export function containsBlockKind(blocks: ContextBlock[], kind: ContextBlockKind): boolean {
   return blocks.some((b) => b.kind === kind);
 }
 
+/** Test helper: does any block's content include `text` (substring match)? */
 export function containsBlockText(blocks: ContextBlock[], text: string): boolean {
   return blocks.some((b) => b.content.includes(text));
 }

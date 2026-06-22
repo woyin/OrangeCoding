@@ -16,6 +16,11 @@ import {
 } from "@orangecoding/core";
 import type { App } from "./app.js";
 
+/**
+ * TuiEventBridge is the glue between the agent event stream and the TUI: it
+ * translates AgentEvents (stream chunks, tool calls, completion, errors,
+ * guardrail decisions) into TUI model messages that drive rendering.
+ */
 export class TuiEventBridge {
   private readonly app: App;
 

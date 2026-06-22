@@ -11,12 +11,19 @@ import { ToolExecutor, filteredRegistry } from "../executor.js";
 import { buildToolDefinitions } from "../tool-defs.js";
 import { AgentLoop, defaultLoopConfig } from "../loop.js";
 
+/** Outcome of running a plan: per-step pass/fail counts and cumulative wall time. */
 export interface ExecutionResult {
   stepsCompleted: number;
   stepsFailed: number;
   durationMs: number;
 }
 
+/**
+ * Sequential plan executor. Each step gets its own AgentContext (fresh session)
+ * running with a write-capable tool subset (bash + file editors). Steps run in
+ * order; a failed step does not abort the remaining steps — it is counted and
+ * the workflow continues. Honors abort between steps.
+ */
 export class ExecutionWorkflow {
   private _provider: AiProvider;
   private _registry: ToolRegistry;
@@ -28,7 +35,11 @@ export class ExecutionWorkflow {
     this._workDir = workDir;
   }
 
-  /** Run executes the given plan steps sequentially. */
+  /**
+   * Execute each step in order with a fresh agent context. Returns a tally of
+   * completed/failed steps plus total duration. Aborts are checked between
+   * steps; a single step's failure is recorded, not thrown.
+   */
   async run(signal: AbortSignal | undefined, steps: string[]): Promise<ExecutionResult> {
     const result: ExecutionResult = {
       stepsCompleted: 0,

@@ -8,14 +8,20 @@ import { runCommand } from "./backend.js";
 export class TmuxBackend implements Backend {
   private panes = new Map<string, PaneInfo>();
 
+  /** name returns the backend identifier used for backend selection. */
   name(): string {
     return "tmux";
   }
 
+  /** isAvailable reports whether we are inside a tmux session (TMUX env set). */
   isAvailable(): boolean {
     return !!process.env.TMUX;
   }
 
+  /**
+   * createPane splits the current tmux window horizontally and runs the command.
+   * Falls back to a synthesized pane ID if tmux output parsing fails.
+   */
   async createPane(name: string, command: string): Promise<PaneInfo> {
     // -P prints pane ID, -F sets format, -h splits horizontally
     const args = ["split-window", "-h", "-P", "-F", "#{pane_id}", "-t", name, "sh", "-c", command];
@@ -38,6 +44,7 @@ export class TmuxBackend implements Backend {
     return info;
   }
 
+  /** closePane kills the named tmux pane and drops it from the local registry. */
   async closePane(paneID: string): Promise<void> {
     await runCommand("tmux", ["kill-pane", "-t", paneID]);
     const p = this.panes.get(paneID);
@@ -46,18 +53,22 @@ export class TmuxBackend implements Backend {
     }
   }
 
+  /** sendText sends a line of text into the pane followed by Enter via send-keys. */
   async sendText(paneID: string, text: string): Promise<void> {
     await runCommand("tmux", ["send-keys", "-t", paneID, text, "Enter"]);
   }
 
+  /** focusPane brings the pane to the foreground via select-pane. */
   async focusPane(paneID: string): Promise<void> {
     await runCommand("tmux", ["select-pane", "-t", paneID]);
   }
 
+  /** captureOutput returns the visible pane content via capture-pane -p. */
   async captureOutput(paneID: string): Promise<string> {
     return runCommand("tmux", ["capture-pane", "-t", paneID, "-p"]);
   }
 
+  /** listPanes returns the locally-tracked panes created by this backend instance. */
   async listPanes(): Promise<PaneInfo[]> {
     return [...this.panes.values()];
   }

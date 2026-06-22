@@ -69,7 +69,9 @@ export class SandboxPermissionManager {
   }
 
   /**
-   * Check permissions for a tool operation.
+   * Checks permissions for a tool operation. Evaluates rules in order: file
+   * path rules first (if ctx.filePath is set), then command rules (for bash),
+   * then tool-level rules. First match wins; falls back to defaultDecision.
    */
   check(toolName: string, ctx: PermissionContext): PermissionCheckResult {
     const action = ctx.isReadOnly ? "read" : "write";
@@ -106,7 +108,9 @@ export class SandboxPermissionManager {
   }
 
   /**
-   * Check network access permissions.
+   * Checks whether network access to `host` is allowed. Consults the
+   * allowedHosts list first (exact or wildcard match), then network-action
+   * rules, then the default decision.
    */
   checkNetwork(host: string): PermissionCheckResult {
     // Check allowed hosts list
@@ -122,10 +126,10 @@ export class SandboxPermissionManager {
       }
     }
 
-    // Check rules for network action
+    // Check rules for network action (matched by tool name, e.g. "fetch").
     for (const rule of this._compiledRules) {
       if (rule.action === "network" || rule.action === "all") {
-        if (rule.toolPattern && matchGlob("fetch", rule.toolPattern)) {
+        if (rule.toolRegex && rule.toolRegex.test("fetch")) {
           return {
             decision: rule.decision,
             matchedRule: rule.original,
@@ -143,7 +147,8 @@ export class SandboxPermissionManager {
   }
 
   /**
-   * Check if an environment variable is accessible.
+   * Returns true if the environment variable `name` is accessible. When
+   * allowedEnvVars is unset, all variables are accessible.
    */
   checkEnvVar(name: string): boolean {
     if (!this._config.allowedEnvVars) {
@@ -161,27 +166,28 @@ export class SandboxPermissionManager {
 
   // Private methods
 
+  /**
+   * Walks compiled rules in order (first match wins), checking action + path +
+   * tool. Path and tool matching use the pre-compiled regexes (or the literal
+   * startsWith fast path), so this loop allocates nothing per iteration.
+   */
   private _matchRules(
     toolName: string,
     absPath: string,
     action: PermissionAction,
   ): PermissionCheckResult {
     for (const rule of this._compiledRules) {
-      // Check action match
+      // Action must match (or be the wildcard "all").
       if (rule.action !== "all" && rule.action !== action) continue;
 
-      // Check path match
-      if (rule.pathPattern && !matchPathPattern(absPath, rule.pathPattern, this._config.workingDir)) {
-        continue;
-      }
+      // Path criterion: if the rule has a path, the path must match.
+      if (rule.pathPattern && !matchPathCompiled(absPath, rule)) continue;
 
-      // Check tool match
-      if (rule.toolPattern && !matchGlob(toolName, rule.toolPattern)) {
-        continue;
-      }
+      // Tool criterion: if the rule names a tool, the tool name must match.
+      if (rule.toolRegex && !rule.toolRegex.test(toolName)) continue;
 
-      // Must have at least one criterion to match
-      if (!rule.pathPattern && !rule.toolPattern) continue;
+      // Must have at least one criterion to match (avoid catch-all empty rules).
+      if (!rule.pathPattern && !rule.toolRegex) continue;
 
       return {
         decision: rule.decision,
@@ -197,6 +203,7 @@ export class SandboxPermissionManager {
     };
   }
 
+  /** Matches execute-action rules by tool name (for bash command checks). */
   private _matchCommandRules(
     toolName: string,
     _command: string,
@@ -204,8 +211,8 @@ export class SandboxPermissionManager {
   ): PermissionCheckResult {
     for (const rule of this._compiledRules) {
       if (rule.action !== "all" && rule.action !== action && rule.action !== "execute") continue;
-      if (rule.toolPattern && !matchGlob(toolName, rule.toolPattern)) continue;
-      if (!rule.toolPattern) continue;
+      if (rule.toolRegex && !rule.toolRegex.test(toolName)) continue;
+      if (!rule.toolRegex) continue;
 
       return {
         decision: rule.decision,
@@ -221,13 +228,14 @@ export class SandboxPermissionManager {
     };
   }
 
+  /** Matches tool-level rules (tool-only, no path constraint). */
   private _matchToolRules(
     toolName: string,
     action: PermissionAction,
   ): PermissionCheckResult | null {
     for (const rule of this._compiledRules) {
       if (rule.action !== "all" && rule.action !== action) continue;
-      if (rule.toolPattern && matchGlob(toolName, rule.toolPattern) && !rule.pathPattern) {
+      if (rule.toolRegex && rule.toolRegex.test(toolName) && !rule.pathPattern) {
         return {
           decision: rule.decision,
           matchedRule: rule.original,
@@ -253,29 +261,66 @@ export interface PermissionCheckResult {
 // Compiled Rule (internal)
 // ---------------------------------------------------------------------------
 
+/**
+ * A PermissionRule with its glob patterns pre-compiled to RegExp at construction
+ * time. Precompiling avoids re-running globToRegex() + new RegExp() on every
+ * permission check (the hot path in tool execution); each check becomes a pair
+ * of regex.test() calls with zero allocation.
+ *
+ * `isPathLiteral` marks directory-prefix patterns (no glob metachars) which we
+ * match with a fast startsWith rather than the regex engine.
+ */
 interface CompiledRule {
   original: PermissionRule;
   pathPattern: string | null;
-  toolPattern: string | null;
+  /** Pre-compiled regex for path matching, or null when path is a literal/dir prefix. */
+  pathRegex: RegExp | null;
+  /** True when pathPattern has no glob chars — matched via string compare. */
+  isPathLiteral: boolean;
+  /** Pre-compiled regex for tool-name matching, or null. */
+  toolRegex: RegExp | null;
   action: PermissionAction;
   decision: PermissionDecision;
 }
 
+/**
+ * Compiles a PermissionRule into a CompiledRule with pre-compiled regexes.
+ * Path patterns are resolved against workingDir first. Literal (non-glob) path
+ * patterns are flagged so matchPathPattern can use a fast startsWith check.
+ */
 function compileRule(rule: PermissionRule, workingDir: string): CompiledRule {
   let pathPattern: string | null = null;
+  let pathRegex: RegExp | null = null;
+  let isPathLiteral = false;
+
   if (rule.path) {
-    // Resolve relative patterns against working dir
+    // Resolve relative patterns against working dir; keep absolute/glob patterns as-is.
     if (rule.path.startsWith("/") || rule.path.startsWith("*")) {
-      pathPattern = rule.path;
+      pathPattern = rule.path.replace(/\\/g, "/");
     } else {
-      pathPattern = resolve(workingDir, rule.path);
+      pathPattern = resolve(workingDir, rule.path).replace(/\\/g, "/");
     }
+
+    if (pathPattern.includes("*") || pathPattern.includes("?")) {
+      // Glob pattern — compile once, reuse across all future checks.
+      pathRegex = new RegExp(`^${globToRegex(pathPattern)}$`);
+    } else {
+      // Literal directory/file — match with startsWith, no regex needed.
+      isPathLiteral = true;
+    }
+  }
+
+  let toolRegex: RegExp | null = null;
+  if (rule.tool) {
+    toolRegex = new RegExp(`^${globToRegex(rule.tool)}$`);
   }
 
   return {
     original: rule,
     pathPattern,
-    toolPattern: rule.tool ?? null,
+    pathRegex,
+    isPathLiteral,
+    toolRegex,
     action: rule.action,
     decision: rule.decision,
   };
@@ -286,35 +331,43 @@ function compileRule(rule: PermissionRule, workingDir: string): CompiledRule {
 // ---------------------------------------------------------------------------
 
 /**
- * Match a file path against a glob-like pattern.
- * Supports: *, **, ?, and path separators.
+ * Matches a resolved absolute path against a pre-compiled rule. Literal
+ * directory patterns use a startsWith fast path; glob patterns use the
+ * pre-compiled pathRegex. Both inputs are slash-normalized first.
  */
-function matchPathPattern(absPath: string, pattern: string, workingDir: string): boolean {
-  // Normalize
+function matchPathCompiled(absPath: string, rule: CompiledRule): boolean {
   const normalizedPath = absPath.replace(/\\/g, "/");
-  let normalizedPattern = pattern.replace(/\\/g, "/");
 
-  // If pattern is a directory, match everything inside
-  if (!normalizedPattern.includes("*") && !normalizedPattern.includes("?")) {
-    // Exact path or directory prefix match
-    const resolvedPattern = resolve(workingDir, normalizedPattern).replace(/\\/g, "/");
-    return normalizedPath === resolvedPattern ||
-           normalizedPath.startsWith(resolvedPattern + "/");
+  if (rule.isPathLiteral && rule.pathPattern) {
+    // Directory/file prefix match — no regex engine needed.
+    return normalizedPath === rule.pathPattern ||
+           normalizedPath.startsWith(rule.pathPattern + "/");
   }
-
-  return matchGlob(normalizedPath, normalizedPattern);
+  if (rule.pathRegex) {
+    return rule.pathRegex.test(normalizedPath);
+  }
+  return false;
 }
 
 /**
  * Simple glob matching supporting *, **, and ?.
+ *
+ * Note: this compiles a RegExp per call and is retained for standalone use
+ * (e.g. matchHost callers). The hot permission-check path pre-compiles rule
+ * patterns once at construction via compileRule() and does not call this.
  */
 function matchGlob(str: string, pattern: string): boolean {
-  // Convert glob to regex
   const regexStr = globToRegex(pattern);
   const regex = new RegExp(`^${regexStr}$`);
   return regex.test(str);
 }
 
+/**
+ * Converts a glob pattern (supporting *, **, ?, and [...] classes) into a
+ * regex source string. `*` matches within a path segment; `**` matches across
+ * segments (optionally including the trailing slash); `?` matches one non-slash
+ * char; `.` is escaped.
+ */
 function globToRegex(pattern: string): string {
   let result = "";
   let i = 0;

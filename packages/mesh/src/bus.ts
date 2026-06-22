@@ -1,6 +1,16 @@
 /**
  * @module bus
- * Simple pub/sub message bus.
+ *
+ * Message bus for inter-agent communication in the mesh network.
+ *
+ * The bus provides pub/sub messaging between agents:
+ * - Topic-based message routing
+ * - Multiple subscribers per topic
+ * - Fire-and-forget delivery semantics
+ * - Message serialization/deserialization
+ *
+ * The bus is the backbone of the mesh network, enabling agents
+ * to communicate without direct coupling.
  */
 
 import { v4 as uuidv4 } from "uuid";

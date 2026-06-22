@@ -1,6 +1,33 @@
+/**
+ * Long-term memory store backed by markdown files on disk.
+ *
+ * Layout under `dir`:
+ *   index.md          - human-readable catalog of all topics (the "index")
+ *   topics/<slug>.md  - one markdown file per topic, with content + summary
+ *                       + key points + access-count metadata
+ *   summaries/<date>.md - append-only daily session summaries
+ *
+ * Design notes:
+ *   - Markdown-on-disk keeps memory human-inspectable and git-friendly.
+ *   - The index is cached in-memory (_indexCache) after first read; writes
+ *     update both the cache and the file.
+ *   - recall() increments an access count and rewrites the topic file so
+ *     frequently-used memories score higher during compact() (LRU-ish).
+ *   - compact() merges the lowest-scoring quarter of topics into a single
+ *     "consolidated-memories" entry once maxTopics is exceeded.
+ */
+
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+
+/** A single stored memory topic with its full content and metadata. */
+/**
+ * A single entry in the agent's long-term memory.
+ *
+ * Contains the remembered content, importance score, source context,
+ * and temporal metadata used for relevance ranking and decay.
+ */
 export interface MemoryEntry {
   topic: string;
   content: string;
@@ -10,12 +37,14 @@ export interface MemoryEntry {
   accessCount: number;
 }
 
+/** In-memory + on-disk catalog of all topics (rendered to index.md). */
 export interface MemoryIndex {
   entries: MemoryIndexEntry[];
   totalTopics: number;
   lastUpdated: string;
 }
 
+/** One row in the index: enough to rebuild context without reading every topic file. */
 export interface MemoryIndexEntry {
   topic: string;
   summary: string;
@@ -24,6 +53,7 @@ export interface MemoryIndexEntry {
   accessCount?: number;
 }
 
+/** Tunable budgets for the long-term memory store. */
 export interface LongMemoryConfig {
   dir: string;
   indexTokenBudget: number;
@@ -32,6 +62,7 @@ export interface LongMemoryConfig {
   maxTopics: number;
 }
 
+/** Default budgets: keep the index compact and topics focused. */
 const DEFAULT_CONFIG: LongMemoryConfig = {
   dir: "",
   indexTokenBudget: 500,
@@ -40,6 +71,10 @@ const DEFAULT_CONFIG: LongMemoryConfig = {
   maxTopics: 50,
 };
 
+/**
+ * Markdown-backed long-term memory store. Lazy-initializes the directory
+ * layout on first use and caches the index for fast context reads.
+ */
 export class LongMemoryStore {
   private _config: LongMemoryConfig;
   private _initialized = false;
@@ -49,6 +84,7 @@ export class LongMemoryStore {
     this._config = { ...DEFAULT_CONFIG, ...config };
   }
 
+  /** Creates the topics/ and summaries/ directories and seeds an empty index if absent. Idempotent. */
   async init(): Promise<void> {
     if (this._initialized) return;
     await fs.promises.mkdir(path.join(this._config.dir, "topics"), { recursive: true });
@@ -59,6 +95,7 @@ export class LongMemoryStore {
     this._initialized = true;
   }
 
+  /** Writes a topic to topics/<slug>.md and upserts its row in the index. */
   async store(entry: MemoryEntry): Promise<void> {
     await this.init();
     const slug = slugify(entry.topic);
@@ -71,6 +108,7 @@ export class LongMemoryStore {
     await this.updateIndex(entry);
   }
 
+  /** Appends a session summary to the per-day summaries/<date>.md file. */
   async appendSummary(sessionId: string, content: string): Promise<void> {
     await this.init();
     const date = new Date().toISOString().split("T")[0];
@@ -85,6 +123,7 @@ export class LongMemoryStore {
     await fs.promises.writeFile(filePath, existing + entry, "utf-8");
   }
 
+  /** Reads a topic by name, increments its access count, and rewrites the file. Returns undefined if not found. */
   async recall(topic: string): Promise<MemoryEntry | undefined> {
     await this.init();
     const slug = slugify(topic);
@@ -108,11 +147,17 @@ export class LongMemoryStore {
     }
   }
 
+  /** Returns the full index (cached after first read). */
   async getIndex(): Promise<MemoryIndex> {
     await this.init();
     return this.readIndex();
   }
 
+  /**
+   * Builds a token-budgeted context string from the index, most-recent first.
+   * Truncates entries/key-points to fit indexTokenBudget so the harness prompt
+   * stays bounded. Returns "" when the index is empty.
+   */
   async getIndexContext(): Promise<string> {
     const index = await this.getIndex();
     if (index.entries.length === 0) return "";
@@ -150,6 +195,7 @@ export class LongMemoryStore {
     return header + entryLines.join("\n");
   }
 
+  /** Case-insensitive substring search across topic, summary, and key points. */
   async search(query: string): Promise<MemoryIndexEntry[]> {
     const index = await this.getIndex();
     const lower = query.toLowerCase();
@@ -161,6 +207,7 @@ export class LongMemoryStore {
     );
   }
 
+  /** Removes a topic file and drops its index row. No-op if absent. */
   async delete(topic: string): Promise<void> {
     const slug = slugify(topic);
     try {
@@ -174,6 +221,13 @@ export class LongMemoryStore {
     await this.writeIndex(index);
   }
 
+  /**
+   * Compacts the store when entries exceed maxTopics. Scores each entry by
+   * (access count × 2 + recency + key-point density), merges the lowest-
+   * scoring quarter into a single "consolidated-memories" topic, and deletes
+   * the originals. This is an LRU-ish eviction that preserves dense/recent/
+   * popular memories.
+   */
   async compact(): Promise<void> {
     const index = await this.readIndex();
     if (index.entries.length <= this._config.maxTopics) return;
@@ -220,6 +274,7 @@ export class LongMemoryStore {
 
   // --- Private ---
 
+  /** True if index.md already exists on disk. */
   private async indexExists(): Promise<boolean> {
     try {
       await fs.promises.access(path.join(this._config.dir, "index.md"));
@@ -229,6 +284,7 @@ export class LongMemoryStore {
     }
   }
 
+  /** Reads index.md into _indexCache (cached). Returns an empty index on missing/corrupt file. */
   private async readIndex(): Promise<MemoryIndex> {
     if (this._indexCache !== null) return this._indexCache;
     try {
@@ -244,6 +300,7 @@ export class LongMemoryStore {
     }
   }
 
+  /** Renders the index to markdown and writes it, updating _indexCache. */
   private async writeIndex(index: MemoryIndex): Promise<void> {
     this._indexCache = index;
     const lines = [
@@ -268,6 +325,7 @@ export class LongMemoryStore {
     );
   }
 
+  /** Upserts a topic's row in the index, preserving the prior access count if the new one is 0. */
   private async updateIndex(entry: MemoryEntry): Promise<void> {
     const index = await this.readIndex();
     const existingEntry = index.entries.find((e) => e.topic === entry.topic);
@@ -293,6 +351,7 @@ export class LongMemoryStore {
     await this.writeIndex(index);
   }
 
+  /** Serializes a MemoryEntry to its on-disk markdown format (content + summary + key points + metadata). */
   private renderTopicMd(entry: MemoryEntry): string {
     const lines = [
       "# " + entry.topic,
@@ -313,6 +372,7 @@ export class LongMemoryStore {
     return lines.join("\n");
   }
 
+  /** Parses a topic markdown file back into a MemoryEntry. Regex-extracts summary, key points, and access count. */
   private parseTopicMd(content: string, topic: string): MemoryEntry {
     const summaryMatch = content.match(/## Summary\n([\s\S]*?)(?=\n##|\n---|$)/);
     const keyPointsMatch = content.match(/## Key Points\n([\s\S]*?)(?=\n##|\n---|$)/);
@@ -334,6 +394,7 @@ export class LongMemoryStore {
     };
   }
 
+  /** Parses index.md into a MemoryIndex by splitting on `## ` section headers. */
   private parseIndexMd(content: string): MemoryIndex {
     const entries: MemoryIndexEntry[] = [];
     const sections = content.split(/^## /m).slice(1);
@@ -360,6 +421,11 @@ export class LongMemoryStore {
   }
 }
 
+/**
+ * Slugifies a topic name for use as a filename. Lowercases, replaces
+ * non-alphanumeric (incl. CJK via the 一-鿿 range) runs with `-`, trims,
+ * and caps length at 64 chars.
+ */
 function slugify(text: string): string {
   return text
     .toLowerCase()
@@ -368,6 +434,10 @@ function slugify(text: string): string {
     .slice(0, 64);
 }
 
+/**
+ * Rough token estimate: ~4 chars/token, minimum 1. Used only for budgeting
+ * context windows (not billing), so the approximation is acceptable.
+ */
 function estimateTokens(text: string): number {
   if (!text) return 0;
   const tokens = Math.floor(text.length / 4);

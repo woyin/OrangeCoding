@@ -1,6 +1,16 @@
 /**
  * @module collaboration
- * Collaboration protocols and routing.
+ *
+ * Collaboration protocol definitions for multi-agent coordination.
+ *
+ * Defines the interfaces and types for different collaboration strategies:
+ * - Pipeline: sequential stage-by-stage processing
+ * - MasterWorker: central task distribution
+ * - Consensus: multi-agent voting/agreement
+ * - Debate: adversarial refinement
+ *
+ * Each protocol implements CollaborationProtocol and works with
+ * the TaskClassifier to automatically select the best strategy.
  */
 
 import type { TaskType, Task, TaskResult, TaskId, AgentId } from "@orangecoding/core";

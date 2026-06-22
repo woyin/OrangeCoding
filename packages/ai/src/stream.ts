@@ -1,3 +1,11 @@
+/**
+ * @module ai-stream
+ *
+ * Streaming utilities for AI provider responses.
+ *
+ * Provides helpers for parsing Server-Sent Events (SSE) streams
+ * and converting them to the AiProvider's AsyncIterable<StreamEvent> format.
+ */
 // ---------------------------------------------------------------------------
 // SSE stream parser
 // ---------------------------------------------------------------------------

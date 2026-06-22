@@ -1,3 +1,14 @@
+/**
+ * @module cli-status
+ *
+ * CLI command for checking the status of running agents and sessions.
+ *
+ * Displays:
+ * - Active agent sessions
+ * - Resource usage (tokens, CPU, memory)
+ * - Current task and progress
+ * - Health status of mesh network peers
+ */
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -8,6 +19,11 @@ import { defaultConfigPath } from "./init.js";
 
 /**
  * Generates a status summary string using the config at path.
+ */
+/**
+ * runStatusAtPath builds the human-readable status summary string for the
+ * config at the given path: version, providers, API keys, tool count, sessions,
+ * audit, and harness settings. Degrades gracefully if config is unreadable.
  */
 export function runStatusAtPath(configPath: string): string {
   const lines: string[] = [];
@@ -79,6 +95,7 @@ export function runStatusAtPath(configPath: string): string {
   return lines.join("\n") + "\n";
 }
 
+/** Append environment-variable-backed providers (OPENAI_API_KEY, etc.) with a check mark. */
 function appendEnvKeys(lines: string[]): void {
   const envKeys: Array<[string, string]> = [
     ["OPENAI_API_KEY", "openai"],
@@ -94,6 +111,7 @@ function appendEnvKeys(lines: string[]): void {
   }
 }
 
+/** Instantiate the default tool registry and report the count + names (truncated at 200 chars). */
 function appendToolCount(lines: string[]): void {
   try {
     const registry = createDefaultRegistry();
@@ -110,6 +128,7 @@ function appendToolCount(lines: string[]): void {
   }
 }
 
+/** Count saved .jsonl session files under ~/.orangecoding/sessions (0 if absent). */
 function appendSessionCount(lines: string[]): void {
   const home = os.homedir() || ".";
   const sessionDir = path.join(home, ".orangecoding", "sessions");

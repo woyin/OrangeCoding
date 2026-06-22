@@ -9,6 +9,11 @@ import type { HarnessCheckpoint, CheckpointSummary } from "./harness-state.js";
 import { checkpointSummary, cloneHarnessCheckpoint } from "./harness-state.js";
 import type { CheckpointStore } from "./harness-state.js";
 
+/**
+ * Disk-backed {@link CheckpointStore}. Each run is one JSON file under `_dir`,
+ * written atomically (temp + rename) so a crash never leaves a half-written
+ * checkpoint. Optional TTL drives lazy deletion during list()/cleanupExpired().
+ */
 export class FileCheckpointStore implements CheckpointStore {
   private _dir: string;
   private _ttlMs: number; // 0 = no TTL
@@ -49,7 +54,11 @@ export class FileCheckpointStore implements CheckpointStore {
     }
   }
 
-  /** List returns summaries for checkpoints matching the given prefix. */
+  /**
+   * Enumerate checkpoint files, optionally filtered by run-id prefix. Expired
+   * entries (per TTL) are deleted opportunistically. Results are sorted
+   * newest-first so UIs can show recent runs without resorting.
+   */
   async list(_signal: AbortSignal | undefined, prefix: string): Promise<CheckpointSummary[]> {
     let entries: fs.Dirent[];
     try {
@@ -98,7 +107,7 @@ export class FileCheckpointStore implements CheckpointStore {
     }
   }
 
-  /** CleanupExpired removes all checkpoints older than the configured TTL. */
+  /** Sweep the directory and delete every checkpoint older than the TTL. Returns the count removed. */
   async cleanupExpired(signal: AbortSignal | undefined): Promise<number> {
     if (this._ttlMs <= 0) return 0;
     let entries: fs.Dirent[];
@@ -126,6 +135,7 @@ export class FileCheckpointStore implements CheckpointStore {
     return cleaned;
   }
 
+/** Resolve the on-disk path for a run id (`<dir>/<runID>.json`). */
   private pathFor(runID: string): string {
     return path.join(this._dir, `${runID}.json`);
   }

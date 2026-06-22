@@ -158,6 +158,11 @@ function bridgeAgentToServerEvent(event: AgentEvent): ServerEvent | null {
   return null;
 }
 
+/**
+ * adaptWorkerRuntime wraps WorkerRuntime so the control server can inject a
+ * per-session AgentLoop built by SessionBuilder. startSession constructs the
+ * loop (best-effort; logs on failure), other methods delegate to the runtime.
+ */
 function adaptWorkerRuntime(
   runtime: WorkerRuntime,
   sessionBuilder?: SessionBuilder,
@@ -198,6 +203,11 @@ function adaptWorkerRuntime(
   };
 }
 
+/**
+ * hasProviderCredentials reports whether the configured default provider has
+ * an API key — either in config or via the conventional environment variable
+ * (OPENAI_API_KEY / ANTHROPIC_API_KEY). Determines full-loop vs null-loop mode.
+ */
 function hasProviderCredentials(cfg: OrangeConfig): boolean {
   const providerName = cfg.default_provider;
   const provider = cfg.providers[providerName];
@@ -207,6 +217,7 @@ function hasProviderCredentials(cfg: OrangeConfig): boolean {
   return false;
 }
 
+/** waitForSignal returns a promise that resolves on SIGINT or SIGTERM (clean shutdown). */
 export function waitForSignal(): Promise<void> {
   return new Promise((resolve) => {
     const cleanup = (): void => {

@@ -1,6 +1,17 @@
 /**
- * ToolExecutor dispatches tool calls to the tool registry and collects results.
- * Ported from modules/agent/executor.go.
+ * @module executor
+ *
+ * Tool execution engine for the agent loop.
+ *
+ * The ToolExecutor receives tool calls from the AI model and:
+ * 1. Validates the tool call (name, arguments)
+ * 2. Checks permissions and approval
+ * 3. Invokes the tool handler
+ * 4. Captures and formats the result
+ * 5. Returns ToolResult objects for the conversation
+ *
+ * Supports both synchronous and async tool execution,
+ * with configurable concurrency limits.
  */
 
 import type { AgentId, ToolCall as CoreToolCall } from "@orangecoding/core";
@@ -11,6 +22,12 @@ import { randomUUID } from "node:crypto";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+/**
+ * Dispatches tool calls to the registry with a layered safety pipeline:
+ * security guard -> permission policy -> (optional) human approval ->
+ * execute. Every failure path returns an ExecuteResult (never throws) so the
+ * agent loop can feed the error back to the model as tool output.
+ */
 export class ToolExecutor {
   private _registry: ToolRegistry;
   private _timeoutMs: number;
@@ -26,7 +43,11 @@ export class ToolExecutor {
     this._autoApprove = false;
   }
 
-  /** Execute runs a single tool call. */
+  /**
+   * Run one tool call through the full safety pipeline. Returns an
+   * ExecuteResult in all cases (denials and errors populate `content` and
+   * set `isError`), so callers never need a try/catch around this method.
+   */
   async execute(signal: AbortSignal | undefined, call: CoreToolCall): Promise<ExecuteResult> {
     const start = Date.now();
 
@@ -101,7 +122,7 @@ export class ToolExecutor {
     }
   }
 
-  /** ExecuteBatch runs tool calls respecting concurrency safety. */
+/** Run multiple tool calls via the concurrency-safe executeBatch helper. */
   async executeBatch(signal: AbortSignal | undefined, calls: CoreToolCall[]): Promise<ExecuteResult[]> {
     // Use the concurrency-safe executeBatch from @orangecoding/tools
     return executeBatch(signal, this._registry, calls);
@@ -138,7 +159,11 @@ export class ToolExecutor {
     return this._registry;
   }
 
-  /** Request approval for a tool call. Returns true if approved. */
+  /**
+   * Ask the configured approval handler (or auto-approve) for permission to
+   * run a tool whose policy returned Ask. Denies by default when no handler
+   * is configured, failing safe.
+   */
   private async requestApproval(call: CoreToolCall): Promise<boolean> {
     const handler = this._approvalHandler ?? (this._autoApprove ? new AutoApproveHandler() : null);
 
@@ -159,7 +184,7 @@ export class ToolExecutor {
   }
 }
 
-/** FilteredRegistry creates a new registry containing only the named tools. */
+/** Derive a sub-registry containing only `names` (useful for skill tool allowlists). */
 export function filteredRegistry(parent: ToolRegistry, names: string[]): ToolRegistry {
   const filtered = new ToolRegistry();
   const nameSet = new Set(names);

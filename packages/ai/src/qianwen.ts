@@ -1,3 +1,11 @@
+/**
+ * @module qianwen
+ *
+ * Alibaba Qianwen (Tongyi) provider implementation.
+ *
+ * Adapts the Qianwen/DashScope API to the AiProvider interface.
+ * Supports both chat completion and multi-modal capabilities.
+ */
 import type { ProviderConfig } from "./provider.js";
 import { providerTimeout } from "./provider.js";
 import type { ChatMessage, ToolDefinition, ChatOptions, AiResponse, StreamEvent } from "./types.js";
@@ -25,6 +33,11 @@ interface OpenAIRequest {
 // QianwenProvider class
 // ---------------------------------------------------------------------------
 
+/**
+ * QianwenProvider implements the AI provider interface for Alibaba Qianwen /
+ * Tongyi / DashScope. The DashScope compatible-mode endpoint is OpenAI-
+ * compatible, so requests are delegated to the shared OpenAI helpers.
+ */
 export class QianwenProvider {
   private config: ProviderConfig;
   private baseURL: string;

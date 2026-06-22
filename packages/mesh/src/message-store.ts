@@ -1,6 +1,14 @@
 /**
  * @module message-store
- * Message persistence for reliable delivery.
+ *
+ * Persistent message storage for the mesh bus.
+ *
+ * Stores messages published on the bus for:
+ * - Late-joining subscribers (catch-up on missed messages)
+ * - Audit trail and debugging
+ * - Message replay after peer recovery
+ *
+ * Uses an append-only log with configurable retention.
  */
 
 // ---------------------------------------------------------------------------

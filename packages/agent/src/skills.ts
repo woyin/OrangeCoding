@@ -4,6 +4,13 @@ import type { ToolRegistry } from "@orangecoding/tools";
 // Skill
 // ---------------------------------------------------------------------------
 
+/**
+ * Declarative definition of a specialization: a name, a human description,
+ * the tool allowlist it runs with, a system prompt that shapes behavior, and
+ * optional tags/examples used for auto-matching. The shape is JSON-friendly
+ * so custom skills can be loaded from config files.
+ */
+
 export interface Skill {
   name: string;
   description: string;
@@ -19,6 +26,12 @@ export interface Skill {
 // SkillContext — the resolved execution context for a skill
 // ---------------------------------------------------------------------------
 
+/**
+ * The runtime form of a skill after it has been bound to a tool registry:
+ * the resolved system prompt and the concrete tool names the agent may use.
+ * This is what the agent loop actually consumes.
+ */
+
 export interface SkillContext {
   /** System prompt to inject into the conversation */
   systemPrompt: string;
@@ -32,6 +45,11 @@ export interface SkillContext {
 // SkillComposition — result of merging multiple skills
 // ---------------------------------------------------------------------------
 
+/**
+ * Output of composing several skills: prompts concatenated (double-newline
+ * separated) and tool sets unioned. Used when multiple skills match a task.
+ */
+
 export interface SkillComposition {
   combinedPrompt: string;
   allTools: string[];
@@ -41,6 +59,9 @@ export interface SkillComposition {
 // ---------------------------------------------------------------------------
 // Built-in skills
 // ---------------------------------------------------------------------------
+// The default skill catalog shipped with OrangeCoding. Each entry pairs a
+// short system prompt with a focused tool allowlist. Order does not matter
+// for registration but does influence display order in the CLI skill list.
 
 const BUILTIN_SKILLS: Skill[] = [
   {
@@ -138,6 +159,12 @@ const BUILTIN_SKILLS: Skill[] = [
 // SkillRegistry
 // ---------------------------------------------------------------------------
 
+/**
+ * Central registry of skills. Seeds built-ins on construction, then accepts
+ * custom and MCP-derived skills. Lookups by name are O(1) via the internal
+ * Map; tag-based listing and composition are O(n) over the catalog.
+ */
+
 export class SkillRegistry {
   private _skills: Map<string, Skill>;
 
@@ -156,6 +183,11 @@ export class SkillRegistry {
     return this._skills.delete(name);
   }
 
+  /**
+   * Look up a skill by name. Returns a tuple [skill, ok] rather than
+   * `Skill | undefined` so callers can destructure without an extra
+   * truthiness check (Go-style).
+   */
   get(name: string): [Skill, true] | [undefined, false] {
     const s = this._skills.get(name);
     if (s !== undefined) return [s, true];
@@ -166,10 +198,12 @@ export class SkillRegistry {
     return this._skills.has(name);
   }
 
+  /** Return all registered skills as an array (copy of the Map values). */
   list(): Skill[] {
     return Array.from(this._skills.values());
   }
 
+  /** Return all skills whose `tags` array contains `tag`. */
   listByTag(tag: string): Skill[] {
     return this.list().filter((s) => s.tags?.includes(tag));
   }
@@ -188,8 +222,10 @@ export class SkillRegistry {
   }
 
   /**
-   * Resolve a skill into an execution context.
-   * If the skill specifies tools, filter the available tools.
+   * Resolve a skill into an execution context, intersecting the skill's
+   * declared tool list with what `allTools` actually provides so the agent
+   * never sees a tool it cannot call. A skill with no declared tools gets
+   * the full registry.
    */
   resolveContext(skill: Skill, allTools: ToolRegistry): SkillContext {
     const available = skill.tools.length > 0

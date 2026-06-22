@@ -1,3 +1,12 @@
+/**
+ * @module session-blob
+ *
+ * Session blob storage — persistent binary data associated with sessions.
+ *
+ * Manages storage and retrieval of binary data (screenshots, file snapshots,
+ * etc.) that are associated with agent sessions but stored separately from
+ * the conversation history.
+ */
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";

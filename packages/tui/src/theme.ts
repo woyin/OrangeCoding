@@ -1,3 +1,11 @@
+/**
+ * @module tui-theme
+ *
+ * Visual theme definitions for the TUI.
+ *
+ * Defines colors, styles, and formatting rules used by the view layer.
+ * Supports light/dark themes and terminal capability detection.
+ */
 import type { Message, Role } from "@orangecoding/core";
 
 /**

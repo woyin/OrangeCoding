@@ -1,3 +1,14 @@
+/**
+ * @module cli-analyze
+ *
+ * CLI command for analyzing agent sessions.
+ *
+ * Provides post-session analysis including:
+ * - Token usage breakdown and cost estimation
+ * - Tool usage statistics
+ * - Performance metrics
+ * - Session timeline visualization
+ */
 import * as os from "node:os";
 import * as path from "node:path";
 import { SessionAnalyzer } from "@orangecoding/agent";

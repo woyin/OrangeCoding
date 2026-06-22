@@ -1,6 +1,13 @@
 /**
- * @module health
- * Health monitoring for managed agents with heartbeat tracking and recovery.
+ * @module mesh-health
+ *
+ * Health monitoring for mesh network peers.
+ *
+ * Provides heartbeat-based health checking:
+ * - Periodic heartbeat emission from each peer
+ * - Failure detection via missed heartbeats
+ * - Peer status tracking (healthy, degraded, dead)
+ * - Automatic peer removal when unresponsive
  */
 
 import type { AgentId } from "@orangecoding/core";

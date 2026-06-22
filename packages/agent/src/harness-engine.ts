@@ -13,6 +13,8 @@ import { HarnessState as HS } from "./harness-state.js";
 // ---------------------------------------------------------------------------
 // HarnessEngineConfig
 // ---------------------------------------------------------------------------
+// Wires the engine to a run+session identity and an optional checkpoint
+// store. When no store is supplied, an in-memory store is used (lost on exit).
 
 export interface HarnessEngineConfig {
   runID: string;
@@ -23,6 +25,9 @@ export interface HarnessEngineConfig {
 // ---------------------------------------------------------------------------
 // Allowed transitions
 // ---------------------------------------------------------------------------
+// The legal state-machine edges. Terminal states (Completed/Stopped/Failed)
+// have empty outbound lists. isAllowedTransition is the single validator so
+// the graph lives in one place.
 
 const ALLOWED_TRANSITIONS: Map<HarnessState, HarnessState[]> = new Map([
   [HS.Init, [HS.BuildContext, HS.Failed]],
@@ -39,6 +44,7 @@ const ALLOWED_TRANSITIONS: Map<HarnessState, HarnessState[]> = new Map([
   [HS.Failed, []],
 ]);
 
+/** Return true if `from -> to` is a legal edge (or a self-transition). */
 function isAllowedTransition(from: HarnessState, to: HarnessState): boolean {
   if (from === to) return true;
   const allowed = ALLOWED_TRANSITIONS.get(from);
@@ -49,6 +55,13 @@ function isAllowedTransition(from: HarnessState, to: HarnessState): boolean {
 // ---------------------------------------------------------------------------
 // HarnessEngine
 // ---------------------------------------------------------------------------
+
+/**
+ * State-machine owner for a single agent run. Tracks one {@link
+ * HarnessCheckpoint}, enforces legal transitions, appends a trace entry per
+ * move, and persists via the configured {@link CheckpointStore}. All mutators
+ * reject on abort so a cancelled run cannot half-commit a transition.
+ */
 
 export class HarnessEngine {
   private _config: HarnessEngineConfig;
@@ -61,7 +74,7 @@ export class HarnessEngine {
     this._checkpoint = {} as HarnessCheckpoint;
   }
 
-  /** Start initializes the run and moves it to BuildContext. */
+  /** Initialize a fresh checkpoint in Init and immediately transition to BuildContext. */
   async start(signal: AbortSignal | undefined, task: string): Promise<HarnessCheckpoint> {
     if (!this._config.runID) {
       throw new Error("harness engine: run id is required");
@@ -79,7 +92,11 @@ export class HarnessEngine {
     return this.transition(signal, HS.BuildContext, "start");
   }
 
-  /** Transition records a legal state transition and persists the checkpoint. */
+  /**
+   * Move to `next` state. Validates the edge, appends a trace entry tagged
+   * with `reason`, persists, and returns a deep clone so callers cannot
+   * mutate the engine's internal checkpoint.
+   */
   async transition(signal: AbortSignal | undefined, next: HarnessState, reason: string): Promise<HarnessCheckpoint> {
     if (signal?.aborted) throw new Error("aborted");
     if (!this._checkpoint.runID) {
@@ -106,7 +123,10 @@ export class HarnessEngine {
     return cloneHarnessCheckpoint(this._checkpoint);
   }
 
-  /** Update mutates and persists the current checkpoint without changing state. */
+  /**
+   * Apply an in-place mutation to the checkpoint (e.g. bump iteration, record
+   * token usage) without a state change. Still persists and returns a clone.
+   */
   async update(
     signal: AbortSignal | undefined,
     mutate: (cp: HarnessCheckpoint) => void,

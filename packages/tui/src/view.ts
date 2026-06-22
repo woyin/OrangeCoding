@@ -1,3 +1,16 @@
+/**
+ * @module tui-view
+ *
+ * TUI rendering engine — converts application state to terminal output.
+ *
+ * The view layer renders the terminal UI by composing layout primitives:
+ * - Header bar with session info
+ * - Conversation panel with message history
+ * - Status indicators (thinking, tool execution, etc.)
+ * - Input area for user messages
+ *
+ * Rendering is pure: the same state always produces the same output.
+ */
 import type { Message } from "@orangecoding/core";
 import { Model } from "./model.js";
 import { Theme } from "./theme.js";

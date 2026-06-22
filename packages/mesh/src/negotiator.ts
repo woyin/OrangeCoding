@@ -1,6 +1,15 @@
 /**
  * @module negotiator
- * Task handoff negotiation between agents and buddy observation.
+ *
+ * Task negotiation between mesh peers.
+ *
+ * When a task arrives, the negotiator:
+ * 1. Classifies the task (complexity, type, required skills)
+ * 2. Identifies suitable agents based on capabilities
+ * 3. Negotiates task acceptance with candidate agents
+ * 4. Assigns the task to the best available agent
+ *
+ * Supports both automatic assignment and human-in-the-loop approval.
  */
 
 import type { AgentId } from "@orangecoding/core";

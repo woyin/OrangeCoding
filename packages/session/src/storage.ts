@@ -1,10 +1,27 @@
+/**
+ * @module session-storage
+ *
+ * Session persistence layer — stores and retrieves agent sessions.
+ *
+ * Provides file-based session storage with atomic writes, session
+ * listing, and cleanup of expired sessions.
+ */
 import { mkdir, rename, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SessionId } from "@orangecoding/core";
 import { newIOError } from "@orangecoding/core";
 import type { Session } from "./session.js";
 
-/** Internal structure for the first line of a JSONL session file. */
+/**
+ * First-line header of a JSONL session file. Subsequent lines are message
+ * JSON objects. Keeping the header separate avoids scanning every message to
+ * recover session metadata.
+ */
+/**
+ * SessionHeader is the first JSON line of a JSONL session file.
+ * Subsequent lines are message JSON objects. Keeping metadata in a header
+ * avoids scanning every message to recover session-level fields.
+ */
 interface SessionHeader {
   id: string;
   metadata: Record<string, string>;
@@ -15,7 +32,9 @@ interface SessionHeader {
 }
 
 /**
- * WriteSession writes a session to a JSONL file atomically (write-to-temp + rename).
+ * Persist a session as JSONL: one header line followed by one line per message.
+ * Written via temp-file + rename so a crash never leaves a truncated session
+ * file. Throws newIOError on any filesystem failure.
  */
 export async function writeSession(dir: string, s: Session): Promise<void> {
   try {
@@ -36,6 +55,8 @@ export async function writeSession(dir: string, s: Session): Promise<void> {
     parent_id: s.parentID?.toJSON(),
   };
 
+  // Serialize: header first, then one JSON line per message. The trailing
+  // newline makes the file safely append-able and line-oriented.
   const lines: string[] = [];
   lines.push(JSON.stringify(header));
 
@@ -59,7 +80,9 @@ export async function writeSession(dir: string, s: Session): Promise<void> {
 }
 
 /**
- * ReadSession reads a session from a JSONL file in the given directory.
+ * Read and parse a session JSONL file. The first line is the header; every
+ * subsequent non-empty line is a message. Dynamic imports avoid a circular
+ * dependency on the core package. Throws newIOError on read/parse failures.
  */
 export async function readSession(dir: string, id: SessionId): Promise<Session> {
   const { SessionId: SessionIdClass, TokenUsage, Message } = await import("@orangecoding/core");
@@ -72,6 +95,7 @@ export async function readSession(dir: string, id: SessionId): Promise<Session> 
     throw newIOError(`session storage open: ${(err as Error).message}`);
   }
 
+  // Split on newlines and drop empties so a trailing newline does not create a phantom record.
   const lines = content.split("\n").filter((line) => line.length > 0);
 
   if (lines.length === 0) {

@@ -14,6 +14,19 @@ import { PluginStatus, newPluginError } from "./types.js";
  * @param startTimeoutMs - timeout for startup
  * @returns a fully initialized PluginInstance
  */
+/**
+ * Loads a plugin by spawning its child process and establishing MCP communication.
+ *
+ * The loading sequence:
+ * 1. Spawns a Node.js child process running the plugin's entry point
+ * 2. Creates a stdio transport for JSON-RPC communication
+ * 3. Sends an initialize request to register tools
+ * 4. Sets up error handling and exit detection
+ *
+ * @param manifest - Plugin manifest with entry point and metadata
+ * @param startTimeoutMs - Maximum time to wait for initialization
+ * @returns Fully initialized PluginInstance
+ */
 export async function loadPlugin(
   manifest: PluginManifest,
   startTimeoutMs: number
@@ -62,6 +75,10 @@ export async function loadPlugin(
 /**
  * Initialize a loaded plugin by sending the MCP initialize request.
  */
+/**
+ * Sends the MCP initialize request to a loaded plugin.
+ * Times out if the plugin doesn't respond within the specified duration.
+ */
 export async function initializePlugin(
   instance: PluginInstance,
   timeoutMs: number
@@ -85,6 +102,10 @@ export async function initializePlugin(
 
 /**
  * Shutdown a plugin cleanly.
+ */
+/**
+ * Gracefully shuts down a plugin by closing MCP connection and killing the process.
+ * Falls back to SIGKILL if graceful shutdown times out (5 seconds).
  */
 export async function shutdownPlugin(instance: PluginInstance): Promise<void> {
   instance.status = PluginStatus.Stopping;

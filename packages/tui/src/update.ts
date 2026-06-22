@@ -1,3 +1,11 @@
+/**
+ * @module tui-update
+ *
+ * State update logic for the TUI — the 'Update' in Model-Update-View.
+ *
+ * Handles user input events and agent events, producing state transitions
+ * that drive the TUI rendering. Follows the Elm Architecture pattern.
+ */
 import { newUserMessage, newSystemMessage, type Message } from "@orangecoding/core";
 import { Model } from "./model.js";
 
@@ -33,6 +41,11 @@ export type TuiMsg = CoreMessageMsg | StatusMsg | WindowSizeMsg | KeyMsg;
 
 // --- Known slash commands ---
 
+/**
+ * KNOWN_SLASH_COMMANDS is the set of recognized (but possibly not-yet-
+ * implemented) slash commands. Encountering one not handled in the switch
+ * yields a "command not yet implemented" message rather than "unknown".
+ */
 const KNOWN_SLASH_COMMANDS = new Set([
   "/help",
   "/quit",
@@ -63,6 +76,10 @@ export function update(m: Model, msg: TuiMsg): Model {
   }
 }
 
+/**
+ * handleKey dispatches keyboard input: quit on ctrl+c/escape, toggle sidebar on
+ * tab, submit on enter, backspace trims the last rune, and printable runes append.
+ */
 function handleKey(m: Model, msg: KeyMsg): Model {
   switch (msg.key) {
     case "ctrl+c":
@@ -88,6 +105,10 @@ function handleKey(m: Model, msg: KeyMsg): Model {
   }
 }
 
+/**
+ * handleInput processes a submitted input line: empty input is ignored, slash-
+ * prefixed input routes to handleSlashCommand, anything else becomes a user message.
+ */
 function handleInput(m: Model): Model {
   const text = m.input.trim();
   const base = new Model({ ...m, input: "" });
@@ -103,6 +124,11 @@ function handleInput(m: Model): Model {
   return new Model({ ...base, messages: [...base.messages, newUserMessage(text)] });
 }
 
+/**
+ * handleSlashCommand interprets built-in slash commands (/help, /quit, /clear,
+ * /mode, /model, /think, /plan) and returns the updated model. Unknown but
+ * recognized commands report "not yet implemented"; truly unknown commands error.
+ */
 function handleSlashCommand(m: Model, text: string): Model {
   const parts = text.split(/\s+/);
   const cmd = parts[0]!;

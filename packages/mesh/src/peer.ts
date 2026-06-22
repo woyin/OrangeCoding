@@ -1,6 +1,16 @@
 /**
  * @module peer
- * PeerNegotiation collaboration protocol with bidding-based task assignment.
+ *
+ * Peer-to-peer agent communication in the mesh network.
+ *
+ * Each peer represents an agent node in the mesh that can:
+ * - Advertise its capabilities and skills
+ * - Accept or reject incoming tasks
+ * - Communicate with other peers via the bus
+ * - Track health and availability of other peers
+ *
+ * Peers form a decentralized mesh where any agent can request
+ * help from any other agent, subject to capability matching.
  */
 
 import { TaskStatus, TaskType, AgentRole, AgentStatus } from "@orangecoding/core";
@@ -81,6 +91,11 @@ export class PeerNegotiation implements CollaborationProtocol {
     return results;
   }
 
+  /**
+   * Negotiates a single task: collect bids from eligible idle agents, pick a
+   * winner, acquire it from the pool, run the task, and release it. Errors
+   * surface as a Failed TaskResult so the batch continues.
+   */
   private async negotiateTask(task: Task): Promise<TaskResult> {
     const bids = this.collectBids(task);
     if (bids.length === 0) {
@@ -112,6 +127,11 @@ export class PeerNegotiation implements CollaborationProtocol {
     }
   }
 
+  /**
+   * Gathers bids for a task. Tries the preferred role first, then falls
+   * back to Planner (general-purpose) then Executor (generic worker) so a
+   * task is never left unassigned when a specialist is unavailable.
+   */
   private collectBids(task: Task): Bid[] {
     const role = preferredRole(task.type);
     let bids = this.bidsForRole(role, task);
@@ -127,6 +147,11 @@ export class PeerNegotiation implements CollaborationProtocol {
     return bids;
   }
 
+  /**
+   * Computes bids from all idle agents of `role`. Each bid scores the
+   * role/task match (1.0 for a perfect specialty match, lower otherwise);
+   * bids below minScore are dropped to avoid hopeless assignments.
+   */
   private bidsForRole(role: AgentRoleType, task: Task): Bid[] {
     const agents = this.registry.findByRole(role);
     const bids: Bid[] = [];
@@ -149,14 +174,24 @@ export class PeerNegotiation implements CollaborationProtocol {
     return bids;
   }
 
+  /**
+   * Picks the winning bid: highest score, ties broken by lowest load.
+   *
+   * Performance: single O(n) pass instead of the previous O(n log n)
+   * sort + slice. We only need the single best bid, not a full ordering,
+   * so a linear scan with the same comparison is both faster and allocation-
+   * free (no sorted copy).
+   */
   private selectWinner(bids: Bid[]): Bid {
-    const sorted = bids.slice().sort((a, b) => {
-      if (a.score !== b.score) {
-        return b.score - a.score; // higher score first
+    let best = bids[0]!;
+    for (let i = 1; i < bids.length; i++) {
+      const b = bids[i]!;
+      // Higher score wins; on tie, lower load wins (mirrors the old sort key).
+      if (b.score > best.score || (b.score === best.score && b.load < best.load)) {
+        best = b;
       }
-      return a.load - b.load; // lower load first
-    });
-    return sorted[0]!;
+    }
+    return best;
   }
 }
 

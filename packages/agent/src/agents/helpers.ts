@@ -1,6 +1,11 @@
 /**
- * Shared helper for creating filtered agents.
- * Ported from modules/agent/agents/helper.go.
+ * @module agent-helpers
+ *
+ * Shared helper functions for agent implementations.
+ *
+ * Provides factory functions for creating agents with specific tool restrictions.
+ * A "filtered agent" is a child agent that can only use a subset of the
+ * available tools, useful for delegating specialized subtasks.
  */
 
 import type { AiProvider } from "@orangecoding/ai";
@@ -13,6 +18,17 @@ import { buildToolDefinitions } from "../tool-defs.js";
 import { AgentLoop, defaultLoopConfig } from "../loop.js";
 import { BaseAgent } from "./base.js";
 
+/**
+ * Creates a new agent with a restricted tool set.
+ *
+ * @param provider - AI provider for model calls
+ * @param registry - full tool registry (will be filtered)
+ * @param workDir - working directory for the agent
+ * @param role - agent role (executor, reviewer, etc.)
+ * @param allowedTools - tool names the agent is allowed to use
+ * @param systemPrompt - system prompt for the agent
+ * @returns a configured BaseAgent instance
+ */
 export function newFilteredAgent(
   provider: AiProvider,
   registry: ToolRegistry,

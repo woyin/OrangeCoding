@@ -33,6 +33,7 @@ export interface Notification {
 }
 
 /** Standard JSON-RPC 2.0 error codes. */
+/** Standard JSON-RPC 2.0 error codes as defined in the specification. */
 export const ErrorCode = {
   ParseError: -32700,
   InvalidRequest: -32600,

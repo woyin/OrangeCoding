@@ -9,6 +9,7 @@
 
 import { Role, Conversation, Message, newSystemMessage } from "@orangecoding/core";
 
+/** Range test for CJK/Japanese/Korean codepoints (tokenized ~2 chars/token by heuristics). */
 function isCJK(code: number): boolean {
   return (
     (code >= 0x4e00 && code <= 0x9fff) ||
@@ -20,6 +21,18 @@ function isCJK(code: number): boolean {
   );
 }
 
+/**
+ * Compactor reduces conversation size to stay within token budgets.
+ *
+ * When a conversation grows beyond a configured threshold, the compactor:
+ * 1. Summarizes older messages into a condensed context
+ * 2. Preserves recent messages and critical information
+ * 3. Maintains pending tool calls and their results
+ * 4. Updates system prompt if needed
+ *
+ * Compaction is essential for long-running agent sessions where
+ * the full conversation would exceed the model's context window.
+ */
 export class Compactor {
   private _maxTokens: number;
 
@@ -106,6 +119,11 @@ export class Compactor {
   }
 }
 
+/**
+ * Per-message token estimate. CJK codepoints count ~2x; ASCII/Latin count
+ * ~4 chars/token. Includes tool-call function names and serialized arguments
+ * so tool-heavy messages are not undercounted.
+ */
 function tokenEstimateForMsg(msg: Message): number {
   let cjkCount = 0;
   let nonCJKCount = 0;
@@ -146,6 +164,7 @@ function tokenEstimateForMsg(msg: Message): number {
   return cjkCount * 2 + Math.floor(nonCJKCount / 4);
 }
 
+/** Sum of per-message token estimates across an array. */
 function tokenEstimateFor(msgs: readonly Message[]): number {
   let total = 0;
   for (const m of msgs) {

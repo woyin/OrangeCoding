@@ -1,20 +1,59 @@
+/**
+ * @module anthropic
+ *
+ * Anthropic Claude provider implementation.
+ *
+ * Adapts the Anthropic Messages API to the AiProvider interface.
+ * Handles:
+ * - Claude-specific message format (system prompt separate from messages)
+ * - Extended thinking / reasoning tokens
+ * - Tool use (function calling) in Claude format
+ * - Streaming via Server-Sent Events
+ * - Rate limiting and error handling
+ */
 import type { ProviderConfig } from "./provider.js";
 import { providerTimeout } from "./provider.js";
 import type { ChatMessage, ToolDefinition, ChatOptions, AiResponse, StreamEvent, AiTokenUsage, ToolCall } from "./types.js";
 import { newAiParseError, newAiNetworkError, newAiApiError, newAiRateLimitError } from "./error.js";
 import { parseSSEStream } from "./stream.js";
 
+/**
+ * Anthropic (Claude) Messages API provider.
+ *
+ * Implements the Anthropic Messages API (POST /v1/messages). Differs from the
+ * OpenAI-compatible protocol in three key ways this file adapts for:
+ *
+ *   1. System prompt is a top-level `system` field, NOT a message in the
+ *      `messages` array. extractSystemPrompt() pulls system-role messages out
+ *      and joins them into the single `system` string Anthropic expects.
+ *
+ *   2. Tools are declared with `input_schema` (JSON Schema) rather than the
+ *      OpenAI `function.parameters` wrapper. convertTools() reshapes them.
+ *
+ *   3. Extended thinking: when reasoning_budget_tokens > 0, we send a
+ *      `thinking` envelope and must reserve headroom for the thinking budget
+ *      inside max_tokens (see ensureAnthropicThinkingRoom).
+ *
+ * Streaming uses Anthropic's own SSE event types (content_block_delta,
+ * content_block_start, message_delta, message_stop), distinct from OpenAI's
+ * chunk shape. readStream() maps these onto the shared StreamEvent type.
+ */
+
 // ---------------------------------------------------------------------------
-// Anthropic / Claude provider
+// Provider defaults
 // ---------------------------------------------------------------------------
 
+/** Default API base when ProviderConfig.baseURL is unset. */
 const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
+
+/** Anthropic API version header (pins the Messages API schema). */
 const ANTHROPIC_VERSION = "2023-06-01";
 
 // ---------------------------------------------------------------------------
 // Anthropic wire types
 // ---------------------------------------------------------------------------
 
+/** Request body for POST /v1/messages. `system` is separate from `messages`. */
 interface AnthropicRequest {
   model: string;
   messages: ChatMessage[];
@@ -28,17 +67,20 @@ interface AnthropicRequest {
   thinking?: AnthropicThinking;
 }
 
+/** Extended-thinking envelope: type=enabled with a token budget. */
 interface AnthropicThinking {
   type: string;
   budget_tokens: number;
 }
 
+/** Anthropic tool definition: uses input_schema (JSON Schema), not OpenAI's function wrapper. */
 interface AnthropicTool {
   name: string;
   description: string;
   input_schema: unknown;
 }
 
+/** Non-streaming Messages response. content[] is a sequence of typed blocks. */
 interface AnthropicResponse {
   id: string;
   type: string;
@@ -49,6 +91,7 @@ interface AnthropicResponse {
   usage: AnthropicUsage;
 }
 
+/** One block of a response: "text" or "tool_use" (id/name/input). */
 interface AnthropicContent {
   type: string;
   text?: string;
@@ -57,6 +100,7 @@ interface AnthropicContent {
   input?: string; // JSON string
 }
 
+/** Anthropic usage: input + output tokens (no separate total; we sum them). */
 interface AnthropicUsage {
   input_tokens: number;
   output_tokens: number;
@@ -95,6 +139,11 @@ interface AnthropicMsgDelta {
 // AnthropicProvider class
 // ---------------------------------------------------------------------------
 
+/**
+ * AnthropicProvider implements the provider interface against the Anthropic
+ * Messages API. Handles system-prompt extraction, tool reshaping, extended
+ * thinking, and Anthropic-format SSE streaming.
+ */
 export class AnthropicProvider {
   private config: ProviderConfig;
   private baseURL: string;
@@ -114,6 +163,11 @@ export class AnthropicProvider {
   // ChatCompletion (non-streaming)
   // -------------------------------------------------------------------------
 
+  /**
+   * Sends a non-streaming Messages request and returns the full AiResponse.
+   * Extracts the system prompt, reshapes tools, reserves thinking headroom,
+   * then parses the content blocks (text + tool_use) into AiResponse.
+   */
   async chatCompletion(
     messages: ChatMessage[],
     tools: ToolDefinition[],
@@ -121,8 +175,10 @@ export class AnthropicProvider {
   ): Promise<AiResponse> {
     const model = opts.model || this.config.defaultModel;
 
+    // Anthropic requires system content as a top-level field, not a message.
     const { systemPrompt, filtered } = this.extractSystemPrompt(messages);
 
+    // Reserve headroom for the thinking budget if extended thinking is on.
     let maxTokens = opts.max_tokens ?? 4096;
     maxTokens = ensureAnthropicThinkingRoom(maxTokens, opts.reasoning_budget_tokens);
 
@@ -182,9 +238,14 @@ export class AnthropicProvider {
   }
 
   // -------------------------------------------------------------------------
-  // ChatCompletionStream (streaming)
+  // ChatCompletionStream (streaming via Anthropic SSE)
   // -------------------------------------------------------------------------
 
+  /**
+   * Sends a streaming Messages request. Returns an AsyncIterable<StreamEvent>
+   * that yields content_delta, tool_call_delta, usage, and done events as
+   * Anthropic SSE events arrive. The HTTP timeout covers the whole stream.
+   */
   async chatCompletionStream(
     messages: ChatMessage[],
     tools: ToolDefinition[],
@@ -257,6 +318,7 @@ export class AnthropicProvider {
   // Internal helpers
   // -------------------------------------------------------------------------
 
+  /** Anthropic auth headers: x-api-key + the pinned API version. */
   private headers(): Record<string, string> {
     return {
       "Content-Type": "application/json",
@@ -265,7 +327,12 @@ export class AnthropicProvider {
     };
   }
 
-  /** Removes system messages from the list and joins them into a single string. */
+  /**
+   * Removes system-role messages from the list and joins them into one string.
+   * Anthropic's API takes `system` as a top-level field rather than a message,
+   * so we must split it out of the OpenAI-style messages array before sending.
+   * Non-system messages are returned in original order.
+   */
   private extractSystemPrompt(
     messages: ChatMessage[],
   ): { systemPrompt: string; filtered: ChatMessage[] } {
@@ -281,7 +348,11 @@ export class AnthropicProvider {
     return { systemPrompt: systemParts.join("\n"), filtered };
   }
 
-  /** Converts ToolDefinition array to Anthropic's tool format. */
+  /**
+   * Converts provider ToolDefinitions to Anthropic's tool format. Anthropic
+   * uses `input_schema` (a raw JSON Schema) instead of OpenAI's
+   * `{ function: { parameters } }` wrapper.
+   */
   private convertTools(tools: ToolDefinition[]): AnthropicTool[] {
     return tools.map((t) => ({
       name: t.function.name,
@@ -290,6 +361,12 @@ export class AnthropicProvider {
     }));
   }
 
+  /**
+   * Parses an Anthropic Messages response into the provider-agnostic AiResponse.
+   * Walks content blocks: "text" blocks concatenate into `content`; "tool_use"
+   * blocks become ToolCall entries (input is JSON-stringified for the wire).
+   * Usage is remapped from input/output_tokens to the shared AiTokenUsage.
+   */
   private convertResponse(r: AnthropicResponse): AiResponse {
     const usage: AiTokenUsage = {
       prompt_tokens: r.usage?.input_tokens ?? 0,
@@ -335,6 +412,19 @@ export class AnthropicProvider {
     return result;
   }
 
+  /**
+   * Reads Anthropic's SSE event stream and yields StreamEvents.
+   *
+   * Event types handled:
+   *   - content_block_delta / text_delta:    -> content_delta (streamed text)
+   *   - content_block_delta / input_json_delta: -> tool_call_delta (args chunk)
+   *   - content_block_start / tool_use:      -> tool_call_delta (id + name)
+   *   - message_delta (stop_reason set):     -> usage + done (terminal)
+   *   - message_stop:                        -> done (terminal)
+   *
+   * Unlike OpenAI, tool-call arguments stream as partial_json deltas rather
+   * than being accumulated server-side; we forward each fragment directly.
+   */
   private async *readStream(resp: Response, timer: ReturnType<typeof setTimeout>): AsyncGenerator<StreamEvent> {
     try {
       if (!resp.body) {
@@ -429,6 +519,12 @@ export class AnthropicProvider {
   }
 }
 
+/**
+ * Ensures max_tokens leaves room for the extended-thinking budget.
+ * Anthropic requires max_tokens > thinking.budget_tokens (the output budget
+ * must exceed the thinking budget). If the caller's max_tokens is too small,
+ * we bump it to budget + 1024. No-op when thinking is disabled (budget=0).
+ */
 function ensureAnthropicThinkingRoom(maxTokens: number, thinkingBudget?: number): number {
   if (!thinkingBudget || thinkingBudget === 0) {
     return maxTokens;
@@ -439,6 +535,7 @@ function ensureAnthropicThinkingRoom(maxTokens: number, thinkingBudget?: number)
   return thinkingBudget + 1024;
 }
 
+/** JSON-stringify with a typed error wrapper (guards against circular refs). */
 function safeMarshal(obj: unknown): string {
   try {
     return JSON.stringify(obj);

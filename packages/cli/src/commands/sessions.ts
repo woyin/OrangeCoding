@@ -1,6 +1,13 @@
 /**
- * Handles the `sessions` command.
- * Lists all saved sessions with their metadata.
+ * @module cli-sessions
+ *
+ * CLI command for managing agent sessions.
+ *
+ * Provides:
+ * - Listing saved sessions
+ * - Resuming previous sessions
+ * - Deleting session data
+ * - Exporting session transcripts
  */
 
 import * as os from "node:os";
@@ -15,6 +22,8 @@ export async function runSessions(): Promise<void> {
   const sessionDir = path.join(home, ".orangecoding", "sessions");
   const manager = new SessionManager(sessionDir);
 
+  // Load all sessions; if the session directory is missing or empty, print
+  // a friendly message instead of an error.
   try {
     const sessions = await manager.list();
 
@@ -53,6 +62,7 @@ export async function runSessions(): Promise<void> {
   }
 }
 
+/** timeSince formats a Date as a human-readable relative age (e.g. "5m ago"). */
 function timeSince(date: Date): string {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
   if (seconds < 60) return `${seconds}s ago`;

@@ -12,6 +12,7 @@ import type { JobState } from "./job.js";
 // Store Interface
 // ---------------------------------------------------------------------------
 
+/** Interface for persisting and loading scheduled job state. */
 export interface JobStore {
   load(): Promise<Map<string, JobState>>;
   save(jobs: Map<string, JobState>): Promise<void>;
@@ -26,6 +27,13 @@ export interface FileJobStoreConfig {
   filePath: string;
 }
 
+/**
+ * File-backed job store using JSON serialization.
+ *
+ * Persists all job states to a single JSON file. Uses atomic writes
+ * (write to temp, then rename) for crash safety. The file is read on
+ * scheduler startup and written after each job state change.
+ */
 export class FileJobStore implements JobStore {
   private readonly _filePath: string;
 
@@ -80,6 +88,12 @@ export class FileJobStore implements JobStore {
 // In-memory store (for testing)
 // ---------------------------------------------------------------------------
 
+/**
+ * In-memory job store for testing.
+ *
+ * Stores jobs in a Map without filesystem persistence.
+ * Useful for unit tests and development environments.
+ */
 export class MemoryJobStore implements JobStore {
   private _jobs: Map<string, JobState> = new Map();
 

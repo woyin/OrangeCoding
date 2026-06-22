@@ -20,11 +20,22 @@ interface BashArgs {
   timeout?: number;
 }
 
+// Output size caps to bound memory and tool-result size.
 const MAX_STDOUT_BYTES = 1024 * 1024;  // 1MB
 const MAX_STDERR_BYTES = 256 * 1024;   // 256KB
 
 /**
  * BashTool executes shell commands with streaming output limiting.
+ */
+/**
+ * BashTool executes shell commands within the agent's sandbox.
+ *
+ * Features:
+ * - Configurable working directory and environment
+ * - Command timeout enforcement
+ * - Output capture (stdout + stderr)
+ * - Permission-based approval flow (read-only vs. destructive)
+ * - Integration with the tool registry system
  */
 export class BashTool implements Tool {
   private readonly _policy: SecurityPolicy | null;

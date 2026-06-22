@@ -1,3 +1,18 @@
+/**
+ * @module invariant
+ *
+ * Runtime assertion and invariant checking utilities.
+ *
+ * Provides assertion functions that throw descriptive errors when
+ * invariants are violated. Used throughout the codebase to catch
+ * programming errors early:
+ * - invariant(): general assertion
+ * - assertDefined(): non-null check
+ * - assertNever(): exhaustiveness check for discriminated unions
+ *
+ * Invariants are always checked in production (not dev-only) because
+ * catching errors early is more valuable than the small perf cost.
+ */
 // ---------------------------------------------------------------------------
 // Invariant interface
 // ---------------------------------------------------------------------------

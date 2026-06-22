@@ -1,3 +1,18 @@
+/**
+ * @module config
+ *
+ * Configuration management for OrangeCoding.
+ *
+ * ConfigManager handles loading, saving, and querying configuration files.
+ * Configuration files use JSONC format (JSON with comments) for readability.
+ *
+ * Key features:
+ * - JSONC parsing (strips comments while preserving strings)
+ * - Dot-path access for nested values (e.g., "harness.checkpoint_store")
+ * - Environment variable expansion in string values
+ * - Validation of required fields and value ranges
+ * - Provider-specific configuration normalization
+ */
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { newConfigError, newIOError } from "@orangecoding/core";
@@ -196,8 +211,29 @@ function rawToConfig(raw: Record<string, unknown>): OrangeConfig {
 // ---------------------------------------------------------------------------
 // Internal: JSON path helpers (equivalent to Go's fieldByJSONTag/fieldByJSONPath)
 // ---------------------------------------------------------------------------
+//
+// Dot-path navigation: "harness.checkpoint_dir" descends obj["harness"]
+// then ["checkpoint_dir"]. Paths are shallow (typically 1-2 segments) so
+// no intermediate cache is warranted.
 
+/**
+ * Resolves a dot-separated path (e.g. "harness.checkpoint_dir") against an
+ * object graph. Throws a ConfigError on any missing segment or non-object
+ * intermediate, mirroring the Go implementation's strict-lookup semantics.
+ */
 function getByPath(obj: unknown, key: string): unknown {
+  // Single-segment fast path avoids split() allocation on the common case
+  // (top-level keys like "log_level"). Falls through to the general loop
+  // for nested paths.
+  if (key.indexOf(".") === -1) {
+    if (typeof obj !== "object" || obj === null || Array.isArray(obj)) {
+      throw newConfigError(`config field ${key} is not an object`);
+    }
+    const v = (obj as Record<string, unknown>)[key];
+    if (v === undefined) throw newConfigError(`unknown config field: ${key}`);
+    return v;
+  }
+
   const parts = key.split(".");
   let current: unknown = obj;
 
@@ -205,6 +241,9 @@ function getByPath(obj: unknown, key: string): unknown {
     if (part === "") {
       throw newConfigError(`unknown config field: ${key}`);
     }
+    // Validate each intermediate is a plain object before indexing. Using a
+    // single typeof+Array check is faster than a try/catch around property
+    // access and avoids masking genuine errors.
     if (current === null || current === undefined || typeof current !== "object" || Array.isArray(current)) {
       throw newConfigError(`config field ${part} is not an object`);
     }
@@ -217,6 +256,11 @@ function getByPath(obj: unknown, key: string): unknown {
   return current;
 }
 
+/**
+ * Sets a value at a dot-separated path, creating no intermediate segments
+ * (intermediates must already exist). The final segment is overwritten
+ * even if it was previously absent.
+ */
 function setByPath(obj: unknown, key: string, value: unknown): void {
   const parts = key.split(".");
   let current: unknown = obj;
@@ -246,7 +290,12 @@ function setByPath(obj: unknown, key: string, value: unknown): void {
 // ---------------------------------------------------------------------------
 // Internal: normalization
 // ---------------------------------------------------------------------------
+//
+// Each apply-config phase fills in zero/empty values with documented defaults.
+// Defaults are encoded here (not in types.ts) so the type stays a pure shape
+// contract and all policy lives in one place.
 
+/** Fills unset harness fields with the documented defaults. */
 function normalizeHarnessConfig(cfg: HarnessConfig): void {
   if (cfg.checkpoint_store === "") {
     cfg.checkpoint_store = "memory";
@@ -262,6 +311,10 @@ function normalizeHarnessConfig(cfg: HarnessConfig): void {
   }
 }
 
+/**
+ * Fills unset multiplexer fields with defaults and clamps
+ * command_timeout_ms to a sane minimum (1s) to avoid busy-spinning.
+ */
 function normalizeMultiplexerConfig(cfg: MultiplexerConfig): void {
   if (cfg.preferred_backend === "") {
     cfg.preferred_backend = "auto";
@@ -274,6 +327,7 @@ function normalizeMultiplexerConfig(cfg: MultiplexerConfig): void {
   }
 }
 
+/** Sets the default audit directory when none is configured. */
 function normalizeAuditConfig(cfg: AuditConfig): void {
   if (cfg.dir === "") {
     cfg.dir = "audit";
@@ -283,7 +337,13 @@ function normalizeAuditConfig(cfg: AuditConfig): void {
 // ---------------------------------------------------------------------------
 // Internal: environment variable expansion
 // ---------------------------------------------------------------------------
+//
+// Walks every string field and replaces $VAR / ${VAR} tokens with the value
+// of process.env[VAR] (empty string when unset). Lets config reference
+// secrets without hardcoding them. Provider.extra string values are expanded
+// too, so custom provider fields can use env substitution.
 
+/** Recursively expands env-var references in every string field of the config. */
 function expandConfigEnv(cfg: OrangeConfig): void {
   cfg.log_level = expandEnv(cfg.log_level);
   cfg.default_provider = expandEnv(cfg.default_provider);
@@ -349,7 +409,12 @@ function expandEnv(s: string): string {
 // ---------------------------------------------------------------------------
 // Internal: type-safe JSON value extraction helpers
 // ---------------------------------------------------------------------------
+//
+// Coercion guards: each takes an `unknown` from parsed JSON and returns the
+// expected primitive (or a fallback / undefined). Used during rawToConfig
+// to defensively build a typed config object from untrusted input.
 
+/** Returns val if it is a string, otherwise the fallback. */
 function asString(val: unknown, fallback: string): string {
   return typeof val === "string" ? val : fallback;
 }

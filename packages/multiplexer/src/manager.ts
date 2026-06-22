@@ -27,6 +27,16 @@ export interface ManagedPane {
 /**
  * PaneManager coordinates pane creation, IPC setup, and cleanup.
  */
+/**
+ * PaneManager coordinates terminal pane lifecycle and IPC communication.
+ *
+ * Manages the creation, tracking, and cleanup of terminal panes:
+ * 1. Creates Unix domain socket listeners for IPC
+ * 2. Spawns panes via the terminal multiplexer backend (tmux/zellij)
+ * 3. Waits for child process connections
+ * 4. Sends task payloads and manages bidirectional communication
+ * 5. Cleans up sockets and pane resources on completion
+ */
 export class PaneManager {
   private panes = new Map<string, ManagedPane>();
   private paneCounter = 0;

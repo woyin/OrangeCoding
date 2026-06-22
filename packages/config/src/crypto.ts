@@ -1,3 +1,12 @@
+/**
+ * @module config-crypto
+ *
+ * Cryptographic utilities for configuration management.
+ *
+ * Provides encryption and decryption for sensitive configuration values
+ * like API keys. Supports environment variable expansion and
+ * secure storage of credentials.
+ */
 import { newConfigError } from "@orangecoding/core";
 
 const NONCE_SIZE = 12;

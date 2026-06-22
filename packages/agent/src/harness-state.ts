@@ -137,11 +137,13 @@ export class MemoryCheckpointStore implements CheckpointStore {
     this._checkpoints = new Map();
   }
 
+  /** Persists a checkpoint, updating the updatedAt timestamp. */
   async save(_signal: AbortSignal | undefined, cp: HarnessCheckpoint): Promise<void> {
     cp.updatedAt = new Date();
     this._checkpoints.set(cp.runID, cloneHarnessCheckpoint(cp));
   }
 
+  /** Loads a checkpoint by run ID. Throws if not found. */
   async load(_signal: AbortSignal | undefined, runID: string): Promise<HarnessCheckpoint> {
     const cp = this._checkpoints.get(runID);
     if (!cp) throw new Error(`checkpoint "${runID}" not found`);
@@ -150,6 +152,7 @@ export class MemoryCheckpointStore implements CheckpointStore {
     return cp;
   }
 
+  /** Lists checkpoint summaries matching a prefix. */
   async list(_signal: AbortSignal | undefined, prefix: string): Promise<CheckpointSummary[]> {
     const summaries: CheckpointSummary[] = [];
     for (const cp of this._checkpoints.values()) {
@@ -159,6 +162,7 @@ export class MemoryCheckpointStore implements CheckpointStore {
     return summaries;
   }
 
+  /** Deletes a checkpoint by run ID. Throws if not found. */
   async delete(_signal: AbortSignal | undefined, runID: string): Promise<void> {
     if (!this._checkpoints.has(runID)) {
       throw new Error(`checkpoint "${runID}" not found`);

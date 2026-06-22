@@ -63,9 +63,24 @@ function parseField(field: string, fieldName: string): number[] {
       if (!rangePart) {
         throw new Error(`invalid cron range: "${part}" in field "${fieldName}"`);
       }
+      // Check for range/step pattern like 1-10/3 before falling through to parseInt.
+      // parseInt("1-10", 10) returns 1, which would silently skip the range end,
+      // so we must detect the dash first.
+      if (rangePart !== "*" && rangePart.includes("-")) {
+        const [rStart, rEnd] = rangePart.split("-", 2);
+        const rs = parseInt(rStart ?? "", 10);
+        const re = parseInt(rEnd ?? "", 10);
+        if (isNaN(rs) || isNaN(re)) {
+          throw new Error(`invalid cron range/step: "${part}" in field "${fieldName}"`);
+        }
+        for (let i = rs; i <= re; i += step) {
+          values.add(i);
+        }
+        continue;
+      }
       const start = rangePart === "*" ? range.min : parseInt(rangePart, 10);
       if (isNaN(start)) {
-        // Try range pattern like 1-5/2
+        // Fallback: try range pattern like 1-5/2
         if (rangePart.includes("-")) {
           const [rStart, rEnd] = rangePart.split("-", 2);
           const rs = parseInt(rStart ?? "", 10);

@@ -14,6 +14,13 @@ import { readOnlyMetadata } from "./tool.js";
 // WebSearchTool
 // ---------------------------------------------------------------------------
 
+/**
+ * Read-only web search tool with a keyless primary backend (DuckDuckGo HTML)
+ * and Wikipedia as an entity-lookup fallback. Returns numbered titles, URLs,
+ * and snippets formatted for model consumption. HTML parsing is deliberately
+ * regex-based to avoid a DOM dependency; DDG's HTML structure is stable.
+ */
+
 interface WebSearchArgs {
   query: string;
   max_results?: number;
@@ -22,6 +29,17 @@ interface WebSearchArgs {
 const MAX_RESULTS = 10;
 const REQUEST_TIMEOUT = 15_000;
 
+/**
+ * WebSearchTool searches the web and retrieves relevant content.
+ *
+ * Uses search engine APIs to find information matching the query,
+ * then fetches and summarizes the most relevant results. Useful for:
+ * - Research tasks requiring external information
+ * - Documentation lookups
+ * - Finding examples and references
+ *
+ * Results include title, URL, snippet, and optional full content.
+ */
 export class WebSearchTool implements Tool {
   private readonly _params: Record<string, unknown>;
 
@@ -44,6 +62,11 @@ export class WebSearchTool implements Tool {
   parameters(): Record<string, unknown> { return this._params; }
   metadata(): ToolMetadata { return readOnlyMetadata(); }
 
+  /**
+   * Run the search: DuckDuckGo first, Wikipedia on failure or empty results.
+   * Returns a formatted, numbered result string; if both backends come back
+   * empty, returns a "no results" message instead of throwing.
+   */
   async execute(_ctx: unknown, input: unknown): Promise<string> {
     const args = input as WebSearchArgs;
     if (!args.query || !args.query.trim()) {
@@ -76,6 +99,7 @@ export class WebSearchTool implements Tool {
     return `No search results found for: "${query}"`;
   }
 
+  /** Query the DuckDuckGo HTML endpoint and parse result blocks. */
   private async searchDuckDuckGo(query: string, maxResults: number): Promise<SearchResult[]> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
@@ -101,6 +125,11 @@ export class WebSearchTool implements Tool {
     }
   }
 
+  /**
+   * Extract result records from DDG's HTML. Splits on `class="result "` and
+   * regex-parses the title link, snippet, and the `uddg=` redirect-wrapped
+   * URL. Tolerates markup drift by skipping blocks that fail to match.
+   */
   private parseDuckDuckGoHtml(html: string, maxResults: number): SearchResult[] {
     const results: SearchResult[] = [];
 
@@ -140,6 +169,7 @@ export class WebSearchTool implements Tool {
     return results;
   }
 
+  /** Query Wikipedia's opensearch API; useful for entity-style queries. */
   private async searchWikipedia(query: string, maxResults: number): Promise<SearchResult[]> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
@@ -175,6 +205,7 @@ export class WebSearchTool implements Tool {
     }
   }
 
+  /** Render results as a numbered, model-friendly plain-text list. */
   private formatResults(results: SearchResult[], query: string): string {
     const lines: string[] = [];
     lines.push(`Search results for: "${query}"\n`);
@@ -192,6 +223,7 @@ export class WebSearchTool implements Tool {
     return lines.join("\n");
   }
 
+  /** Collapse tags and decode the common HTML entities DDG emits. */
   private stripHtml(html: string): string {
     return html
       .replace(/<[^>]*>/g, "")
@@ -206,6 +238,7 @@ export class WebSearchTool implements Tool {
   }
 }
 
+/** Normalized search hit shared by both backends. */
 interface SearchResult {
   title: string;
   url: string;

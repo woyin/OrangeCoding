@@ -7,12 +7,18 @@
 // EmbeddingVector
 // ---------------------------------------------------------------------------
 
+/** EmbeddingVector is a dense float vector returned by an EmbeddingProvider. */
 export type EmbeddingVector = Float32Array;
 
 // ---------------------------------------------------------------------------
 // EmbeddingProvider
 // ---------------------------------------------------------------------------
 
+/**
+ * EmbeddingProvider is the abstraction over embedding backends (OpenAI,
+ * local models, etc.). embed() returns a vector for the text; dimension()
+ * reports the fixed vector length.
+ */
 export interface EmbeddingProvider {
   embed(signal: AbortSignal | undefined, text: string): Promise<EmbeddingVector>;
   dimension(): number;
@@ -22,6 +28,7 @@ export interface EmbeddingProvider {
 // SemanticMemoryEntry
 // ---------------------------------------------------------------------------
 
+/** SemanticMemoryEntry is a single stored memory with its embedding and access metadata. */
 export interface SemanticMemoryEntry {
   key: string;
   content: string;
@@ -36,6 +43,7 @@ export interface SemanticMemoryEntry {
 // SemanticMemoryConfig
 // ---------------------------------------------------------------------------
 
+/** SemanticMemoryConfig tunes the semantic memory manager: provider, capacity, TTL, and dedup threshold. */
 export interface SemanticMemoryConfig {
   provider: EmbeddingProvider | null;
   maxEntries: number; // 0 = unlimited
@@ -51,6 +59,10 @@ export class SemanticMemoryManager {
   private _config: SemanticMemoryConfig;
   private _entries: Map<string, SemanticMemoryEntry>;
 
+  /**
+   * Constructs a manager applying defaults (no provider, unlimited entries,
+   * no TTL, 0.95 cosine dedup threshold) overridden by any provided partial config.
+   */
   constructor(config?: Partial<SemanticMemoryConfig>) {
     const similarityThreshold = config?.similarityThreshold ?? 0.95;
     this._config = {
@@ -145,7 +157,7 @@ export class SemanticMemoryManager {
     return results.map((r) => r.entry);
   }
 
-  /** Delete removes a memory entry by key. */
+  /** delete removes a memory entry by key. */
   delete(key: string): void {
     this._entries.delete(key);
   }
@@ -155,7 +167,7 @@ export class SemanticMemoryManager {
     return this._entries.size;
   }
 
-  /** CleanupExpired removes all entries that have exceeded their TTL. */
+  /** cleanupExpired removes all entries whose TTL has elapsed and returns the count removed. */
   cleanupExpired(): number {
     const now = new Date();
     let cleaned = 0;
@@ -168,6 +180,7 @@ export class SemanticMemoryManager {
     return cleaned;
   }
 
+  /** evictOldest finds and removes the entry with the earliest createdAt (LRU-style eviction). */
   private evictOldest(): void {
     let oldestKey = "";
     let oldestTime = Infinity;
@@ -180,6 +193,7 @@ export class SemanticMemoryManager {
     if (oldestKey) this._entries.delete(oldestKey);
   }
 
+  /** findSimilar returns the key of an existing entry whose embedding cosine-similarity >= threshold, else "". */
   private findSimilar(emb: EmbeddingVector, threshold: number): string {
     for (const [key, entry] of this._entries) {
       if (!entry.embedding) continue;
@@ -195,6 +209,7 @@ export class SemanticMemoryManager {
 // Utility functions
 // ---------------------------------------------------------------------------
 
+/** cosineSimilarity computes the cosine of the angle between two vectors; returns 0 for empty/mismatched lengths. */
 function cosineSimilarity(a: EmbeddingVector, b: EmbeddingVector): number {
   if (a.length !== b.length || a.length === 0) return 0;
   let dot = 0;
@@ -209,6 +224,7 @@ function cosineSimilarity(a: EmbeddingVector, b: EmbeddingVector): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
+/** keywordScore computes a 0..1 overlap ratio of query terms found in content (fallback when no embeddings). */
 function keywordScore(query: string, content: string): number {
   if (!query || !content) return 0;
   const queryTerms = tokenize(query);
@@ -221,6 +237,7 @@ function keywordScore(query: string, content: string): number {
   return matches / queryTerms.length;
 }
 
+/** tokenize splits a string on whitespace into non-empty lowercased terms. */
 function tokenize(s: string): string[] {
   return s.split(/[\s]+/).filter((t) => t.length > 0);
 }

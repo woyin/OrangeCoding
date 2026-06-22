@@ -1,3 +1,6 @@
+/**
+ * Core type definitions and branded identifiers (AgentId, SessionId, etc.).
+ */
 // Types
 export {
   AgentId,
@@ -16,6 +19,9 @@ export {
 } from "./types.js";
 export type { AgentCapability, AgentRole as AgentRoleType, AgentStatus as AgentStatusType, Role as RoleType, TokenUsageJSON } from "./types.js";
 
+/**
+ * Structured error types with kind discriminants for typed error handling.
+ */
 // Error
 export {
   OrangeError,
@@ -34,6 +40,9 @@ export {
 } from "./error.js";
 export type { ErrorKind as ErrorKindType } from "./error.js";
 
+/**
+ * Conversation message model: user, assistant, tool-call, and tool-result messages.
+ */
 // Message
 export {
   Message,
@@ -49,6 +58,9 @@ export {
 } from "./message.js";
 export type { ToolCall, MessageJSON, ToolResultJSON } from "./message.js";
 
+/**
+ * Event types emitted on the EventBus during agent execution (streaming, tool, token usage).
+ */
 // Event
 export {
   BaseEvent,
@@ -68,6 +80,9 @@ export {
 } from "./event.js";
 export type { AgentEvent, EventHandler, BaseEventJSON } from "./event.js";
 
+/**
+ * Task primitives for goal-driven task decomposition and tracking.
+ */
 // Task
 export {
   newTaskId,

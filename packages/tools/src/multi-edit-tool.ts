@@ -41,6 +41,18 @@ interface MultiEditArgs {
  * as it reads the file once and writes once, and ensures all edits are
  * applied consistently.
  */
+/**
+ * MultiEditTool applies multiple edits across files in a single operation.
+ *
+ * Allows the agent to specify several edits in one tool call, reducing
+ * round-trip overhead. Each edit targets a specific file with search/replace
+ * pairs. All edits are validated before any are applied (atomic semantics).
+ *
+ * Edit types:
+ * - replace: search for exact text and replace with new text
+ * - insert: insert text at a specific line
+ * - delete: remove a range of lines
+ */
 export class MultiEditTool implements Tool {
   private readonly _params: Record<string, unknown>;
   private _pathVal: PathValidator | null = null;
@@ -99,10 +111,14 @@ export class MultiEditTool implements Tool {
     return destructiveMetadata();
   }
 
+  /**
+   * Validates all edits against the file content first (atomic pre-check), then
+   * applies them sequentially to an in-memory copy and writes once. If any
+   * edit's old_string is missing or non-unique, the file is left untouched.
+   */
   async execute(_ctx: unknown, input: unknown): Promise<string> {
     const args = input as MultiEditArgs;
 
-    // Validate inputs
     if (!args.path) {
       throw new ToolError("invalid_params", "path is required");
     }
@@ -261,6 +277,11 @@ export class PatchEditTool implements Tool {
     return destructiveMetadata();
   }
 
+  /**
+   * Reads the file, applies the unified-diff hunks (in reverse order to preserve
+   * earlier line numbers), verifies context lines match, and writes the result.
+   * Throws on any context mismatch so the file is never partially patched.
+   */
   async execute(_ctx: unknown, input: unknown): Promise<string> {
     const args = input as PatchEditArgs;
 
@@ -309,6 +330,10 @@ export class PatchEditTool implements Tool {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Counts non-overlapping occurrences of `needle` in `haystack` via repeated
+ * indexOf. Returns 0 for an empty needle. Used to enforce old_string uniqueness.
+ */
 function countOccurrences(haystack: string, needle: string): number {
   if (needle === "") return 0;
   let count = 0;

@@ -31,6 +31,13 @@ import { IntentGate, type IntentAnalysis } from "../intent-gate.js";
 // UltraWorkConfig
 // ---------------------------------------------------------------------------
 
+/**
+ * Configuration for the UltraWork multi-agent workflow. `mode` selects the
+ * execution strategy; the remaining fields cap per-agent resource usage so a
+ * runaway agent cannot exhaust the budget. Defaults favor parallelism with a
+ * conservative 4-agent, 5-minute ceiling.
+ */
+
 export type UltraWorkMode = "parallel" | "pipeline" | "adaptive";
 
 export interface UltraWorkConfig {
@@ -57,6 +64,12 @@ const DEFAULT_ULTRA_CONFIG: UltraWorkConfig = {
 // ---------------------------------------------------------------------------
 // AgentSpec — lightweight agent specification for parallel dispatch
 // ---------------------------------------------------------------------------
+
+/**
+ * Describes one specialized agent: a role (for metrics), the tool allowlist
+ * it runs with, and the system prompt that shapes its behavior. Kept
+ * intentionally small so it can be constructed cheaply per dispatch.
+ */
 
 interface AgentSpec {
   name: string;
@@ -109,6 +122,13 @@ const AGENT_SPECS: Record<string, AgentSpec> = {
 // AgentResult — result from a single agent in the parallel pool
 // ---------------------------------------------------------------------------
 
+/**
+ * Outcome of running one agent. `success` is derived from the loop stop
+ * reason; `output` is the final assistant message. Failures populate
+ * `error` instead and never throw, so one failing agent cannot abort the
+ * whole batch.
+ */
+
 export interface AgentResult {
   /** Agent name */
   agent: string;
@@ -144,7 +164,11 @@ export interface UltraWorkResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Select agents based on intent analysis for adaptive mode.
+ * Map an {@link IntentAnalysis} to the agent roster for adaptive mode.
+ * Coding/general tasks always pull in Sisyphus; planning, exploration,
+ * review and project-scope tasks add their respective specialists. Falls
+ * back to Sisyphus alone when no signal matches so adaptive mode never
+ * produces an empty agent set.
  */
 function selectAgentsForIntent(analysis: IntentAnalysis): string[] {
   const agents: string[] = [];
@@ -186,6 +210,13 @@ function selectAgentsForIntent(analysis: IntentAnalysis): string[] {
 // UltraWork
 // ---------------------------------------------------------------------------
 
+/**
+ * Orchestrator for OmO-style multi-agent parallel execution. Owns the AI
+ * provider, tool registry, and working directory shared by all agents.
+ * {@link run} dispatches agents according to the configured mode and
+ * synthesizes their outputs into a single UltraWorkResult.
+ */
+
 export class UltraWork {
   private _provider: AiProvider;
   private _registry: ToolRegistry;
@@ -206,7 +237,12 @@ export class UltraWork {
     this._intentGate = new IntentGate();
   }
 
-  /** Run executes the ultrawork workflow with all agents. */
+  /**
+   * Execute the workflow: select the agent roster (mode-dependent), run them
+   * via the chosen strategy, then synthesize the combined output. Aborts
+   * are honored between pipeline stages and inside Promise.allSettled.
+   * Always returns a result; failures are reported per-agent, never thrown.
+   */
   async run(signal: AbortSignal | undefined, task: string): Promise<UltraWorkResult> {
     const start = Date.now();
 
@@ -247,7 +283,12 @@ export class UltraWork {
     };
   }
 
-  /** Run a single agent as a standalone ultrawork task (backward-compatible). */
+  /**
+   * Run a single generic agent for backward compatibility (no parallel
+   * dispatch, no synthesis). Throws if the agent does not reach a
+   * "completed" stop reason so callers can distinguish success from
+   * iteration/timeouts.
+   */
   async runSingle(signal: AbortSignal | undefined, task: string): Promise<AgentLoopResult> {
     const sid = SessionId.create();
     const agentCtx = new AgentContext(sid, this._workDir);
@@ -273,6 +314,11 @@ export class UltraWork {
   // Private: Execution strategies
   // -----------------------------------------------------------------------
 
+  /**
+   * Dispatch every agent concurrently against the same task and collect
+   * results. Promise.allSettled guarantees one rejection is mapped to an
+   * AgentResult rather than aborting the batch. This is the default mode.
+   */
   private async runParallel(
     signal: AbortSignal | undefined,
     task: string,
@@ -299,6 +345,11 @@ export class UltraWork {
     });
   }
 
+  /**
+   * Run agents in sequence, feeding each agent's output forward as context
+   * for the next. Useful when later agents depend on earlier findings
+   * (e.g. explore -> plan -> code). Honors abort between stages.
+   */
   private async runPipeline(
     signal: AbortSignal | undefined,
     task: string,
@@ -324,6 +375,12 @@ export class UltraWork {
     return results;
   }
 
+  /**
+   * Spin up a single agent from its spec: filtered tool registry, spec
+   * system prompt, and per-agent loop config. Returns a success
+   * AgentResult (including the raw loop result) or a failure result with
+   * the error message — never throws.
+   */
   private async runAgent(
     signal: AbortSignal | undefined,
     task: string,
@@ -386,6 +443,12 @@ export class UltraWork {
 // Result synthesis
 // ---------------------------------------------------------------------------
 
+/**
+ * Combine per-agent outputs into a single markdown report: a header line
+ * with the original task and success/failure tallies, a section per
+ * successful agent, and a closing failure list. Ordering follows the input
+ * array so pipeline results read in execution order.
+ */
 function synthesizeResults(results: AgentResult[], task: string): string {
   const successful = results.filter((r) => r.success);
   const failed = results.filter((r) => !r.success);

@@ -6,6 +6,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+/** FileChangeEvent describes a single filesystem change observed by FileWatcher. */
 export interface FileChangeEvent {
   type: "add" | "change" | "remove";
   path: string;
@@ -14,6 +15,7 @@ export interface FileChangeEvent {
 
 export type FileChangeHandler = (event: FileChangeEvent) => void;
 
+/** FileWatcherOptions configures which paths to watch, what to ignore, and debounce behavior. */
 export interface FileWatcherOptions {
   /** Directories or files to watch */
   paths: string[];
@@ -32,6 +34,10 @@ export class FileWatcher {
   private readonly opts: Required<FileWatcherOptions>;
   private running = false;
 
+  /**
+   * Constructs a watcher merging the given options with sensible defaults
+   * (common ignore patterns, 300ms debounce, recursive watching).
+   */
   constructor(opts: FileWatcherOptions) {
     this.opts = {
       paths: opts.paths,
@@ -110,6 +116,10 @@ export class FileWatcher {
     return this.running;
   }
 
+  /**
+   * handleFsEvent is the raw fs.watch callback: it ignores matched patterns,
+   * classifies add/change/remove via an accessSync probe, and emits debounced events.
+   */
   private handleFsEvent(eventType: string, filePath: string): void {
     // Check ignore patterns
     if (this.shouldIgnore(filePath)) return;
@@ -155,6 +165,10 @@ export class FileWatcher {
     );
   }
 
+  /**
+   * shouldIgnore tests a path against the configured ignore patterns,
+   * supporting both extension globs (*.ext) and substring matches.
+   */
   private shouldIgnore(filePath: string): boolean {
     const relative = filePath;
     for (const pattern of this.opts.ignorePatterns) {

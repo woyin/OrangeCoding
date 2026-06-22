@@ -1,6 +1,15 @@
 /**
- * Orchestrator/Handoff - multi-agent coordination.
- * Ported from modules/agent/harness_handoff.go.
+ * @module harness-handoff
+ *
+ * Agent handoff protocol for transitioning between agent instances.
+ *
+ * When an agent session needs to be transferred to a different agent
+ * (e.g., model upgrade, specialized agent, or session resumption),
+ * the handoff module manages:
+ * - State serialization and transfer
+ * - Context preservation
+ * - Conversation history migration
+ * - Graceful transition with minimal disruption
  */
 
 import type { AgentId, Message } from "@orangecoding/core";

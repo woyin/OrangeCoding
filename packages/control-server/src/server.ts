@@ -1,3 +1,17 @@
+/**
+ * @module control-server
+ *
+ * HTTP control server for programmatic agent interaction.
+ *
+ * The control server exposes a REST API for:
+ * - Creating and managing agent sessions
+ * - Submitting tasks to agents
+ * - Querying agent status and results
+ * - Streaming agent events via SSE
+ *
+ * Designed for integration with CI/CD pipelines, IDEs, and other
+ * external tools that need to interact with OrangeCoding agents.
+ */
 import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
@@ -113,7 +127,17 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 // Middleware
 // ---------------------------------------------------------------------------
 
-/** CORS middleware -- mirrors the Go implementation's behavior. */
+/**
+ * CORS middleware.
+ *
+ * Reflects the Origin header back when it is a localhost origin (dev/TUI
+ * control plane), otherwise allows any origin via "*". Only localhost is
+ * echoed explicitly so browsers allow credentialed requests from the dev UI.
+ *
+ * The localhost match is split into a scheme check + a host check so we make
+ * at most 2 prefix comparisons per request instead of 4 (one per scheme/host
+ * permutation).
+ */
 function corsMiddleware(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -122,13 +146,13 @@ function corsMiddleware(
 
   if (origin === "") {
     res.setHeader("Access-Control-Allow-Origin", "*");
-  } else if (
-    origin.startsWith("http://localhost") ||
-    origin.startsWith("http://127.0.0.1") ||
-    origin.startsWith("https://localhost") ||
-    origin.startsWith("https://127.0.0.1")
-  ) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
+  } else {
+    // Allow http(s)://localhost and http(s)://127.0.0.1 on any port.
+    const afterScheme = origin.startsWith("https://") ? origin.slice(8)
+      : origin.startsWith("http://") ? origin.slice(7) : "";
+    if (afterScheme.startsWith("localhost") || afterScheme.startsWith("127.0.0.1")) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+    }
   }
 
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
@@ -138,12 +162,18 @@ function corsMiddleware(
   if (req.method === "OPTIONS") {
     res.writeHead(204);
     res.end();
-    return true; // request fully handled
+    return true; // preflight fully handled
   }
   return false;
 }
 
-/** Request logging via console (mirrors Go slog logging). */
+/**
+ * Structured request log line (mirrors Go slog). Parses pathname and query
+ * directly from req.url via String.indexOf/slice rather than constructing a
+ * `new URL(...)` object: URL parsing validates scheme/host and allocates a
+ * full URL instance, which is wasteful when we only need the path + query for
+ * the log line. On hot request paths this measurably reduces GC pressure.
+ */
 function logRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -151,9 +181,10 @@ function logRequest(
 ): void {
   const status = res.statusCode;
   const method = req.method ?? "-";
-  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-  const path = url.pathname;
-  const query = url.search;
+  const rawUrl = req.url ?? "/";
+  const qIdx = rawUrl.indexOf("?");
+  const path = qIdx === -1 ? rawUrl : rawUrl.slice(0, qIdx);
+  const query = qIdx === -1 ? "" : rawUrl.slice(qIdx);
   const parts: string[] = [
     `status=${status}`,
     `method=${method}`,

@@ -1,6 +1,19 @@
 /**
  * GuardrailPipeline runs guardrails in order and stops on deny.
  * Ported from modules/agent/harness_guardrail.go.
+ *
+ * Execution model:
+ *   - Each guardrail receives the same {@link GuardrailContext} snapshot and
+ *     returns an allow / deny / warn decision.
+ *   - The pipeline short-circuits on the first deny OR warn (warn is treated
+ *     as "stop but record, do not block" — callers decide what to do with it).
+ *   - Async guardrails (e.g. LLM-based checks) are awaited sequentially so
+ *     ordering is deterministic; cheap local checks run first.
+ *   - An aborted AbortSignal denies immediately to release the call promptly.
+ *
+ * The default pipeline ({@link defaultGuardrailPipeline}) wires in four
+ * built-in guardrails — token budget, output length, dangerous shell
+ * commands, and repeated tool calls — plus any LLM guardrails supplied.
  */
 
 import type { ToolCall } from "@orangecoding/core";
@@ -8,6 +21,11 @@ import type { ToolCall } from "@orangecoding/core";
 // ---------------------------------------------------------------------------
 // GuardrailPhase
 // ---------------------------------------------------------------------------
+// The four hook points where guardrails run in the agent loop:
+//   - pre_model   : before sending the prompt to the model (token budget)
+//   - pre_tool    : before executing a requested tool call (dangerous cmd)
+//   - post_tool   : after a tool call returns (output validation)
+//   - final_output: before the model's answer is surfaced to the user
 
 export type GuardrailPhase = "pre_model" | "pre_tool" | "post_tool" | "final_output";
 
@@ -20,6 +38,12 @@ export type GuardrailDecision = "allow" | "deny" | "warn";
 // ---------------------------------------------------------------------------
 // GuardrailContext
 // ---------------------------------------------------------------------------
+
+/**
+ * Immutable snapshot handed to every guardrail.check() call. Fields are
+ * optional on purpose: a guardrail only reads what its phase cares about
+ * (e.g. pre_tool guards read `toolCall`, final_output guards read `output`).
+ */
 
 export interface GuardrailContext {
   phase: GuardrailPhase;
@@ -55,6 +79,12 @@ function allowResult(name: string): GuardrailResult {
 // ---------------------------------------------------------------------------
 // Guardrail interface
 // ---------------------------------------------------------------------------
+
+/**
+ * Contract implemented by every guardrail. `check` may be sync (return a
+ * plain {@link GuardrailResult}) or async (return a Promise); the pipeline
+ * always awaits. Guardrails should be cheap and side-effect free.
+ */
 
 export interface Guardrail {
   name(): string;
@@ -121,6 +151,11 @@ export interface GuardrailLogEntry {
 
 const MAX_GUARDRAIL_LOG_ENTRIES = 1000;
 
+/**
+ * Ring-buffered log of guardrail decisions. Bounded to
+ * {@link MAX_GUARDRAIL_LOG_ENTRIES} so memory stays flat in long sessions.
+ */
+
 export class GuardrailLogger {
   private _entries: GuardrailLogEntry[];
 
@@ -128,7 +163,11 @@ export class GuardrailLogger {
     this._entries = [];
   }
 
-  /** Log appends a guardrail log entry. Evicts oldest if over limit. */
+  /**
+   * Append a guardrail log entry. When the buffer exceeds the cap the
+   * oldest entries are dropped via splice (amortized O(k) where k is the
+   * overflow, typically 1).
+   */
   log(entry: GuardrailLogEntry): void {
     this._entries.push(entry);
     if (this._entries.length > MAX_GUARDRAIL_LOG_ENTRIES) {
@@ -136,7 +175,7 @@ export class GuardrailLogger {
     }
   }
 
-  /** Recent returns the last n log entries (or all if n exceeds length). */
+  /** Return the last n log entries (or all if n exceeds length). */
   recent(n: number): GuardrailLogEntry[] {
     if (n >= this._entries.length) {
       return [...this._entries];
@@ -144,12 +183,12 @@ export class GuardrailLogger {
     return this._entries.slice(this._entries.length - n);
   }
 
-  /** Warnings returns only entries with warn decision. */
+  /** Return only entries with warn decision (full scan, O(n)). */
   warnings(): GuardrailLogEntry[] {
     return this._entries.filter((e) => e.decision === "warn");
   }
 
-  /** Len returns the total number of logged entries. */
+  /** Total number of logged entries currently retained. */
   get length(): number {
     return this._entries.length;
   }
@@ -158,6 +197,10 @@ export class GuardrailLogger {
 // ---------------------------------------------------------------------------
 // TokenBudgetGuardrail
 // ---------------------------------------------------------------------------
+// Warns when the estimated prompt/output token count approaches the
+// configured ceiling. Runs at pre_model and final_output phases so both
+// inbound and outbound sizes are policed. Uses `maxTokens` from the context
+// when provided, otherwise falls back to the constructor value.
 
 export class TokenBudgetGuardrail implements Guardrail {
   private _maxTokens: number;
@@ -187,6 +230,9 @@ export class TokenBudgetGuardrail implements Guardrail {
 // ---------------------------------------------------------------------------
 // OutputLengthGuardrail
 // ---------------------------------------------------------------------------
+// Warns (does not deny) when the final assistant output exceeds a
+// configurable character length. Purely advisory — used to flag runaway
+// outputs without hard-blocking them.
 
 export class OutputLengthGuardrail implements Guardrail {
   private _maxLength: number;
@@ -225,6 +271,14 @@ export interface LLMGuardrailConfig {
 // ---------------------------------------------------------------------------
 // LLMGuardrail
 // ---------------------------------------------------------------------------
+
+/**
+ * Delegating guardrail that asks an external LLM provider whether content is
+ * safe. Only active at its configured phase; returns allow when no provider
+ * is configured (feature flag style). The provider returns [safe, err]; on
+ * error the guardrail denies defensively so a broken evaluator never lets
+ * content through silently.
+ */
 
 export class LLMGuardrail implements Guardrail {
   private _config: LLMGuardrailConfig;
@@ -272,6 +326,13 @@ export class LLMGuardrail implements Guardrail {
 // DangerousToolGuardrail
 // ---------------------------------------------------------------------------
 
+/**
+ * Hard-deny guardrail for destructive shell commands. Only inspects tool
+ * calls whose function_name is "bash"; the command text is substring-matched
+ * against {@link BLOCKED_COMMANDS} (case-insensitive). Denials are absolute
+ * — there is no allowlist escape hatch — to keep the blast radius small.
+ */
+
 // Comprehensive list of dangerous command patterns
 const BLOCKED_COMMANDS = [
   // Direct deletion
@@ -315,6 +376,13 @@ export class DangerousToolGuardrail implements Guardrail {
 // ---------------------------------------------------------------------------
 // RepeatedToolGuardrail
 // ---------------------------------------------------------------------------
+
+/**
+ * Denies when the exact same tool call (name + arguments) has already been
+ * issued `limit` times within the recent-tool-call window. Catches agent
+ * loops before they burn token budget. Uses {@link toolCallKey} for the
+ * stable identity so argument-key-order differences still count as repeats.
+ */
 
 export class RepeatedToolGuardrail implements Guardrail {
   private _limit: number;

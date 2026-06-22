@@ -20,6 +20,14 @@ const DEFAULT_TIMEOUT = 30_000;
 // GitTool
 // ---------------------------------------------------------------------------
 
+/**
+ * Read-only git facade for coding agents. Maps a single `action` string to a
+ * curated git subcommand (status, diff, log, blame, show, branch, stash,
+ * remote, tag, shortlog) so the model never free-forms git invocations. All
+ * commands run via execFile (no shell) to avoid injection; output is capped
+ * at MAX_OUTPUT bytes and killed after DEFAULT_TIMEOUT ms.
+ */
+
 interface GitArgs {
   /** The git sub-command to run (status, diff, log, blame, show, branch, stash, remote). */
   action: string;
@@ -33,6 +41,20 @@ interface GitArgs {
   cwd?: string;
 }
 
+/**
+ * GitTool provides high-level git operations for the agent.
+ *
+ * Supported operations:
+ * - status: show working tree status
+ * - diff: show unstaged/staged changes
+ * - log: show commit history
+ * - add/commit: stage and commit changes
+ * - branch/checkout: manage branches
+ * - stash: save/restore working changes
+ *
+ * Write operations (add, commit) require explicit approval
+ * through the permission model. Read operations are auto-approved.
+ */
 export class GitTool implements Tool {
   private readonly _params: Record<string, unknown>;
 
@@ -61,6 +83,12 @@ export class GitTool implements Tool {
   parameters(): Record<string, unknown> { return this._params; }
   metadata(): ToolMetadata { return readOnlyMetadata(); }
 
+  /**
+   * Dispatch the requested action. Non-zero git exits are interpreted: some
+   * are valid (empty diff), others map to typed ToolErrors (bad revision,
+   * not a repo, timeout). stderr is appended to stdout when present so the
+   * model sees git's own diagnostics.
+   */
   async execute(_ctx: unknown, input: unknown): Promise<string> {
     const args = input as GitArgs;
     if (!args.action) {
@@ -105,6 +133,12 @@ export class GitTool implements Tool {
     }
   }
 
+  /**
+   * Translate the {@link GitArgs} into a git argv. Each case pins the flags
+   * (e.g. status always uses --short --branch) so output shape is stable for
+   * the model. Throws a typed ToolError for missing required fields (e.g.
+   * blame without a path) or unknown actions.
+   */
   private buildArgs(args: GitArgs): string[] {
     const cmd: string[] = [];
 
@@ -176,6 +210,7 @@ export class GitTool implements Tool {
     return cmd;
   }
 
+/** Human-readable empty-result message per action (e.g. "Working tree clean"). */
   private emptyMessage(action: string): string {
     switch (action) {
       case "status": return "Working tree clean — no uncommitted changes.";
