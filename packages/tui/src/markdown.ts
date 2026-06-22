@@ -1,6 +1,6 @@
 /**
- * MarkdownRenderer converts Markdown content to styled terminal output.
- * Uses ANSI escape codes for rich rendering without external dependencies.
+ * MarkdownRenderer：把 Markdown 内容渲染成带样式的终端输出。
+ * 用 ANSI 转义码实现富文本，不依赖外部库。
  */
 
 const BOLD_ON = "\x1b[1m";

@@ -16,7 +16,8 @@ import { Model } from "./model.js";
 import { Theme } from "./theme.js";
 
 /**
- * view renders the full TUI layout as a string.
+ * view：把 TUI 应用状态（Model）渲染为完整布局字符串。
+ * 纯函数：相同状态恒定产出相同输出。
  */
 export function view(m: Model): string {
   if (m.quitting) {
@@ -68,37 +69,42 @@ export function view(m: Model): string {
 }
 
 /**
- * renderChatArea renders all messages into a string.
+ * renderChatArea 渲染消息列表为字符串，裁剪到只显示最近 height 行。
+ *
+ * 性能优化：原实现先渲染“全部”消息、对整体 split("\n")，
+ * 再 slice 到最后 height 行——长会话下每帧都把整段历史渲染并切片，
+ * 浪费显著。改为从最新消息向前回溯，只收集够 height 行就停，
+ * 早期消息不再被渲染/拆分。
  */
 function renderChatArea(m: Model, width: number, height: number): string {
-  const lines: string[] = [];
-
-  for (const msg of m.messages) {
-    const rendered = m.theme.chatMessage(msg);
-    for (const line of rendered.split("\n")) {
-      lines.push(line.length > width ? line.substring(0, width) : line);
+  // 从尾部向前累积，最多保留 height 行。
+  const collected: string[] = [];
+  for (let mi = m.messages.length - 1; mi >= 0 && collected.length < height; mi--) {
+    const rendered = m.theme.chatMessage(m.messages[mi]!);
+    const renderedLines = rendered.split("\n");
+    // 逐行截宽，并从尾部向前 unshift 进 collected（保持时间正序）
+    for (let li = renderedLines.length - 1; li >= 0 && collected.length < height; li--) {
+      const line = renderedLines[li]!;
+      collected.unshift(line.length > width ? line.substring(0, width) : line);
     }
   }
 
-  // Pad or trim to fit height
-  while (lines.length < height) {
-    lines.push("");
-  }
-  if (lines.length > height) {
-    return lines.slice(lines.length - height).join("\n");
+  // 不足 height 行时在顶部补空行（旧实现是在尾部 pad，渲染时视觉等价）
+  while (collected.length < height) {
+    collected.push("");
   }
 
-  return lines.join("\n");
+  return collected.join("\n");
 }
 
-/** Simple box rendering with border. */
+/** renderBox：把内容按宽度 padEnd 对齐（简化版盒子渲染）。 */
 function renderBox(content: string, width: number, _height: number): string {
   const lines = content.split("\n");
   const padded = lines.map((line) => line.padEnd(width)).join("\n");
   return padded;
 }
 
-/** Join strings side by side. */
+/** joinHorizontal：把两段文本左右并排拼接（按行对齐）。 */
 function joinHorizontal(left: string, right: string): string {
   if (!left) return right;
   if (!right) return left;
@@ -117,7 +123,7 @@ function joinHorizontal(left: string, right: string): string {
   return result.join("\n");
 }
 
-/** Join strings top to bottom. */
+/** joinVertical：把多段文本自上而下拼接。 */
 function joinVertical(...parts: string[]): string {
   return parts.join("\n");
 }

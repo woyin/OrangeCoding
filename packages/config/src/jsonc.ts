@@ -1,7 +1,7 @@
 /**
  * jsonc.ts —— 极简的 JSONC（带注释的 JSON）预处理器。
  *
- * OrangeCoding 配置文件允许 // 行注释与 /* */ 块注释，便于文档化；
+ * OrangeCoding 配置文件允许 行注释 与 块注释，便于文档化；
  * JSON.parse 无法处理，故 parseJSONC 先剥离注释（同时尊重字符串字面量），
  * 再返回可被 JSON.parse 解析的纯净 JSON。
  */
