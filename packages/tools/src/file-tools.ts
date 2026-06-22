@@ -34,10 +34,10 @@ interface ReadFileArgs {
 
 /** Tracks when files were last read for stale-read detection. */
 /**
- * Tracks file read operations for context-aware agent behavior.
+ * 跟踪文件读取记录，用于上下文感知与 stale-read 检测。
  *
- * Records which files have been read and when, enabling the agent
- * to reference recently accessed files and detect file change patterns.
+ * 记录“哪些文件被读过、何时读、读到的内容”，让 EditFileTool 能判断
+ * 文件是否在读取后被外部改动，从而拒绝基于过期内容的编辑。
  */
 export class FileReadTracker {
   private _reads = new Map<string, { timestamp: number; content: string }>();
@@ -67,16 +67,16 @@ export const fileReadTracker = new FileReadTracker();
  * Line numbers are shown by default (matching claude code / opencode behavior).
  */
 /**
- * ReadFileTool reads file contents with optional line range and encoding detection.
+ * ReadFileTool：读取文件内容，支持行号、行范围与二进制检测。
  *
- * Features:
- * - Reads entire files or specific line ranges (offset + limit)
- * - Detects binary files and returns a summary instead of raw bytes
- * - Adds line numbers to output for easy reference
- * - Tracks read operations for context management
- * - Handles encoding detection (UTF-8 with fallback)
+ * 能力：
+ * - 整文件读取或指定行范围（offset + limit）
+ * - 二进制文件检测，返回占位摘要而非原始字节
+ * - 默认输出带行号，便于引用
+ * - 记录读取时间戳/内容，用于后续 edit 的 stale-read 检测
+ * - UTF-8 解码（带兜底）
  *
- * Security: respects sandbox boundaries and working directory restrictions.
+ * 安全：遵守沙箱边界与工作目录限制。
  */
 export class ReadFileTool implements Tool {
   private readonly _params: Record<string, unknown>;
@@ -213,11 +213,9 @@ interface WriteFileArgs {
 }
 
 /**
- * WriteFileTool creates or overwrites files in the workspace.
+ * WriteFileTool：在工作区创建或覆盖文件。
  *
- * Creates parent directories as needed. The entire content is written
- * atomically (write to temp, then rename) when possible.
- * Write operations require approval through the permission model.
+ * 按需创建父目录；写入操作需要经过权限模型审批（destructive）。
  */
 export class WriteFileTool implements Tool {
   private readonly _params: Record<string, unknown>;
@@ -299,16 +297,15 @@ export function computeContentHash(content: string): string {
 }
 
 /**
- * EditFileTool applies targeted edits to existing files.
+ * EditFileTool：对现有文件做定向编辑（查找并替换）。
  *
- * Supports search-and-replace style edits with:
- * - Exact string matching for the old content
- * - Optional context lines for disambiguation
- * - Atomic application (all edits succeed or none apply)
- * - Conflict detection when file has been modified since last read
+ * 支持的安全检查：
+ * - 精确字符串匹配 old_string
+ * - OmO 式内容哈希锚定（expected_hash）
+ * - stale-read 检测（文件自上次读取后被改动则拒绝）
+ * - old_string 唯一性（用 indexOf 二次查找，避免 split 构造大数组）
  *
- * Preferred over WriteFileTool for small changes as it preserves
- * file content not being modified.
+ * 相比 WriteFileTool 更适合小改动：只改目标片段，保留其余内容。
  */
 export class EditFileTool implements Tool {
   private readonly _params: Record<string, unknown>;
@@ -402,15 +399,21 @@ export class EditFileTool implements Tool {
       }
     }
 
-    const count = content.split(args.old_string).length - 1;
-    if (count === 0) {
+    // 唯一性 + 替换：用 indexOf 定位首次匹配，再查一次确认无第二次匹配，
+    // 避免原 split() 方案对整份内容切片构造大数组（大文件下分配显著）。
+    // 仅在确认唯一后做一次拼接，整体为 O(n) 且分配极少。
+    const firstIdx = content.indexOf(args.old_string);
+    if (firstIdx === -1) {
       throw new ToolError("execution_error", "old_string not found in file");
     }
-    if (count > 1) {
-      throw new ToolError("execution_error", `old_string found ${count} times; it must be unique`);
+    const secondIdx = content.indexOf(args.old_string, firstIdx + args.old_string.length);
+    if (secondIdx !== -1) {
+      throw new ToolError("execution_error", "old_string found more than once; it must be unique");
     }
-
-    const newContent = content.replace(args.old_string, args.new_string);
+    const newContent =
+      content.slice(0, firstIdx) +
+      args.new_string +
+      content.slice(firstIdx + args.old_string.length);
     try {
       await writeFile(args.path, newContent, "utf-8");
     } catch (err) {
