@@ -198,12 +198,15 @@ function openAIResponseToAiResponse(r: OpenAIResponse): AiResponse {
 }
 
 /**
- * Reads an OpenAI-compatible SSE stream and yields StreamEvents.
+ * 读取 OpenAI 兼容 SSE 流并产出 StreamEvent。
  *
- * Emits `content_delta` for incremental text, accumulates tool-call deltas in
- * a Map, and at finish_reason emits one `tool_call_delta` per accumulated
- * tool call (in ascending index order) followed by a terminal `done` event.
- * Centralized so OpenAIProvider.readStream and readOpenAIStream share one path.
+ * - 文本增量立即转成 `content_delta`（低延迟流式）
+ * - 工具调用按 delta.index 聚合到 Map（O(1) 插入）
+ * - finish_reason 时按 index 升序 flush 出每个 `tool_call_delta`，最后发 `done`
+ *
+ * 该生成器被 OpenAIProvider 与 readOpenAIStream 共用，集中维护单一代码路径。
+ *
+ * Reads an OpenAI-compatible SSE stream and yields StreamEvents.
  */
 async function* readOpenAIStream(resp: Response, timer: ReturnType<typeof setTimeout>): AsyncGenerator<StreamEvent> {
   // Sentinel object emitted for terminal/empty-stream cases; reused to avoid
@@ -293,8 +296,15 @@ async function* readOpenAIStream(resp: Response, timer: ReturnType<typeof setTim
 // ---------------------------------------------------------------------------
 
 /**
- * OpenAIProvider implements the provider interface against the OpenAI
- * Chat Completions API (and any compatible endpoint via ProviderConfig.baseURL).
+ * OpenAIProvider 实现 OpenAI Chat Completions 协议的 provider。
+ *
+ * 兼容任何遵循该协议的端点（通过 ProviderConfig.baseURL 指向 DeepSeek、
+ * 本地推理服务等）。同时提供非流式 ({@link chatCompletion}) 与流式
+ * ({@link chatCompletionStream}) 两种调用方式；流式响应通过 SSE 增量解析，
+ * 工具调用按 delta.index 聚合后按顺序输出。
+ *
+ * OpenAIProvider 实现 provider 接口，对接 OpenAI Chat Completions API
+ * （以及任何兼容端点，通过 ProviderConfig.baseURL）。
  */
 export class OpenAIProvider {
   private config: ProviderConfig;
@@ -451,7 +461,7 @@ export class OpenAIProvider {
   }
 }
 
-/** Creates a new OpenAI-compatible provider with the given config. */
+/** 按给定配置创建一个 OpenAI 兼容 provider 实例。 */
 export function newOpenAIProvider(config: ProviderConfig): OpenAIProvider {
   return new OpenAIProvider(config);
 }
