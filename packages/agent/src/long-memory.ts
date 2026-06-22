@@ -79,6 +79,18 @@ export class LongMemoryStore {
   private _config: LongMemoryConfig;
   private _initialized = false;
   private _indexCache: MemoryIndex | null = null;
+  /**
+   * 访问计数回写间隔：每 N 次 recall 才重写一次 topic 文件本体，
+   * 把 O(topic_size) 的字符串重渲染 + 磁盘写入分摊掉。
+   * 访问计数本身每次都写入较小的 index.md，保证不会丢失多于 1 次计数。
+   */
+  private readonly _rewriteInterval = 5;
+  /**
+   * 小写化索引缓存：键为主题在 entries 数组中的下标，
+   * 值为该条目各字段的小写形式。首次 search 时构建，
+   * writeIndex 时失效，避免每次搜索都对同一条目重复 toLowerCase。
+   */
+  private _lowercasedCache: { topic: string; summary: string; keyPoints: string[] }[] | null = null;
 
   constructor(config: Partial<LongMemoryConfig> & { dir: string }) {
     this._config = { ...DEFAULT_CONFIG, ...config };
@@ -123,7 +135,13 @@ export class LongMemoryStore {
     await fs.promises.writeFile(filePath, existing + entry, "utf-8");
   }
 
-  /** Reads a topic by name, increments its access count, and rewrites the file. Returns undefined if not found. */
+  /**
+   * 读取指定主题、累加访问计数并持久化；找不到则返回 undefined。
+   *
+   * 性能优化：访问计数以内存索引 + 较小的 index.md 为权威来源，
+   * 仅在每 {@link _rewriteInterval} 次访问后回写到 topic 文件本体，
+   * 避免每次 recall 都重写整个 topic（大字符串拼接 + 同步 IO）。
+   */
   async recall(topic: string): Promise<MemoryEntry | undefined> {
     await this.init();
     const slug = slugify(topic);
@@ -133,14 +151,27 @@ export class LongMemoryStore {
         "utf-8",
       );
       const entry = this.parseTopicMd(content, topic);
-      // Increment access count and persist
+      // 访问计数以索引为权威：优先取索引中的最新值，topic 文件可能滞后
+      // （仅每 N 次才回写）。这样多次连续 recall 也能正确累加。
+      const index = await this.readIndex();
+      const indexRow = index.entries.find((e) => e.topic === topic);
+      if (indexRow?.accessCount != null) {
+        entry.accessCount = indexRow.accessCount;
+      }
       entry.accessCount += 1;
       entry.lastUpdated = new Date();
-      await fs.promises.writeFile(
-        path.join(this._config.dir, "topics", slug + ".md"),
-        this.renderTopicMd(entry),
-        "utf-8",
-      );
+
+      // 先把访问计数同步到索引缓存并写回 index.md（小文件，已缓存命中）
+      await this.bumpAccessCount(topic, entry.accessCount);
+
+      // 仅在访问计数达到回写阈值时，才重写 topic 文件本体以分摊写入开销
+      if (entry.accessCount % this._rewriteInterval === 0) {
+        await fs.promises.writeFile(
+          path.join(this._config.dir, "topics", slug + ".md"),
+          this.renderTopicMd(entry),
+          "utf-8",
+        );
+      }
       return entry;
     } catch {
       return undefined;
@@ -172,39 +203,51 @@ export class LongMemoryStore {
       (a, b) => b.lastUpdated.localeCompare(a.lastUpdated),
     );
 
+    // 用字符长度增量直接换算 token，避免对不断增长的 pointLines 反复整体重算
+    // （原实现对每个 point 都重算 pointLines 全长，呈 O(n²) 复杂度）。
     for (const entry of sorted) {
       const block = "### " + entry.topic + "\n" + entry.summary + "\n";
       const blockTokens = estimateTokens(block);
 
-      // Check if adding this entry would exceed budget
+      // 加入该条目是否会超出预算——提前剪枝
       if (used + blockTokens > budget) break;
 
       let pointLines = "";
+      let pointTokens = 0;
       for (const point of entry.keyPoints) {
         const ptLine = "- " + point + "\n";
         const ptTokens = estimateTokens(ptLine);
-        if (used + blockTokens + estimateTokens(pointLines) + ptTokens > budget) break;
+        if (used + blockTokens + pointTokens + ptTokens > budget) break;
         pointLines += ptLine;
+        pointTokens += ptTokens;
       }
 
       entryLines.push(block + pointLines);
-      used += blockTokens + estimateTokens(pointLines);
+      used += blockTokens + pointTokens;
     }
 
     if (entryLines.length === 0) return "";
     return header + entryLines.join("\n");
   }
 
-  /** Case-insensitive substring search across topic, summary, and key points. */
+  /**
+   * 在主题/摘要/要点中做大小写不敏感的子串搜索。
+   *
+   * 性能优化：对每个条目预先小写化一次（缓存到字段），
+   * 避免原实现对同一条目最多调用 3+ 次 toLowerCase（每次都分配新字符串）。
+   */
   async search(query: string): Promise<MemoryIndexEntry[]> {
     const index = await this.getIndex();
     const lower = query.toLowerCase();
-    return index.entries.filter(
-      (e) =>
-        e.topic.toLowerCase().includes(lower) ||
-        e.summary.toLowerCase().includes(lower) ||
-        e.keyPoints.some((p) => p.toLowerCase().includes(lower)),
-    );
+    const lowercased = this.getLowercasedIndex();
+    return index.entries.filter((e, i) => {
+      const lc = lowercased[i]!;
+      return (
+        lc.topic.includes(lower) ||
+        lc.summary.includes(lower) ||
+        lc.keyPoints.some((p) => p.includes(lower))
+      );
+    });
   }
 
   /** Removes a topic file and drops its index row. No-op if absent. */
@@ -300,9 +343,10 @@ export class LongMemoryStore {
     }
   }
 
-  /** Renders the index to markdown and writes it, updating _indexCache. */
+  /** 将索引渲染为 markdown 并写入磁盘，同时刷新 _indexCache（并作废小写化缓存）。 */
   private async writeIndex(index: MemoryIndex): Promise<void> {
     this._indexCache = index;
+    this._lowercasedCache = null; // 索引已变更，下次 search 重建小写镜像
     const lines = [
       "# Memory Index",
       "> Updated: " + index.lastUpdated + " | Topics: " + String(index.totalTopics),
@@ -326,9 +370,12 @@ export class LongMemoryStore {
   }
 
   /** Upserts a topic's row in the index, preserving the prior access count if the new one is 0. */
+  /**
+   * 在索引中 upsert 一条主题记录；新条目的访问计数若为 0，
+   * 则沿用已有记录的计数。仅做一次线性扫描（原实现 find+findIndex 扫描两次）。
+   */
   private async updateIndex(entry: MemoryEntry): Promise<void> {
     const index = await this.readIndex();
-    const existingEntry = index.entries.find((e) => e.topic === entry.topic);
     const indexEntry: MemoryIndexEntry = {
       topic: entry.topic,
       summary: entry.summary,
@@ -336,11 +383,12 @@ export class LongMemoryStore {
       lastUpdated: new Date().toISOString(),
       accessCount: entry.accessCount,
     };
+    // 单次扫描定位既有条目位置，同时拿到旧访问计数
     const existingIdx = index.entries.findIndex((e) => e.topic === entry.topic);
     if (existingIdx >= 0) {
-      // Preserve existing access count if not overwritten
-      if (indexEntry.accessCount === 0 && existingEntry?.accessCount) {
-        indexEntry.accessCount = existingEntry.accessCount;
+      const existingAccess = index.entries[existingIdx]!.accessCount;
+      if (indexEntry.accessCount === 0 && existingAccess) {
+        indexEntry.accessCount = existingAccess;
       }
       index.entries[existingIdx] = indexEntry;
     } else {
@@ -349,6 +397,36 @@ export class LongMemoryStore {
     index.totalTopics = index.entries.length;
     index.lastUpdated = new Date().toISOString();
     await this.writeIndex(index);
+  }
+
+  /**
+   * 仅更新索引中某主题的访问计数（轻量路径），用于 recall() 高频写场景，
+   * 避免每次都走完整的 updateIndex（会重置 summary/keyPoints 等字段）。
+   */
+  private async bumpAccessCount(topic: string, accessCount: number): Promise<void> {
+    const index = await this.readIndex();
+    const entry = index.entries.find((e) => e.topic === topic);
+    if (entry) {
+      entry.accessCount = accessCount;
+      index.lastUpdated = new Date().toISOString();
+      await this.writeIndex(index);
+    }
+  }
+
+  /**
+   * 返回（必要时构建）条目的小写化镜像。任何 writeIndex 都会把缓存置空，
+   * 因此这里能安全假定其与当前 index 同步。
+   */
+  private getLowercasedIndex(): { topic: string; summary: string; keyPoints: string[] }[] {
+    if (this._lowercasedCache !== null) return this._lowercasedCache;
+    const idx = this._indexCache;
+    if (idx === null) return [];
+    this._lowercasedCache = idx.entries.map((e) => ({
+      topic: e.topic.toLowerCase(),
+      summary: e.summary.toLowerCase(),
+      keyPoints: e.keyPoints.map((p) => p.toLowerCase()),
+    }));
+    return this._lowercasedCache;
   }
 
   /** Serializes a MemoryEntry to its on-disk markdown format (content + summary + key points + metadata). */

@@ -69,6 +69,8 @@ interface WorkingEntry {
 
 // ---------------------------------------------------------------------------
 // TieredMemoryManager
+// 分层记忆管理器：把核心 / 工作 / 长期 / 语义四层记忆统一编排，
+// 在 totalBudgetTokens 预算内按优先级装配 prompt 上下文块。
 // ---------------------------------------------------------------------------
 
 export class TieredMemoryManager {
@@ -388,11 +390,13 @@ export class TieredMemoryManager {
 // Utility Functions
 // ---------------------------------------------------------------------------
 
-/** Fast heuristic token estimator: ~4 chars/token (UTF-16 code units). */
+/**
+ * 快速启发式 token 估算：约 4 字符 / token（按 UTF-16 码元计数）。
+ * 用于上下文预算控制，不用于计费，因此近似可接受。
+ */
 function estimateTokens(text: string): number {
   if (!text) return 0;
-  // Use text.length (UTF-16 code units) as fast approximation.
-  // Acceptable for token estimation — avoids O(n) array spread.
+  // 用 text.length（UTF-16 码元）作为快速近似，避免 O(n) 的数组展开开销。
   const tokens = Math.floor(text.length / 4);
   return tokens === 0 ? 1 : tokens;
 }
