@@ -32,9 +32,9 @@ interface SessionHeader {
 }
 
 /**
- * Persist a session as JSONL: one header line followed by one line per message.
- * Written via temp-file + rename so a crash never leaves a truncated session
- * file. Throws newIOError on any filesystem failure.
+ * 把 session 持久化为 JSONL：首行 header，其后每行一条消息。
+ * 通过 临时文件 + rename 写入，崩溃也不会留下截断的会话文件。
+ * 任何文件系统失败都抛 newIOError。
  */
 export async function writeSession(dir: string, s: Session): Promise<void> {
   try {
@@ -80,9 +80,8 @@ export async function writeSession(dir: string, s: Session): Promise<void> {
 }
 
 /**
- * Read and parse a session JSONL file. The first line is the header; every
- * subsequent non-empty line is a message. Dynamic imports avoid a circular
- * dependency on the core package. Throws newIOError on read/parse failures.
+ * 读取并解析一个 session JSONL 文件：首行为 header，其后每条非空行是一条消息。
+ * 动态 import 是为避免对 core 包的循环依赖。读/解析失败抛 newIOError。
  */
 export async function readSession(dir: string, id: SessionId): Promise<Session> {
   const { SessionId: SessionIdClass, TokenUsage, Message } = await import("@orangecoding/core");
@@ -95,8 +94,22 @@ export async function readSession(dir: string, id: SessionId): Promise<Session> 
     throw newIOError(`session storage open: ${(err as Error).message}`);
   }
 
-  // Split on newlines and drop empties so a trailing newline does not create a phantom record.
-  const lines = content.split("\n").filter((line) => line.length > 0);
+  // 按换行切片并丢弃空行（文件末尾换行会产生一条空记录）。
+  // 性能优化：原实现 split("\n").filter(...) 走两遍扫描并构造两个数组；
+  // 改为单遍解析：indexOf 找换行、跳过空行，只构造最终需要的数组。
+  const lines: string[] = [];
+  let lineStart = 0;
+  while (lineStart <= content.length) {
+    const nl = content.indexOf("\n", lineStart);
+    const lineEnd = nl === -1 ? content.length : nl;
+    if (lineEnd > lineStart) {
+      lines.push(lineStart === 0 && nl === -1
+        ? content
+        : content.slice(lineStart, lineEnd));
+    }
+    if (nl === -1) break;
+    lineStart = nl + 1;
+  }
 
   if (lines.length === 0) {
     throw newIOError(`session storage: empty file ${path}`);
